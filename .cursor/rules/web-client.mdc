@@ -1,0 +1,28 @@
+---
+description: web-client — React, Vite, Redux Toolkit, test-first UI, a11y (PROJECT_GUIDELINES)
+globs: apps/web-client/**
+alwaysApply: false
+---
+
+# Web client (from PROJECT_GUIDELINES.md)
+
+## Tests before implementation
+
+For **each new or substantially changed UI component:** write **tests first** (React Testing Library + Vitest/Jest), then implement. Test **behaviour** (render, interaction, a11y), not implementation details.
+
+## Redux (RTK)
+
+- `@reduxjs/toolkit` + `react-redux`. Typed **`useAppDispatch`** / **`useAppSelector`** from one module (e.g. `store/hooks.ts`).
+- Feature **`createSlice`**; middleware for logging, analytics, API error normalization as needed.
+- **Custom hooks** in `hooks/` wrapping selectors + dispatch + router. **Local state** for UI-only (modals, fields); do not put every keystroke in Redux.
+- Unit-test non-trivial slice logic and hooks.
+
+## UI quality
+
+- Pixel-conscious, calm theme (colour, contrast, spacing, typography). Smooth scroll/section motion where specified without harming focus.
+- **Accessibility:** keyboard, visible focus, no traps, semantic HTML, ARIA when needed.
+- **One primary component per file.** Non-prop types in module **`types.ts`**; props types may stay with the component.
+
+## Tooling
+
+- Each app has **its own** ESLint/Prettier/TS config (`TASK_CHECKLIST.md`); no monorepo-root config for all apps.

@@ -1,0 +1,33 @@
+openapi: 3.0.3
+info:
+  title: Messaging API
+  version: 0.0.0
+  description: >
+    Source of truth for REST contracts. Extend paths/components as messaging-service
+    implements routes; regenerate web-client types with `npm run generate:api` in apps/web-client.
+servers:
+  - url: /v1
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Liveness health check (placeholder until full spec lands)
+      tags:
+        - System
+      responses:
+        '200':
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          example: ok

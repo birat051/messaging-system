@@ -1,0 +1,42 @@
+---
+description: messaging-service & notification-service — TypeScript, Express, MongoDB, Redis, patterns (PROJECT_GUIDELINES)
+globs: apps/messaging-service/**,apps/notification-service/**
+alwaysApply: false
+---
+
+# Backend microservices (from PROJECT_GUIDELINES.md)
+
+## TypeScript & Node
+
+- `"strict": true`. Prefer `unknown` over `any`. Explicit return types on exports and public APIs.
+- `async`/`await` with handled rejections; no floating promises in handlers. `node:` prefix for builtins.
+
+## Structure
+
+- **Layers:** routes/controllers → **services** (use cases) → **repositories** (MongoDB/Redis). Thin route handlers.
+- **REST contract:** `docs/openapi/` is authoritative; validate requests with **Zod** (or equivalent) in services; keep in sync with OpenAPI in the same PR.
+- **Env:** validate at startup (e.g. Zod); fail fast. Never commit secrets; never log passwords, tokens, or full PII.
+
+## Express
+
+- Stable error model: `code`, HTTP status, safe client `message`; generic 500 in prod without stack leaks.
+- `helmet`, CORS, body limits, **rate limiting** on auth and abuse-prone routes.
+- **Graceful shutdown:** SIGTERM/SIGINT — drain, close MongoDB/Redis/RabbitMQ, exit.
+
+## Design patterns (use with purpose)
+
+Repository, service layer, Strategy/Adapter for third parties, Express middleware chain, Factory for clients. Document non-obvious choices (PR note or short ADR).
+
+## MongoDB
+
+- **Access-pattern first:** list read/write paths before schema; every index/query ties to a pattern; document embed vs reference decisions.
+- Pagination (cursor preferred for large lists); cap `limit`. Projections on reads. Avoid N+1. Transactions short. Idempotent writes where retries exist.
+- Unique indexes where required (e.g. email). Partial indexes when queries always filter.
+
+## Redis & streams
+
+- TTL/strategy for ephemeral data. Streams: consumer groups, versioned payloads, pending/retry handling.
+
+## APIs
+
+- `/v1/...` or documented versioning. Validate writes at boundary (400 + structured errors). **Authenticate then authorize** every mutation. Idempotency where retries. Consistent pagination response shape.

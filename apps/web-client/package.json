@@ -1,0 +1,23 @@
+{
+  "name": "@messaging-system/web-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate:api": "openapi-typescript ../../docs/openapi/openapi.yaml -o src/generated/api-types.ts",
+    "generate:api:check": "openapi-typescript ../../docs/openapi/openapi.yaml -o src/generated/api-types.ts --check",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "eslint": "^9.17.0",
+    "eslint-config-prettier": "^9.1.0",
+    "openapi-typescript": "^7.13.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.0"
+  }
+}
