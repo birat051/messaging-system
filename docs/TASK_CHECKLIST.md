@@ -11,36 +11,41 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 ### (A) Infra, backend & deployment
 
 - [x] **Repository and tooling**
-  - [x] Initialize monorepo (`apps/web-client`, `apps/messaging-service`, `apps/notification-service`) with per-app folders per `PROJECT_PLAN.md` §10
+  - [x] Initialize monorepo (`apps/web-client`, `apps/messaging-service`) with per-app folders per `PROJECT_PLAN.md` §10
   - [x] **Do not** add a **single** TypeScript, ESLint, or Prettier configuration at the **repository root** that applies to the whole monorepo
-  - [x] **Each deployable is self-contained:** **`messaging-service`**, **`notification-service`**, and **`web-client`** each have their **own** **`package.json`**, **TypeScript** config, **ESLint** config, and **Prettier** config—**no** shared tooling package between the two backends (keep configs aligned by convention and copy-paste when useful, not a shared `packages/backend-tooling` dependency)
+  - [x] **Each deployable is self-contained:** **`messaging-service`** and **`web-client`** each have their **own** **`package.json`**, **TypeScript** config, **ESLint** config, and **Prettier** config—**no** shared tooling package between backend and client (keep configs aligned by convention and copy-paste when useful, not a shared `packages/backend-tooling` dependency)
   - [x] Root **README** documents Node.js version, package manager, and how to run lint/build **per app** (**isolated** `package-lock.json` per app, no npm workspaces); optional root **`install:all` / `*:all`** scripts; **architecture and deployment** linked from **`PROJECT_PLAN.md` §13** and [`README`](../README.md)—no duplication of the full plan in the README
   - [x] **OpenAPI codegen (web-client):** **`openapi-typescript`** (highest npm adoption among the options; actively maintained) generates types from **`docs/openapi/openapi.yaml`** → **`apps/web-client/src/generated/api-types.ts`**; scripts **`generate:api`** / **`generate:api:check`**; ESLint ignores **`api-types.ts`** only; Prettier ignores **`src/generated`**. **No** `packages/shared` — OpenAPI is the contract (`PROJECT_GUIDELINES.md`).
 
-- [ ] **messaging-service (skeleton)**
-  - [ ] Bootstrap Express + TypeScript with env-based config; **local** `tsconfig.json`, **ESLint**, **Prettier**, and **`package.json`** under `apps/messaging-service` only
-  - [ ] Structured logging, global error handler, request correlation IDs
-  - [ ] `/health` and `/ready` endpoints
-  - [ ] MongoDB connection pooling and graceful shutdown
-  - [ ] **Socket.IO** on HTTP server; **RabbitMQ** client and exchange/queue bindings per `PROJECT_PLAN.md` §3.2
+- [x] **messaging-service (skeleton)**
+  - [x] Bootstrap Express + TypeScript with env-based config; **local** `tsconfig.json`, **ESLint**, **Prettier**, and **`package.json`** under `apps/messaging-service` only
+  - [x] Structured logging, global error handler, request correlation IDs
+  - [x] `/health` and `/ready` endpoints
+  - [x] MongoDB connection pooling and graceful shutdown
+  - [x] **Socket.IO** on HTTP server; **RabbitMQ** client and exchange/queue bindings per `PROJECT_PLAN.md` §3.2
 
-- [ ] **notification-service (skeleton)**
-  - [ ] Express or worker + TypeScript; **its own** `tsconfig.json`, **ESLint**, **Prettier**, and **`package.json`** under `apps/notification-service` (independent from **messaging-service**)
-  - [ ] Redis Stream consumer group (stub handler initially); graceful shutdown
+- [x] **messaging-service (Redis + presence)** — `PROJECT_PLAN.md` §3.1: **hot** last-seen in Redis only while Socket.IO is up — client **`presence:heartbeat` ~every 5s** → **`setLastSeen`**; on **disconnect** → **`flushLastSeenToMongo`** (`users.lastSeenAt`) + Redis **`DEL`**. **`handshake.auth.userId`** required. Optional **`SOCKET_IO_REDIS_ADAPTER`**. **In-tab notifications** remain **Socket.IO** only (`PROJECT_PLAN.md` §3.3).
+  - [x] **Redis client** (`REDIS_URL` + `LAST_SEEN_TTL_SECONDS`); connect at startup; **graceful shutdown**; **`/v1/ready`** includes Redis ping
+  - [x] **Presence pipeline** — **`src/presence/lastSeen.ts`**, **`src/presence/flushLastSeenToMongo.ts`**, **`src/realtime/socket.ts`** (heartbeat throttle ~4.5s)
+  - [ ] **Feature 7 (notifications):** emit **Socket.IO** notification events from domain paths — **no** Redis Streams
+  - [x] **Feature 6 (read — WebSocket):** **`presence:getLastSeen`** + ack — **`resolveLastSeenForUser`** (`src/presence/resolveLastSeen.ts`): Redis → Mongo → **`{ status: 'not_available' }`**
+
+- [ ] **messaging-service (S3 / static uploads)** — **AWS S3** (or **S3-compatible**, e.g. **MinIO**) for **user-uploaded static assets**; uploads go **through messaging-service** using the **AWS SDK** (`PutObject` / managed upload), not direct browser→S3; object keys stored on messages per **`PROJECT_PLAN.md`**; full subtasks in **Cross-cutting — Media (AWS S3)**
 
 - [ ] **Docker Compose, nginx, TLS, deployment**
-  - [ ] `docker-compose`: **messaging-service**, **notification-service**, MongoDB, Redis, RabbitMQ, MinIO (or S3-compatible), **nginx**, optional **coturn**
-  - [ ] nginx: reverse-proxy REST + **Socket.IO** to **messaging-service**; serve React `dist/`; TLS termination; WebSocket upgrade headers; secure context for WebRTC
-  - [ ] Document hostnames, ports, env files, one-command bring-up
+  - [x] **`docker compose`**: **`infra/docker-compose.yml`** — **messaging-service** (image build), MongoDB, Redis, RabbitMQ, MinIO, **nginx** (entry **`http://localhost:8080`**); optional **coturn** — `docker compose -f infra/docker-compose.yml --profile turn up -d`
+  - [x] nginx: reverse-proxy REST + **Socket.IO** to **messaging-service** with upgrade headers (`infra/nginx/nginx.conf`); *pending:* serve **`apps/web-client/dist/`** as static root, TLS, production WebRTC hardening
+  - [x] Document hostnames, ports, one-command bring-up — root **`README.md`**, **`infra/.env.example`**
 
 ### (B) Web-client, UI, tests & state management
 
 - [ ] **web-client (skeleton)**
-  - [ ] Scaffold with **Vite** (`react-ts` or equivalent) under `apps/web-client`—**TypeScript**, **ESLint**, and **Prettier** live **inside `apps/web-client` only** (Vite-aligned `tsconfig.app.json`, `eslint.config`, etc.)
-  - [ ] Strict TS per `PROJECT_GUIDELINES.md` §1.1
-  - [ ] **Tailwind CSS** + **themes** (`tailwind.config`, tokens, optional dark mode / theme toggle)
-  - [ ] **ESLint** (`typescript-eslint`, `react-hooks`, `react-refresh`, optional a11y); **Prettier** (+ optional `prettier-plugin-tailwindcss`) colocated with the Vite app
-  - [ ] **react-router**, API base URL from env, **`socket.io-client`**, **`dist/`** ready for nginx
+  - [x] Scaffold with **Vite** + **React** + **TypeScript** under `apps/web-client` — **`tsconfig.json`** project references + **`tsconfig.app.json`** / **`tsconfig.node.json`**; **`vite.config.ts`**, **`index.html`**, **`src/main.tsx`**, **`eslint.config.mjs`**, **`.prettierrc.json`** — all **inside `apps/web-client` only**
+  - [x] Strict TS (`tsconfig.app.json` — `strict`, unused locals/params, etc.) per `PROJECT_GUIDELINES.md` §1.1
+  - [x] **Tailwind CSS v4** + **themes** — **`@tailwindcss/vite`**, **`tailwind.config.ts`**, semantic tokens + **`@theme`** in **`src/index.css`** (`background`, `foreground`, `surface`, `accent`, `border`, `muted`, `ring`, `radius-card`, `shadow-card`); **class-based dark mode** (`html.dark`) + **`ThemeProvider`** / **`useTheme`** / **`ThemeToggle`** + **`localStorage`** (`messaging-theme`); `prettier-plugin-tailwindcss` in **`.prettierrc.json`**
+  - [x] **ESLint** (`typescript-eslint`, **`eslint-plugin-react-hooks`**, **`eslint-plugin-react-refresh`**); **Prettier**; optional a11y plugin later
+  - [ ] **react-router**, API base URL from env, **`socket.io-client`** (run in a **dedicated Web Worker** per `PROJECT_PLAN.md` §3.3; `postMessage` to main thread); **`emit('presence:heartbeat')` every 5s** while the socket is connected (**Feature 6**), **`dist/`** ready for nginx
+  - [ ] **Static assets / uploads (images, etc.):** follow **Cross-cutting — Media (AWS S3)** — **multipart (or binary) upload to messaging-service**, progress UX, composer UI, attachment rendering (**no AWS SDK in the browser**)
 
 - [ ] **Redux and client architecture**
   - [ ] `@reduxjs/toolkit`, `react-redux`, typed `useAppDispatch` / `useAppSelector`, `configureStore` + middleware extension points
@@ -55,16 +60,40 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 ### (A) Infra, backend & deployment
 
-- [ ] Author **OpenAPI 3** spec under **`docs/openapi/`** (e.g. `openapi.yaml`): resources, schemas, Bearer JWT, errors, pagination; tags; `/v1`
+- [x] Author **OpenAPI 3** spec under **`docs/openapi/`** (e.g. `openapi.yaml`): resources, schemas, Bearer JWT, errors, pagination; tags; `/v1`
+- [x] **Spec bump `0.1.0`:** user **`profilePicture`** + **`status`**; **`GET /users/search?email=`** + **`UserSearchResult`** (name, avatar, **`conversationId`** nullable); **`POST /messages`** with optional **`conversationId`** + **`recipientUserId`** for new direct threads; **`LimitQuery`** default documented — see **Cross-cutting — User profile, email search, send message, pagination**
+- [x] **Spec bump `0.1.1`:** **`RegisterRequest`** — optional **`profilePicture`** (URI) + **`status`** at signup; **`PATCH /users/me`** — **`multipart/form-data`** **`UpdateProfileRequest`** (optional **`file`**, **`status`**, **`displayName`**) — see **Feature 2** + **Cross-cutting**
 - [ ] **messaging-service:** validate requests with **Zod** (or equivalent) matching the spec; same PR when routes change
-- [ ] Serve **Swagger UI** from **messaging-service** (e.g. `swagger-ui-express`) at **`/api-docs`**; works in Docker Compose / local dev; document URL
+- [x] Serve **Swagger UI** from **messaging-service** (`swagger-ui-express`) at **`/api-docs`**; works in Docker Compose / local dev; URL documented in root **`README.md`** and **`OPENAPI_SPEC_PATH`** in **`docs/ENVIRONMENT.md`**
 - [ ] Optional: restrict Swagger to non-prod or auth
 - [ ] Process: update OpenAPI in same PR as route changes (`PROJECT_GUIDELINES.md` §3)
 
 ### (B) Web-client, UI, tests & state management
 
-- [ ] Document in README how frontend devs open Swagger (URL, port)
-- [x] **web-client:** **openapi-typescript** wired (`generate:api`); placeholder spec at **`docs/openapi/openapi.yaml`**
+- [x] Document in README how frontend devs open Swagger (URL, port)
+- [x] **web-client:** **openapi-typescript** wired (`generate:api`); contract at **`docs/openapi/openapi.yaml`**
+
+---
+
+## Cross-cutting — User profile, email search, send message, pagination
+
+**Contract:** **`docs/openapi/openapi.yaml`** **v0.1.1** — regenerate **`apps/web-client`** with **`npm run generate:api`** when the spec changes.
+
+### (A) Infra, backend & deployment
+
+- [ ] **User document (`users`):** include **`profilePicture`** (nullable URL / CDN) and **`status`** (short nullable string) per **`User`** / **`UserPublic`**; migrations if collections already exist
+- [ ] **Signup (`POST /auth/register`):** accept optional **`profilePicture`** (URI, e.g. after **`POST /media/upload`**) and **`status`** — optional JSON fields per **`RegisterRequest`** (`0.1.1`)
+- [ ] **Update profile (`PATCH /users/me`):** **`multipart/form-data`** with optional **`file`** (profile image), **`status`**, **`displayName`** — at least one part; persist image via S3 / same pipeline as media upload; return **`User`**
+- [ ] **Search by email (not user id):** implement **`GET /v1/users/search?email=`** — returns **`UserSearchResult[]`**: **`userId`**, **`displayName`**, **`profilePicture`**, **`conversationId`** (direct 1:1 with caller if it already exists, else `null`) — rate limits + privacy rules (**Feature 5**)
+- [ ] **Send message — optional `conversationId`:** implement **`POST /v1/messages`** — if **`conversationId`** omitted for a **new direct 1:1**, require **`recipientUserId`**; server **creates conversation** then **message**; for follow-up and group sends, client passes **`conversationId`** (omit **`recipientUserId`**) — **Feature 1**
+- [ ] **Paginated list APIs:** **`limit`** query param **optional** everywhere; **server default** when omitted (see **`LimitQuery`**, default `20`); enforce max cap in handlers
+- [ ] **Implementation order:** update **OpenAPI** first (done through **`0.1.1`**), then **Zod** + routes + **MongoDB** writes in same PR where possible
+
+### (B) Web-client, UI, tests & state management
+
+- [ ] **Profile:** **`PATCH /users/me`** — **`FormData`** with **image** file + **status** + **displayName**; **signup** may include optional **`profilePicture`** URL + **`status`** (after **`POST /media/upload`** if needed) per **`RegisterRequest`**
+- [ ] **Search UX:** query by **email**; results show **name**, **avatar**, and whether a **conversation** already exists (**`conversationId`**) before opening composer
+- [ ] **Composer / send:** first message to a user **without** `conversationId` — send **`recipientUserId`** from search; persist returned **`conversationId`** from **`Message`**; subsequent messages **always** include **`conversationId`** when known
 
 ---
 
@@ -99,10 +128,10 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 ### (A) Infra, backend & deployment
 
 - [ ] Depends on **Prerequisite — User keypair** for ciphertext fields and public-key APIs when E2EE is enabled
-- [ ] Direct conversation + message documents in **MongoDB**; access-pattern-driven indexes per `PROJECT_GUIDELINES.md` §2.0
-- [ ] **Socket.IO** + **RabbitMQ**: persist → publish → consume → emit to rooms; multi-replica behaviour validated
-- [ ] REST: conversation history + pagination; validation; authz (participants only)
-- [ ] Update **OpenAPI** + **Swagger** for new routes
+- [ ] Direct conversation + message documents in **MongoDB**; access-pattern-driven indexes per `PROJECT_GUIDELINES.md` §2.0; **lazy-create** direct conversation when **`POST /messages`** omits **`conversationId`** (**Cross-cutting**)
+- [ ] **Socket.IO** + **RabbitMQ** (1:1): after persist, **single publish** to **recipient user-scoped** routing key → consume → emit to that user’s **Socket.IO** room (`PROJECT_PLAN.md` §3.2.1); **after auth**, join socket to `user:<userId>` (or equivalent) for direct delivery; multi-replica behaviour validated
+- [ ] REST: **`POST /messages`** (see **OpenAPI** `SendMessageRequest`); conversation history + pagination (**`limit`** optional, default per **`LimitQuery`**); validation; authz (participants only)
+- [ ] **OpenAPI** for messaging: covered in **`0.1.0`** — implement + **Swagger** stay aligned
 - [ ] If shipping **Feature 12** in the same release as Feature 1, add **receipt-related** fields to the message schema early; otherwise **Feature 12** may introduce a migration
 
 ### (B) Web-client, UI, tests & state management
@@ -110,6 +139,7 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 - [ ] **Tests first**, then UI: conversation list, message thread, composer (RTL + Vitest/Jest per guidelines)
 - [ ] **Redux** slices/selectors for active conversation, message list cache, send optimistic/error states
 - [ ] **Hooks**: `useConversation`, `useSendMessage`, Socket.IO listeners bound to store
+- [ ] **Socket.IO client:** subscribe to **own user id** channel/room for direct messages; **dedupe** by `messageId` (and reconcile optimistic sends vs server echo) per `PROJECT_PLAN.md` §3.2.1
 - [ ] Loading/empty/error states; accessibility for chat region
 - [ ] **Sent / delivered / seen ticks** per **Feature 12** when implemented (or stub **sent** only until Feature 12 ships)
 
@@ -119,16 +149,16 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 ### (A) Infra, backend & deployment
 
-- [ ] User schema: unique email index, password hash (argon2/bcrypt)
-- [ ] Registration + rate limiting; signed verification tokens; verify + resend + throttle
+- [ ] User schema: unique email index, password hash (argon2/bcrypt); **`profilePicture`**, **`status`**, **`displayName`** on user record (see **OpenAPI** `User` + **Cross-cutting**)
+- [ ] Registration + rate limiting; signed verification tokens; verify + resend + throttle — accept optional **`profilePicture`** (URI) and **`status`** on **`RegisterRequest`** (optional at signup only)
 - [ ] Email provider or Docker **mail catcher** for dev
 - [ ] JWT access + refresh; login/logout/revocation; optional password reset
 - [ ] Auth middleware; verified-email rules where required
-- [ ] Update **OpenAPI** for auth routes
+- [x] **OpenAPI** — **`RegisterRequest`** optional **`profilePicture`** + **`status`**; **`PATCH /users/me`** — **`UpdateProfileRequest`** (see **`0.1.1`**); implement routes + **Zod** still **[ ]**
 
 ### (B) Web-client, UI, tests & state management
 
-- [ ] **Tests first**, then UI: register, login, verify-email, forgot-password screens
+- [ ] **Tests first**, then UI: register, login, verify-email, forgot-password screens — optional **status** + **avatar URL** on register; **settings** screen for **`PATCH /users/me`** (**image upload** + **status** + **displayName**)
 - [ ] **Redux** `auth` slice: tokens, user, verified flag; secure storage strategy for refresh (httpOnly cookie vs memory — align with API)
 - [ ] Protected routes; redirect flows; session restore on load
 - [ ] Form validation UX; error messages from API shape
@@ -141,7 +171,7 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 - [ ] **Socket.IO** signaling: offer/answer/ICE; authz for peer pairs
 - [ ] **STUN**; **TURN** (coturn in Compose or managed); nginx/WSS/TURN ports documented
-- [ ] Optional: link call events to Redis Streams for notifications (Feature 7)
+- [ ] Optional: emit **Socket.IO** notification events for call state (Feature 7) — same connection as signaling
 
 ### (B) Web-client, UI, tests & state management
 
@@ -158,7 +188,7 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 - [ ] Document decision: mesh vs **SFU/MCU**; containerize SFU in Compose if used
 - [ ] **Socket.IO** group signaling: join/leave, participant roster
-- [ ] Optional: notification stream types for group call events
+- [ ] Optional: **Socket.IO** notification event types for group call events (Feature 7)
 
 ### (B) Web-client, UI, tests & state management
 
@@ -172,13 +202,14 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 ### (A) Infra, backend & deployment
 
-- [ ] MongoDB index on email (exact/prefix per privacy); search API + rate limits
-- [ ] Privacy rules (discoverability); minimal fields in responses
-- [ ] Update **OpenAPI**
+- [ ] **Search input is email** (not internal user id): **`GET /v1/users/search?email=`** — returns **`displayName`**, **`profilePicture`**, **`userId`**, and **`conversationId`** if a direct conversation with the searcher already exists (**OpenAPI** `UserSearchResult`)
+- [ ] MongoDB index on **email** (exact/prefix per privacy); rate limits
+- [ ] Privacy rules (discoverability)
+- [x] **OpenAPI** — **`/users/search`** + **`UserSearchResult`** in spec **`0.1.0`** (implementation pending)
 
 ### (B) Web-client, UI, tests & state management
 
-- [ ] **Tests first**, then UI: search input, debounced requests, results list
+- [ ] **Tests first**, then UI: search input (**email**), debounced requests, results list (**name**, **avatar**, **existing conversation** hint via **`conversationId`**)
 - [ ] **Redux** or local state for search results + loading; empty states
 - [ ] Keyboard navigation and screen reader labels for results
 
@@ -186,15 +217,21 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 ## Feature 6 — Last seen per user
 
+**Algorithm (locked):** While Socket.IO is connected, the **client** sends **`presence:heartbeat` every 5 seconds**; **messaging-service** stores the timestamp in **Redis** (`presence:lastSeen:{userId}`, TTL **`LAST_SEEN_TTL_SECONDS`**). When the **Socket.IO connection closes**, the service **writes that last-seen time to MongoDB** (`users.lastSeenAt` for `users.id === userId`) and **removes** the Redis key. *No* Redis update on connect alone—only heartbeats.
+
 ### (A) Infra, backend & deployment
 
-- [ ] **Redis** last-seen updates (activity + optional heartbeat TTL); read path; optional MongoDB mirror
-- [ ] API for authorized viewers; future “invisible” flag if scoped
+- [x] **Redis (hot / online):** accept **`presence:heartbeat`**; update Redis at most once per **~4.5s** per socket (throttle); **`src/presence/lastSeen.ts`**
+- [x] **MongoDB (durable / offline):** on **disconnect**, **`flushLastSeenToMongo`** — copy Redis timestamp → **`users.lastSeenAt`**, then **`DEL`** Redis key; **`src/presence/flushLastSeenToMongo.ts`**
+- [x] **Read path (WebSocket):** client emits **`presence:getLastSeen`** with **`{ targetUserId }`** and uses the **ack** callback — server: **Redis first**, then **`users.lastSeenAt`** in MongoDB, else **`{ status: 'not_available' }`** (`resolveLastSeenForUser`)
+- *Deprioritized — not required for now:* **Authz on `targetUserId`** for **`presence:getLastSeen`** (optional **REST** mirror in **OpenAPI**) — revisit with **Feature 2** when privacy policy needs it.
+- [ ] Future “invisible” / DND if scoped
 
 ### (B) Web-client, UI, tests & state management
 
-- [ ] **Tests first**, then UI: display last seen in chat headers / contact rows (relative time)
-- [ ] Client heartbeat or activity pings per API contract
+- [ ] **Heartbeat client:** in the **Socket.IO Web Worker**, **`setInterval(5000)`** → **`socket.emit('presence:heartbeat')`** while connected; clear interval on **`disconnect`**
+- [ ] **Last seen read:** **`socket.emit('presence:getLastSeen', { targetUserId }, ack)`** — handle **`ok`** (show **`lastSeenAt`**, note **`source`**), **`not_available`**, **`error`**
+- [ ] **Tests first**, then UI: display last seen in chat headers / contact rows (relative time); “online” vs stale per product rules + read API
 - [ ] **Redux** or derived selectors for presence map keyed by user id
 
 ---
@@ -203,16 +240,15 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 ### (A) Infra, backend & deployment
 
-- [ ] Redis Stream schema; **messaging-service** `XADD` on message/call events
-- [ ] **notification-service**: consumer groups, idempotency, retries; branch by `message_received`, `call_incoming`, `call_missed`, etc.
-- [ ] **Web Push**: VAPID keys in env; subscription storage if needed
-- [ ] In-app fan-out via **Socket.IO** from messaging path where designed
+- [ ] **messaging-service**: emit **`notification`** to **`user:<userId>`** / group rooms with **`PROJECT_PLAN.md` §8** payload (`kind`: `message` for direct/group messages, `call_incoming` for audio/video); mute/DND server-side (**no** Redis Streams; **no** separate notification service — `PROJECT_PLAN.md` §3.3)
+- [ ] **Web Push** (optional later): VAPID keys in env; subscription storage if product adds background push
 
 ### (B) Web-client, UI, tests & state management
 
-- [ ] **Tests first**, then UI: permission prompt, in-app toast/banner, notification centre optional
+- [ ] **Socket.IO client in a Web Worker**; worker forwards notification payloads to main thread (`postMessage`); main thread updates Redux / toasts
+- [ ] **Tests first**, then UI: in-app toast/banner, notification centre optional; permission prompt only if Web Push is in scope
 - [ ] **Redux** slice for notification queue / read state; middleware for cross-tab or analytics optional
-- [ ] Map notification types to UI (message vs call); respect DND/mute preferences in UI when API exists
+- [ ] Map notification types to UI (message vs call); respect DND/mute preferences when API exists
 
 ---
 
@@ -221,7 +257,7 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 ### (A) Infra, backend & deployment
 
 - [ ] Group + group-conversation models; membership ACL
-- [ ] Persist + **RabbitMQ** + **Socket.IO** fan-out; pagination; **delivery/read receipt** behaviour per **Feature 12** for groups
+- [ ] Persist + **RabbitMQ** + **Socket.IO**: **one broker publish per group message** to **group id** routing key (not per-member RabbitMQ fan-out); consume → emit to **group** Socket.IO room; **server** joins sockets to `group:<groupId>` for each membership (join/leave on membership change); pagination; **delivery/read receipt** behaviour per **Feature 12** for groups (`PROJECT_PLAN.md` §3.2.1)
 - [ ] Update **OpenAPI**
 
 ### (B) Web-client, UI, tests & state management
@@ -229,6 +265,7 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 - [ ] **Tests first**, then UI: group thread, member list sidebar, composer
 - [ ] **Redux**: groups list, active group, messages by group id
 - [ ] Hooks for group send/receive; distinguish direct vs group in router/store
+- [ ] **Socket.IO client:** subscribe to **each joined group id** room/channel (in addition to **user id** for direct); **UI:** dedupe by **`messageId`**; use **`sender_id`** vs current user (and optimistic state) to avoid duplicate bubbles when the sender receives the same group message on the group channel (`PROJECT_PLAN.md` §3.2.1)
 - [ ] **Receipt ticks** for group messages per **Feature 12** (aggregate or per-member policy)
 
 ---
@@ -238,6 +275,7 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 ### (A) Infra, backend & deployment
 
 - [ ] Create/update/archive group APIs; authz for admins/creators
+- [ ] On membership add/remove, **Socket.IO** join/leave **group id** rooms for affected users (`PROJECT_PLAN.md` §3.2.1)
 - [ ] Update **OpenAPI**
 
 ### (B) Web-client, UI, tests & state management
@@ -323,15 +361,25 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 ## Cross-cutting — Media (AWS S3)
 
-### (A) Infra, backend & deployment
+**Scope:** **Static assets** uploaded by users (e.g. **images** in chat). **All S3 access uses the AWS SDK in messaging-service** (`@aws-sdk/client-s3`, and **`@aws-sdk/lib-storage`** if large/multipart uploads). The **web-client** sends files **to messaging-service** only (**no AWS SDK** and **no AWS credentials** in the browser).
 
-- [ ] Presigned PUT/GET from **messaging-service**; keys on messages; bucket CORS; **MinIO** in Compose for dev
-- [ ] Max size + MIME allowlist before presign
+### (A) messaging-service (backend) — AWS SDK
 
-### (B) Web-client, UI, tests & state management
+- [ ] Dependencies: **`@aws-sdk/client-s3`**; add **`@aws-sdk/lib-storage`** (`Upload`) if streaming or multipart uploads exceed simple `PutObject` limits; **do not** add AWS SDK to **web-client**
+- [ ] **S3 client factory:** configure `S3Client` from env (`docs/ENVIRONMENT.md`): region, bucket, optional key prefix; **S3-compatible endpoints** for **MinIO** (`endpoint`, `forcePathStyle: true`); credentials via **IAM role** in AWS or documented **access key** in dev only (**no secrets** in repo)
+- [ ] **Upload path:** authenticated **REST** route (OpenAPI in same PR), e.g. `POST /v1/media/upload` — accept **multipart/form-data** or **raw** body with strict **Content-Length** / stream limits; **authz** before writing (user/conversation policy)
+- [ ] **Before calling SDK:** validate **max size**, **MIME** sniff / allowlist (e.g. `image/jpeg`, `image/png`, `image/webp`); generate stable **object keys** (e.g. `users/{userId}/…`); avoid loading entire huge files into memory — **stream** to `PutObject` / `Upload` where practical
+- [ ] **AWS SDK calls:** `PutObjectCommand` and/or **`Upload`** from `@aws-sdk/lib-storage`; handle errors (throttle, network); return **`{ key, bucket }`** and a **browser-safe URL** for display if applicable (HTTPS GET URL, or separate **GetObject** presign **only if** you add a read endpoint later — not required for MVP if URLs are public-read or behind CDN)
+- [ ] **MongoDB:** message (or attachment) documents store **S3 key** (and optional public/base URL); access patterns per `PROJECT_GUIDELINES.md` §2.0
+- [ ] **Operational:** structured logs **without** raw object bytes; optional **`/v1/ready`** dependency check (e.g. `HeadBucket`); **Compose / dev** MinIO bucket + env parity with AWS
 
-- [ ] **Tests first**, then UI: file picker, upload progress, image preview in composer
-- [ ] Upload via presigned URL from client; error handling; Redux/async thunk or hook for upload state
+### (B) Web-client (UI) — upload via API only
+
+- [ ] **Tests first**, then UI: file picker, **upload progress** (XHR/fetch upload events to **messaging-service**), **image preview** in composer; cancel/retry
+- [ ] **Flow:** **`FormData`** or binary **POST** to **messaging-service** upload endpoint → use returned **key/URL** in **send message** payload; **no** direct calls to S3 from the browser
+- [ ] **Hooks / state:** `useMediaUpload` (or Redux async) wrapping API upload + errors only (**no** `aws-sdk` in client `package.json`)
+- [ ] **Rendering:** show **images** in thread from URLs the API returns; **lazy load**; **alt** / a11y; optional **lightbox**
+- [ ] **Env:** `VITE_API_BASE_URL` documented; if media is served from a separate **CDN/public base URL**, document it for `<img src>` construction
 
 ---
 
@@ -339,7 +387,7 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 ### (A) Infra, backend & deployment
 
-- [ ] Metrics + health for both services; structured logs; optional OpenTelemetry
+- [ ] Metrics + health for **messaging-service**; structured logs; optional OpenTelemetry
 - [ ] Rate limits, audit logs, secrets management, backups, load tests, runbooks
 
 ### (B) Web-client, UI, tests & state management
@@ -352,7 +400,7 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 ## Definition of done (MVP smoke)
 
 - [ ] Full stack runs via documented `docker-compose` with nginx, TLS, static client, backends
-- [ ] **OpenAPI** checked in; **Swagger UI** at **messaging-service** (e.g. `/api-docs`) in dev
+- [ ] **OpenAPI** checked in; **Swagger UI** at **messaging-service** (`/api-docs`) in dev — *served; see README*
 - [ ] Redux + typed hooks; features extend slices/hooks per `PROJECT_GUIDELINES.md`
 - [ ] End-to-end: register → verify → login → contact → 1:1 chat → group create → group message → media → notifications → 1:1 call
 - [ ] **Socket.IO** connection state visible (**connecting** / **connected** / **not connected**)
@@ -361,4 +409,4 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 ---
 
-*Checklist version: 2.8 — openapi-typescript wired in web-client; see PROJECT_PLAN.md §10.*
+*Checklist version: 4.2 — Feature 6 read hardening (authz / REST mirror) deprioritized.*

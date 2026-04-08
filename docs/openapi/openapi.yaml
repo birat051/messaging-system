@@ -1,17 +1,65 @@
 openapi: 3.0.3
 info:
   title: Messaging API
-  version: 0.0.0
-  description: >
-    Source of truth for REST contracts. Extend paths/components as messaging-service
-    implements routes; regenerate web-client types with `npm run generate:api` in apps/web-client.
+  version: 0.1.1
+  description: |
+    **Source of truth** for REST contracts between **web-client** and **messaging-service**
+    (single HTTP API; there is no separate notification REST service).
+
+    **Real-time behaviour** — chat, call signaling, and **in-tab notification events** — uses
+    **Socket.IO** on **messaging-service**, not additional REST resources here. The server emits
+    **`notification`** with a JSON body discriminated by **`kind`** (`message` \| `call_incoming`);
+    see **`docs/PROJECT_PLAN.md`** §8 (and §3.3). The web-client runs
+    **`socket.io-client` in a Web Worker** and forwards events to the UI; that is a client
+    concern and is not described by this OpenAPI document.
+
+    All paths below are served under the **`/v1`** prefix (see `servers`). Implementations in
+    **messaging-service** must stay aligned; regenerate **`apps/web-client`** types with
+    `npm run generate:api`. Routes marked *planned* in summaries are not necessarily wired yet.
+
+    **Users:** `User` includes optional **profile picture** and **status** (short text).
+    At **signup** (`POST /auth/register`), only **`email`** and **`password`** are required; **`profilePicture`**
+    (URL) and **`status`** are **optional** — avatar URL may come from a prior **`POST /media/upload`**
+    if the client uploads before register. **Update profile** — **`PATCH /users/me`** accepts
+    **`multipart/form-data`** with an optional **profile image** (`file`) plus optional **`status`** and
+    **`displayName`** parts.
+    **Search** is by **email** (query), not by internal user id — see `GET /users/search`.
+
+    **Send message:** `POST /messages` — **`conversationId` is optional**. If omitted when starting a
+    direct 1:1 thread, the server **creates** the conversation then the message; the client must
+    send **`recipientUserId`**. For subsequent messages in that thread, the client passes
+    **`conversationId`** (and omits `recipientUserId`).
+
+    **Pagination:** every list endpoint that supports **`limit`** documents it as **optional** with a
+    **server default** (see `LimitQuery`).
+
 servers:
   - url: /v1
+    description: API version 1 (relative to messaging-service origin)
+
+tags:
+  - name: System
+    description: Liveness and readiness
+  - name: Auth
+    description: Registration, login, tokens
+  - name: Users
+    description: Profiles, search, public keys
+  - name: Conversations
+    description: Direct and group threads
+  - name: Messages
+    description: Send and list messages
+  - name: Groups
+    description: Group lifecycle and membership
+  - name: Contacts
+    description: Contact lists and requests
+  - name: Media
+    description: Uploads via messaging-service (AWS SDK → S3)
+
 paths:
   /health:
     get:
       operationId: getHealth
-      summary: Liveness health check (placeholder until full spec lands)
+      summary: Liveness — process is up (no dependency checks)
       tags:
         - System
       responses:
@@ -21,7 +69,425 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
+
+  /ready:
+    get:
+      operationId: getReady
+      summary: Readiness — dependencies satisfied for serving traffic
+      tags:
+        - System
+      responses:
+        '200':
+          description: Ready to accept traffic
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyResponse'
+        '503':
+          description: Not ready (dependencies unavailable)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyResponse'
+
+  /auth/register:
+    post:
+      operationId: registerUser
+      summary: Register a new user (planned)
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/login:
+    post:
+      operationId: login
+      summary: Email/password login (planned)
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Tokens issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/refresh:
+    post:
+      operationId: refreshTokens
+      summary: Refresh access token (planned)
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: New tokens
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /users/me:
+    get:
+      operationId: getCurrentUser
+      summary: Current authenticated user (planned)
+      tags:
+        - Users
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    patch:
+      operationId: updateCurrentUserProfile
+      summary: Update current user profile (planned)
+      description: |
+        **Multipart** profile update: optional **profile image** (`file` part), optional **status**
+        text, optional **displayName**. At least one part should be supplied; omitted fields are left
+        unchanged. Server stores the image via the same pipeline as **`POST /media/upload`** (S3 key
+        on user document + public URL in **`profilePicture`**).
+      tags:
+        - Users
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /users/{userId}:
+    get:
+      operationId: getUserById
+      summary: Public profile by id (planned; authz per policy)
+      tags:
+        - Users
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserIdPath'
+      responses:
+        '200':
+          description: User
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPublic'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /users/search:
+    get:
+      operationId: searchUsersByEmail
+      summary: Search users by email (planned; not by opaque user id)
+      description: |
+        Query is the **email** (exact or prefix per privacy policy). Returns display name,
+        profile picture, and the **direct conversation id** with the current user when a
+        conversation already exists (null when none).
+      tags:
+        - Users
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: email
+          in: query
+          required: true
+          schema:
+            type: string
+            format: email
+          description: Email address to search (not internal user id)
+        - $ref: '#/components/parameters/LimitQuery'
+      responses:
+        '200':
+          description: Matching users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserSearchResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /conversations:
+    get:
+      operationId: listConversations
+      summary: List conversations for current user (planned; cursor pagination)
+      tags:
+        - Conversations
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CursorQuery'
+        - $ref: '#/components/parameters/LimitQuery'
+      responses:
+        '200':
+          description: Paginated conversations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /conversations/{conversationId}/messages:
+    get:
+      operationId: listMessages
+      summary: List messages in a conversation (planned; cursor pagination)
+      tags:
+        - Messages
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ConversationIdPath'
+        - $ref: '#/components/parameters/CursorQuery'
+        - $ref: '#/components/parameters/LimitQuery'
+      responses:
+        '200':
+          description: Paginated messages
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessagePage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /messages:
+    post:
+      operationId: sendMessage
+      summary: Send a message (planned)
+      description: |
+        **`conversationId` is optional.** If omitted for a **new direct 1:1** thread, the server
+        creates the conversation, then persists the message — provide **`recipientUserId`** (the
+        other participant). For an existing thread, send **`conversationId`** and omit
+        **`recipientUserId`**. Group chats always require **`conversationId`**.
+      tags:
+        - Messages
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+      responses:
+        '201':
+          description: Message created (includes `conversationId`; may be newly created)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /groups:
+    post:
+      operationId: createGroup
+      summary: Create a group (planned)
+      tags:
+        - Groups
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGroupRequest'
+      responses:
+        '201':
+          description: Group created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /media/upload:
+    post:
+      operationId: uploadMedia
+      summary: Upload a file; messaging-service stores in S3 via AWS SDK (planned)
+      tags:
+        - Media
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Object stored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaUploadResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Short-lived access token (see Auth responses for refresh flow)
+
+  parameters:
+    UserIdPath:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: User identifier
+
+    ConversationIdPath:
+      name: conversationId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Conversation identifier
+
+    CursorQuery:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+      description: Opaque cursor from a previous list response
+
+    LimitQuery:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      description: |
+        Optional page size; **default `20`** when omitted on all paginated list endpoints that
+        support this parameter. Server may enforce a lower cap.
+
+  responses:
+    BadRequest:
+      description: Validation or malformed request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Unauthorized:
+      description: Missing or invalid bearer token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Forbidden:
+      description: Authenticated but not allowed for this resource
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
   schemas:
     HealthResponse:
       type: object
@@ -31,3 +497,306 @@ components:
         status:
           type: string
           example: ok
+
+    ReadyResponse:
+      type: object
+      required:
+        - ready
+      properties:
+        ready:
+          type: boolean
+
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Stable machine-readable error code
+        message:
+          type: string
+          description: Safe client-facing message
+
+    RegisterRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+          minLength: 8
+        profilePicture:
+          type: string
+          format: uri
+          nullable: true
+          description: Optional avatar URL at signup (e.g. from `POST /media/upload` before register)
+        status:
+          type: string
+          nullable: true
+          maxLength: 280
+          description: Optional short status line at signup
+
+    UpdateProfileRequest:
+      type: object
+      description: Multipart parts — all optional; include at least one field to change
+      properties:
+        file:
+          type: string
+          format: binary
+          description: New profile image (image/*); stored server-side; `profilePicture` URL returned on `User`
+        status:
+          type: string
+          maxLength: 280
+          description: New status text (omit to leave unchanged)
+        displayName:
+          type: string
+          description: New display name (omit to leave unchanged)
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+
+    RefreshRequest:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
+
+    AuthResponse:
+      type: object
+      required:
+        - accessToken
+        - tokenType
+        - expiresIn
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+          nullable: true
+        tokenType:
+          type: string
+          example: Bearer
+        expiresIn:
+          type: integer
+          description: Access token lifetime in seconds
+
+    User:
+      type: object
+      required:
+        - id
+        - email
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+          nullable: true
+        emailVerified:
+          type: boolean
+        profilePicture:
+          type: string
+          format: uri
+          nullable: true
+          description: HTTPS URL or CDN URL for avatar (or null if unset)
+        status:
+          type: string
+          nullable: true
+          maxLength: 280
+          description: Short user-defined status line
+
+    UserPublic:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+          nullable: true
+        profilePicture:
+          type: string
+          format: uri
+          nullable: true
+        status:
+          type: string
+          nullable: true
+          maxLength: 280
+
+    UserSearchResult:
+      type: object
+      required:
+        - userId
+      description: One row from email search — includes existing direct conversation when present
+      properties:
+        userId:
+          type: string
+          description: Internal user id for messaging / `recipientUserId`
+        displayName:
+          type: string
+          nullable: true
+        profilePicture:
+          type: string
+          format: uri
+          nullable: true
+        conversationId:
+          type: string
+          nullable: true
+          description: Direct conversation id between searcher and this user if it exists; null if first contact
+
+    Conversation:
+      type: object
+      required:
+        - id
+        - updatedAt
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+          nullable: true
+        isGroup:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+
+    ConversationPage:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Conversation'
+        nextCursor:
+          type: string
+          nullable: true
+        hasMore:
+          type: boolean
+
+    Message:
+      type: object
+      required:
+        - id
+        - conversationId
+        - senderId
+        - createdAt
+      properties:
+        id:
+          type: string
+        conversationId:
+          type: string
+        senderId:
+          type: string
+        body:
+          type: string
+          nullable: true
+        mediaKey:
+          type: string
+          nullable: true
+          description: S3 object key when message has an attachment
+        createdAt:
+          type: string
+          format: date-time
+
+    MessagePage:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+        nextCursor:
+          type: string
+          nullable: true
+        hasMore:
+          type: boolean
+
+    SendMessageRequest:
+      type: object
+      description: |
+        **Direct 1:1 — new thread:** omit `conversationId`, set `recipientUserId`. **Direct 1:1 —
+        existing thread:** set `conversationId`, omit `recipientUserId`. **Group:** set
+        `conversationId` for the group.
+      properties:
+        conversationId:
+          type: string
+          nullable: true
+          description: Existing conversation; omit to create a new direct conversation (see `recipientUserId`)
+        recipientUserId:
+          type: string
+          nullable: true
+          description: Other user when starting a new direct thread; omit when `conversationId` is set
+        body:
+          type: string
+        mediaKey:
+          type: string
+          nullable: true
+          description: From prior upload response
+
+    Group:
+      type: object
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        createdBy:
+          type: string
+
+    CreateGroupRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        memberIds:
+          type: array
+          items:
+            type: string
+
+    MediaUploadResponse:
+      type: object
+      required:
+        - key
+        - bucket
+      properties:
+        key:
+          type: string
+        bucket:
+          type: string
+        url:
+          type: string
+          format: uri
+          nullable: true
+          description: Optional HTTPS URL for display if bucket policy allows

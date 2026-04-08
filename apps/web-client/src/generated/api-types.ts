@@ -11,10 +11,232 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Liveness health check (placeholder until full spec lands) */
+        /** Liveness — process is up (no dependency checks) */
         get: operations["getHealth"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Readiness — dependencies satisfied for serving traffic */
+        get: operations["getReady"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register a new user (planned) */
+        post: operations["registerUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Email/password login (planned) */
+        post: operations["login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh access token (planned) */
+        post: operations["refreshTokens"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Current authenticated user (planned) */
+        get: operations["getCurrentUser"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update current user profile (planned)
+         * @description **Multipart** profile update: optional **profile image** (`file` part), optional **status**
+         *     text, optional **displayName**. At least one part should be supplied; omitted fields are left
+         *     unchanged. Server stores the image via the same pipeline as **`POST /media/upload`** (S3 key
+         *     on user document + public URL in **`profilePicture`**).
+         */
+        patch: operations["updateCurrentUserProfile"];
+        trace?: never;
+    };
+    "/users/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Public profile by id (planned; authz per policy) */
+        get: operations["getUserById"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search users by email (planned; not by opaque user id)
+         * @description Query is the **email** (exact or prefix per privacy policy). Returns display name,
+         *     profile picture, and the **direct conversation id** with the current user when a
+         *     conversation already exists (null when none).
+         */
+        get: operations["searchUsersByEmail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List conversations for current user (planned; cursor pagination) */
+        get: operations["listConversations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversations/{conversationId}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List messages in a conversation (planned; cursor pagination) */
+        get: operations["listMessages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a message (planned)
+         * @description **`conversationId` is optional.** If omitted for a **new direct 1:1** thread, the server
+         *     creates the conversation, then persists the message — provide **`recipientUserId`** (the
+         *     other participant). For an existing thread, send **`conversationId`** and omit
+         *     **`recipientUserId`**. Group chats always require **`conversationId`**.
+         */
+        post: operations["sendMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a group (planned) */
+        post: operations["createGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/media/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload a file; messaging-service stores in S3 via AWS SDK (planned) */
+        post: operations["uploadMedia"];
         delete?: never;
         options?: never;
         head?: never;
@@ -29,9 +251,199 @@ export interface components {
             /** @example ok */
             status: string;
         };
+        ReadyResponse: {
+            ready: boolean;
+        };
+        ErrorResponse: {
+            /** @description Stable machine-readable error code */
+            code: string;
+            /** @description Safe client-facing message */
+            message: string;
+        };
+        RegisterRequest: {
+            /** Format: email */
+            email: string;
+            /** Format: password */
+            password: string;
+            /**
+             * Format: uri
+             * @description Optional avatar URL at signup (e.g. from `POST /media/upload` before register)
+             */
+            profilePicture?: string | null;
+            /** @description Optional short status line at signup */
+            status?: string | null;
+        };
+        /** @description Multipart parts — all optional; include at least one field to change */
+        UpdateProfileRequest: {
+            /**
+             * Format: binary
+             * @description New profile image (image/*); stored server-side; `profilePicture` URL returned on `User`
+             */
+            file?: string;
+            /** @description New status text (omit to leave unchanged) */
+            status?: string;
+            /** @description New display name (omit to leave unchanged) */
+            displayName?: string;
+        };
+        LoginRequest: {
+            /** Format: email */
+            email: string;
+            /** Format: password */
+            password: string;
+        };
+        RefreshRequest: {
+            refreshToken: string;
+        };
+        AuthResponse: {
+            accessToken: string;
+            refreshToken?: string | null;
+            /** @example Bearer */
+            tokenType: string;
+            /** @description Access token lifetime in seconds */
+            expiresIn: number;
+        };
+        User: {
+            id: string;
+            /** Format: email */
+            email: string;
+            displayName?: string | null;
+            emailVerified?: boolean;
+            /**
+             * Format: uri
+             * @description HTTPS URL or CDN URL for avatar (or null if unset)
+             */
+            profilePicture?: string | null;
+            /** @description Short user-defined status line */
+            status?: string | null;
+        };
+        UserPublic: {
+            id: string;
+            displayName?: string | null;
+            /** Format: uri */
+            profilePicture?: string | null;
+            status?: string | null;
+        };
+        /** @description One row from email search — includes existing direct conversation when present */
+        UserSearchResult: {
+            /** @description Internal user id for messaging / `recipientUserId` */
+            userId: string;
+            displayName?: string | null;
+            /** Format: uri */
+            profilePicture?: string | null;
+            /** @description Direct conversation id between searcher and this user if it exists; null if first contact */
+            conversationId?: string | null;
+        };
+        Conversation: {
+            id: string;
+            title?: string | null;
+            isGroup?: boolean;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        ConversationPage: {
+            items: components["schemas"]["Conversation"][];
+            nextCursor?: string | null;
+            hasMore?: boolean;
+        };
+        Message: {
+            id: string;
+            conversationId: string;
+            senderId: string;
+            body?: string | null;
+            /** @description S3 object key when message has an attachment */
+            mediaKey?: string | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        MessagePage: {
+            items: components["schemas"]["Message"][];
+            nextCursor?: string | null;
+            hasMore?: boolean;
+        };
+        /**
+         * @description **Direct 1:1 — new thread:** omit `conversationId`, set `recipientUserId`. **Direct 1:1 —
+         *     existing thread:** set `conversationId`, omit `recipientUserId`. **Group:** set
+         *     `conversationId` for the group.
+         */
+        SendMessageRequest: {
+            /** @description Existing conversation; omit to create a new direct conversation (see `recipientUserId`) */
+            conversationId?: string | null;
+            /** @description Other user when starting a new direct thread; omit when `conversationId` is set */
+            recipientUserId?: string | null;
+            body?: string;
+            /** @description From prior upload response */
+            mediaKey?: string | null;
+        };
+        Group: {
+            id: string;
+            name: string;
+            createdBy?: string;
+        };
+        CreateGroupRequest: {
+            name: string;
+            memberIds?: string[];
+        };
+        MediaUploadResponse: {
+            key: string;
+            bucket: string;
+            /**
+             * Format: uri
+             * @description Optional HTTPS URL for display if bucket policy allows
+             */
+            url?: string | null;
+        };
     };
-    responses: never;
-    parameters: never;
+    responses: {
+        /** @description Validation or malformed request */
+        BadRequest: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
+        /** @description Missing or invalid bearer token */
+        Unauthorized: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
+        /** @description Authenticated but not allowed for this resource */
+        Forbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
+        /** @description Resource not found */
+        NotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
+    };
+    parameters: {
+        /** @description User identifier */
+        UserIdPath: string;
+        /** @description Conversation identifier */
+        ConversationIdPath: string;
+        /** @description Opaque cursor from a previous list response */
+        CursorQuery: string;
+        /**
+         * @description Optional page size; **default `20`** when omitted on all paginated list endpoints that
+         *     support this parameter. Server may enforce a lower cap.
+         */
+        LimitQuery: number;
+    };
     requestBodies: never;
     headers: never;
     pathItems: never;
@@ -54,6 +466,376 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    getReady: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ready to accept traffic */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadyResponse"];
+                };
+            };
+            /** @description Not ready (dependencies unavailable) */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadyResponse"];
+                };
+            };
+        };
+    };
+    registerUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            /** @description Email already registered */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Tokens issued */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    refreshTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RefreshRequest"];
+            };
+        };
+        responses: {
+            /** @description New tokens */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getCurrentUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current user */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    updateCurrentUserProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["UpdateProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated user */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getUserById: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User identifier */
+                userId: components["parameters"]["UserIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description User */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserPublic"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    searchUsersByEmail: {
+        parameters: {
+            query: {
+                /** @description Email address to search (not internal user id) */
+                email: string;
+                /**
+                 * @description Optional page size; **default `20`** when omitted on all paginated list endpoints that
+                 *     support this parameter. Server may enforce a lower cap.
+                 */
+                limit?: components["parameters"]["LimitQuery"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching users */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSearchResult"][];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    listConversations: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor from a previous list response */
+                cursor?: components["parameters"]["CursorQuery"];
+                /**
+                 * @description Optional page size; **default `20`** when omitted on all paginated list endpoints that
+                 *     support this parameter. Server may enforce a lower cap.
+                 */
+                limit?: components["parameters"]["LimitQuery"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated conversations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    listMessages: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor from a previous list response */
+                cursor?: components["parameters"]["CursorQuery"];
+                /**
+                 * @description Optional page size; **default `20`** when omitted on all paginated list endpoints that
+                 *     support this parameter. Server may enforce a lower cap.
+                 */
+                limit?: components["parameters"]["LimitQuery"];
+            };
+            header?: never;
+            path: {
+                /** @description Conversation identifier */
+                conversationId: components["parameters"]["ConversationIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated messages */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessagePage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    sendMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Message created (includes `conversationId`; may be newly created) */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Message"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateGroupRequest"];
+            };
+        };
+        responses: {
+            /** @description Group created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Group"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    uploadMedia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Object stored */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaUploadResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description Payload too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

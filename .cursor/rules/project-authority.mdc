@@ -17,6 +17,7 @@ alwaysApply: true
 
 ## Process (non-negotiable)
 
+- **Deprecated APIs:** do not add or perpetuate deprecated Node, browser/DOM, React, or library APIs—use current documented replacements (`PROJECT_GUIDELINES.md` §1.1).
 - Do **not** implement beyond the request; no speculative features.
 - Prefer **incremental** changes; preserve existing behaviour unless replacing by design.
 - **OpenAPI:** any new or changed REST route **updates the OpenAPI spec in the same PR**; Swagger UI on **messaging-service** stays accurate.

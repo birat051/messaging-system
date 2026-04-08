@@ -7,9 +7,9 @@
     "node": ">=20"
   },
   "scripts": {
-    "install:all": "npm install --prefix apps/web-client && npm install --prefix apps/messaging-service && npm install --prefix apps/notification-service",
-    "lint:all": "npm run lint --prefix apps/web-client && npm run lint --prefix apps/messaging-service && npm run lint --prefix apps/notification-service",
-    "typecheck:all": "npm run typecheck --prefix apps/web-client && npm run typecheck --prefix apps/messaging-service && npm run typecheck --prefix apps/notification-service",
-    "format:check:all": "npm run format:check --prefix apps/web-client && npm run format:check --prefix apps/messaging-service && npm run format:check --prefix apps/notification-service"
+    "install:all": "npm install --prefix apps/web-client && npm install --prefix apps/messaging-service",
+    "lint:all": "npm run lint --prefix apps/web-client && npm run lint --prefix apps/messaging-service",
+    "typecheck:all": "npm run typecheck --prefix apps/web-client && npm run typecheck --prefix apps/messaging-service",
+    "format:check:all": "npm run format:check --prefix apps/web-client && npm run format:check --prefix apps/messaging-service"
   }
 }

@@ -17,12 +17,21 @@ For **each new or substantially changed UI component:** write **tests first** (R
 - **Custom hooks** in `hooks/` wrapping selectors + dispatch + router. **Local state** for UI-only (modals, fields); do not put every keystroke in Redux.
 - Unit-test non-trivial slice logic and hooks.
 
+## Styling (Tailwind + themes)
+
+- **Tailwind CSS v4** via **`@tailwindcss/vite`**; tokens and **`@theme`** live in **`src/index.css`** (semantic colours: `background`, `foreground`, `surface`, `accent`, etc.). **Dark mode:** `html` **`class="dark"`** — use **`ThemeProvider`** / **`useTheme`** (`src/theme/`). Prefer utility classes; run **Prettier** so **`prettier-plugin-tailwindcss`** sorts classes.
+
 ## UI quality
 
 - Pixel-conscious, calm theme (colour, contrast, spacing, typography). Smooth scroll/section motion where specified without harming focus.
 - **Accessibility:** keyboard, visible focus, no traps, semantic HTML, ARIA when needed.
 - **One primary component per file.** Non-prop types in module **`types.ts`**; props types may stay with the component.
 
+## Real-time (Socket.IO)
+
+- Run **`socket.io-client` in a dedicated Web Worker** (`PROJECT_PLAN.md` §3.3): keep the connection off the main thread; use **`postMessage`** (or Comlink) to forward chat and **notification** events to Redux/UI. Auth token handoff and bundling (e.g. Vite worker plugins) should match `TASK_CHECKLIST.md`.
+
 ## Tooling
 
 - Each app has **its own** ESLint/Prettier/TS config (`TASK_CHECKLIST.md`); no monorepo-root config for all apps.
+- **No deprecated APIs:** avoid deprecated React/React DOM, browser/DOM, and library APIs; prefer current documented replacements (`PROJECT_GUIDELINES.md` §1.1).

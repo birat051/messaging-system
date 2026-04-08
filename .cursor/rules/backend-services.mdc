@@ -1,15 +1,16 @@
 ---
-description: messaging-service & notification-service — TypeScript, Express, MongoDB, Redis, patterns (PROJECT_GUIDELINES)
-globs: apps/messaging-service/**,apps/notification-service/**
+description: messaging-service — TypeScript, Express, MongoDB, Redis, patterns (PROJECT_GUIDELINES)
+globs: apps/messaging-service/**
 alwaysApply: false
 ---
 
-# Backend microservices (from PROJECT_GUIDELINES.md)
+# Backend (messaging-service) (from PROJECT_GUIDELINES.md)
 
 ## TypeScript & Node
 
 - `"strict": true`. Prefer `unknown` over `any`. Explicit return types on exports and public APIs.
 - `async`/`await` with handled rejections; no floating promises in handlers. `node:` prefix for builtins.
+- **No deprecated APIs:** avoid deprecated Node built-ins and library calls; prefer current documented APIs and heed `@deprecated` in typings (`PROJECT_GUIDELINES.md` §1.1).
 
 ## Structure
 
@@ -33,9 +34,9 @@ Repository, service layer, Strategy/Adapter for third parties, Express middlewar
 - Pagination (cursor preferred for large lists); cap `limit`. Projections on reads. Avoid N+1. Transactions short. Idempotent writes where retries exist.
 - Unique indexes where required (e.g. email). Partial indexes when queries always filter.
 
-## Redis & streams
+## Redis
 
-- TTL/strategy for ephemeral data. Streams: consumer groups, versioned payloads, pending/retry handling.
+- TTL/strategy for ephemeral data (last seen, rate limits). Optional **Socket.IO Redis adapter** for horizontal scale. **In-tab notifications** use **Socket.IO**, not Redis Streams (`PROJECT_PLAN.md` §3.3).
 
 ## APIs
 

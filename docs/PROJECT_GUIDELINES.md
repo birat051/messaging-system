@@ -25,13 +25,14 @@ If something here conflicts with a one-off prompt, **these guidelines win** unle
 - Use **explicit return types** on exported functions, public class methods, and module boundaries so refactors stay safe.
 - Prefer **`async`/`await`** for readability; always handle rejections (try/catch or `.catch()` at boundaries). Do not leave floating promises in request handlers.
 - Use the **`node:`** prefix for Node built-in imports (e.g. `node:fs`, `node:path`) for clarity and forward compatibility.
+- **Do not** introduce or rely on **deprecated** APIs: Node.js built-ins, browser/DOM, **React**/**React DOM**, or third-party packages. Prefer **current** documented replacements; respect **`@deprecated`** in typings and library changelogs. When touching legacy code, **migrate** to the supported API (or isolate behind a small adapter with a tracked follow-up) rather than copying deprecated patterns.
 
 ### 1.2 Project layout and boundaries
 
 - Organize by **feature** or by **layer** consistently within each app (e.g. `routes` → `services` → `repositories`). Do not mix unrelated concerns in one giant file.
 - **HTTP contract:** the **OpenAPI 3** document in `docs/openapi/` is the source of truth for REST. **web-client** generates TypeScript types with **`openapi-typescript`** (`npm run generate:api` in `apps/web-client`)—**no** `packages/shared` package for DTOs. **messaging-service** validates with **Zod** (or equivalent) at the boundary; keep schemas aligned with the OpenAPI spec in the same PR when routes change.
 - **Configuration**: validate all required environment variables **at startup** (e.g. with Zod or a small env schema). Fail fast with clear errors if misconfigured.
-- **Secrets**: never commit secrets or tokens. Use environment variables or a secrets manager; document required vars in a single place (e.g. `.env.example`).
+- **Secrets**: never commit secrets or tokens. Use environment variables or a secrets manager; document required vars in **`docs/ENVIRONMENT.md`** (per microservice) and keep them aligned with Docker Compose / deployment.
 
 ### 1.3 Express / HTTP services
 
@@ -49,7 +50,7 @@ If something here conflicts with a one-off prompt, **these guidelines win** unle
 
 - Prefer **well-maintained** dependencies; pin versions in lockfiles; run security audits as part of release hygiene.
 - **ESLint** (with TypeScript and React rules where applicable) must pass. Fix violations or justify with a rare, documented eslint-disable and follow-up issue.
-- **Formatting**: Prettier (or team formatter) **per deployable** (`messaging-service`, `notification-service`, `web-client`) — no style debates in review; automate. This repo does **not** use one Prettier (or TypeScript/ESLint) config at the monorepo root for all apps; **each** microservice keeps **its own** config files (see `TASK_CHECKLIST.md` project setup).
+- **Formatting**: Prettier (or team formatter) **per deployable** (`messaging-service`, `web-client`) — no style debates in review; automate. This repo does **not** use one Prettier (or TypeScript/ESLint) config at the monorepo root for all apps; **each** deployable keeps **its own** config files (see `TASK_CHECKLIST.md` project setup).
 
 ### 1.6 Design patterns (backend — use deliberately)
 
@@ -111,10 +112,10 @@ These patterns apply to **MongoDB** as the primary store for users, conversation
 - Define policy for **soft delete** vs hard delete and how it interacts with indexes and unique constraints.
 - **Migrations** (index creation, backfills) should be **scripted**, **reviewed**, and **tested** on a copy of production-like data when possible; avoid one-off manual edits in production as the norm.
 
-### 2.5 Redis (presence, streams)
+### 2.5 Redis (presence, rate limits, optional Socket.IO adapter)
 
 - Use **Redis** for hot, ephemeral, or rate-limit data (e.g. last seen) with explicit **TTL** or update strategy to avoid unbounded growth.
-- **Redis Streams**: use **consumer groups** for notification delivery; design **stream names and payload schema** as versioned contracts; handle **pending** messages and retries explicitly.
+- **In-tab notifications** (calls, messages) are delivered via **Socket.IO** on **messaging-service** (`PROJECT_PLAN.md` §3.3), not Redis Streams. For **horizontal scaling** of Socket.IO nodes, use a **Redis adapter** for Socket.IO when needed.
 
 ---
 
