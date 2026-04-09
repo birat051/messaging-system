@@ -77,6 +77,21 @@ services:
       REDIS_URL: redis://redis:6379
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-messaging}:${RABBITMQ_PASS:-messaging}@rabbitmq:5672
       OPENAPI_SPEC_PATH: /app/openapi/openapi.yaml
+      S3_BUCKET: ${S3_BUCKET:-messaging-media}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ENDPOINT: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-http://localhost:9000}
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-for-production}
+      EMAIL_VERIFICATION_REQUIRED: ${EMAIL_VERIFICATION_REQUIRED:-false}
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      PUBLIC_APP_BASE_URL: ${PUBLIC_APP_BASE_URL:-}
+      EMAIL_VERIFICATION_WEB_PATH: ${EMAIL_VERIFICATION_WEB_PATH:-/verify-email}
+      REFRESH_TOKEN_TTL_SECONDS: ${REFRESH_TOKEN_TTL_SECONDS:-604800}
+      PASSWORD_RESET_TOKEN_TTL_HOURS: ${PASSWORD_RESET_TOKEN_TTL_HOURS:-1}
+      PASSWORD_RESET_WEB_PATH: ${PASSWORD_RESET_WEB_PATH:-/reset-password}
       # SOCKET_IO_REDIS_ADAPTER: "true"   # enable when running multiple messaging-service replicas behind LB
     depends_on:
       mongo:
@@ -85,6 +100,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      minio:
+        condition: service_started
     healthcheck:
       test:
         [

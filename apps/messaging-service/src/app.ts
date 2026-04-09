@@ -6,12 +6,15 @@ import type { Env } from './config/env.js';
 import { logger } from './logger.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { notFoundHandler } from './middleware/notFound.js';
+import { createAuthRouter } from './routes/auth.js';
+import { createMediaRouter } from './routes/media.js';
 import { systemRouter } from './routes/system.js';
 import { createSwaggerUiHandlers } from './swagger.js';
 
 export function createApp(env: Env): express.Application {
   const app = express();
   app.disable('x-powered-by');
+  app.set('trust proxy', 1);
   app.use(express.json({ limit: '1mb' }));
 
   app.use(
@@ -46,6 +49,11 @@ export function createApp(env: Env): express.Application {
   );
 
   app.use('/v1', systemRouter);
+  app.use('/v1', createAuthRouter(env));
+
+  if (env.S3_BUCKET) {
+    app.use('/v1', createMediaRouter(env));
+  }
 
   const swaggerHandlers = createSwaggerUiHandlers(env);
   if (swaggerHandlers) {

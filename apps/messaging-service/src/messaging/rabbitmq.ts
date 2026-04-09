@@ -16,7 +16,10 @@ let consumerTag: string | null = null;
 
 function instanceQueueName(): string {
   const env = loadEnv();
-  const safe = env.MESSAGING_INSTANCE_ID.replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 200);
+  const safe = env.MESSAGING_INSTANCE_ID.replace(/[^a-zA-Z0-9._-]/g, '-').slice(
+    0,
+    200,
+  );
   return `messaging.node.${safe || 'default'}`;
 }
 
@@ -39,11 +42,17 @@ export async function connectRabbit(): Promise<void> {
   const ch = await conn.createChannel();
   channel = ch;
 
-  await ch.assertExchange(MESSAGING_EVENTS_EXCHANGE, 'topic', { durable: true });
+  await ch.assertExchange(MESSAGING_EVENTS_EXCHANGE, 'topic', {
+    durable: true,
+  });
 
   queueName = instanceQueueName();
   await ch.assertQueue(queueName, { durable: true });
-  await ch.bindQueue(queueName, MESSAGING_EVENTS_EXCHANGE, `${MESSAGE_ROUTING_PREFIX}.#`);
+  await ch.bindQueue(
+    queueName,
+    MESSAGING_EVENTS_EXCHANGE,
+    `${MESSAGE_ROUTING_PREFIX}.#`,
+  );
 
   const { consumerTag: tag } = await ch.consume(
     queueName,

@@ -1,17 +1,27 @@
 import { createServer } from 'node:http';
 import { createApp } from './app.js';
 import { loadEnv } from './config/env.js';
-import { connectMongo, disconnectMongo } from './db/mongo.js';
+import { connectMongo, disconnectMongo, getDb } from './db/mongo.js';
 import { connectRabbit, disconnectRabbit } from './messaging/rabbitmq.js';
 import { connectRedis, disconnectRedis } from './redis/redis.js';
 import { logger } from './logger.js';
 import { attachSocketIo, closeSocketIo } from './realtime/socket.js';
+import { ensureBucketExists } from './storage/ensureBucket.js';
+import { getS3Client } from './storage/s3Client.js';
+import { ensureUserIndexes } from './users/ensureIndexes.js';
 
 async function main(): Promise<void> {
   const env = loadEnv();
   await connectMongo();
+  await ensureUserIndexes(getDb());
   await connectRedis();
   await connectRabbit();
+
+  const s3 = getS3Client(env);
+  if (s3 && env.S3_BUCKET) {
+    await ensureBucketExists(s3, env.S3_BUCKET);
+    logger.info({ bucket: env.S3_BUCKET }, 'S3 bucket ready');
+  }
 
   const app = createApp(env);
   const httpServer = createServer(app);

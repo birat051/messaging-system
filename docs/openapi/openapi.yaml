@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Messaging API
-  version: 0.1.1
+  version: 0.1.6
   description: |
     **Source of truth** for REST contracts between **web-client** and **messaging-service**
     (single HTTP API; there is no separate notification REST service).
@@ -93,7 +93,7 @@ paths:
   /auth/register:
     post:
       operationId: registerUser
-      summary: Register a new user (planned)
+      summary: Register a new user (Argon2 password hash; optional profilePicture and status)
       tags:
         - Auth
       requestBody:
@@ -104,7 +104,10 @@ paths:
               $ref: '#/components/schemas/RegisterRequest'
       responses:
         '201':
-          description: Created
+          description: >-
+            Created. **`accessToken`** is **`null`** when **`emailVerified`** is false (email verification required);
+            use **`POST /auth/verify-email`** then **`accessToken`** is returned there, or sign in with **`POST /auth/login`** after verification.
+            When verification is not required, an access token is returned immediately.
           content:
             application/json:
               schema:
@@ -117,11 +120,92 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Too many registration attempts from this client
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Auth signing not configured (e.g. missing JWT_SECRET)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/verify-email:
+    post:
+      operationId: verifyEmail
+      summary: Verify email using signed JWT from registration or resend (throttled per IP)
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyEmailRequest'
+      responses:
+        '200':
+          description: Email verified (or already verified) — includes **`accessToken`** for the verified session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyEmailResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          description: Too many verification attempts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Auth signing not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/resend-verification:
+    post:
+      operationId: resendVerificationEmail
+      summary: Resend verification flow (throttled per email; constant response to avoid enumeration)
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResendVerificationRequest'
+      responses:
+        '200':
+          description: >-
+            Request accepted (always ok true in body whether or not an unverified user existed).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResendVerificationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          description: Too many resend requests for this email
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Auth signing not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /auth/login:
     post:
       operationId: login
-      summary: Email/password login (planned)
+      summary: Email/password login
       tags:
         - Auth
       requestBody:
@@ -132,7 +216,7 @@ paths:
               $ref: '#/components/schemas/LoginRequest'
       responses:
         '200':
-          description: Tokens issued
+          description: Access and refresh tokens issued (**only** when **`emailVerified`** is true)
           content:
             application/json:
               schema:
@@ -141,11 +225,17 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Email not verified — complete **`POST /auth/verify-email`** first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /auth/refresh:
     post:
       operationId: refreshTokens
-      summary: Refresh access token (planned)
+      summary: Rotate refresh token and issue new access token
       tags:
         - Auth
       requestBody:
@@ -156,13 +246,107 @@ paths:
               $ref: '#/components/schemas/RefreshRequest'
       responses:
         '200':
-          description: New tokens
+          description: New access and refresh tokens (previous refresh token invalidated)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Email not verified — cannot refresh
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Auth signing not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/logout:
+    post:
+      operationId: logout
+      summary: Revoke refresh token (logout)
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+      responses:
+        '204':
+          description: Refresh token revoked
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          description: Auth signing not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/forgot-password:
+    post:
+      operationId: forgotPassword
+      summary: Request password reset email (same response whether or not email exists)
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      responses:
+        '200':
+          description: Request accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          description: Too many requests from this client
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Auth signing not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/reset-password:
+    post:
+      operationId: resetPassword
+      summary: Set new password using JWT from forgot-password email
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '204':
+          description: Password updated; all refresh tokens invalidated server-side
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          description: Auth signing not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /users/me:
     get:
@@ -378,7 +562,11 @@ paths:
   /media/upload:
     post:
       operationId: uploadMedia
-      summary: Upload a file; messaging-service stores in S3 via AWS SDK (planned)
+      summary: Upload a file; messaging-service stores in S3 via AWS SDK (`@aws-sdk/lib-storage` Upload)
+      description: |
+        Multipart field **`file`**. Max size is enforced by **`MEDIA_MAX_BYTES`** on the server
+        (default **30 MiB** per file for image/video; override via environment). Allowed MIME types
+        are server-defined (see messaging-service implementation).
       tags:
         - Media
       security:
@@ -543,6 +731,56 @@ components:
           maxLength: 280
           description: Optional short status line at signup
 
+    VerifyEmailRequest:
+      type: object
+      required:
+        - token
+      properties:
+        token:
+          type: string
+          description: Signed JWT from registration or resend
+
+    VerifyEmailResponse:
+      type: object
+      required:
+        - user
+        - accessToken
+        - refreshToken
+        - tokenType
+        - expiresIn
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        accessToken:
+          type: string
+          description: Access JWT for the verified session
+        refreshToken:
+          type: string
+          description: Opaque refresh token (stored in Redis)
+        tokenType:
+          type: string
+          example: Bearer
+        expiresIn:
+          type: integer
+          description: Access token lifetime in seconds
+
+    ResendVerificationRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+
+    ResendVerificationResponse:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+
     UpdateProfileRequest:
       type: object
       description: Multipart parts — all optional; include at least one field to change
@@ -580,24 +818,65 @@ components:
         refreshToken:
           type: string
 
+    LogoutRequest:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
+
+    ForgotPasswordRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+
+    ResetPasswordRequest:
+      type: object
+      required:
+        - token
+        - password
+      properties:
+        token:
+          type: string
+          description: Signed JWT from forgot-password email
+        password:
+          type: string
+          format: password
+          minLength: 8
+
+    OkResponse:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+
     AuthResponse:
       type: object
       required:
-        - accessToken
         - tokenType
-        - expiresIn
       properties:
         accessToken:
           type: string
+          nullable: true
+          description: null after register when email verification is pending; otherwise HS256 JWT
         refreshToken:
           type: string
           nullable: true
+          description: Opaque refresh token (Redis); null when access token is not issued
         tokenType:
           type: string
           example: Bearer
         expiresIn:
           type: integer
-          description: Access token lifetime in seconds
+          nullable: true
+          description: null when accessToken is null; otherwise access token lifetime in seconds
 
     User:
       type: object

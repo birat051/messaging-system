@@ -20,6 +20,14 @@ export default tseslint.config(
     },
   },
   {
+    files: ['src/workers/**/*.ts'],
+    languageOptions: {
+      globals: {
+        ...globals.worker,
+      },
+    },
+  },
+  {
     files: ['vite.config.ts', 'tailwind.config.ts'],
     languageOptions: {
       globals: globals.node,

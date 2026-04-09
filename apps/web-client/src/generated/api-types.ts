@@ -47,8 +47,42 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Register a new user (planned) */
+        /** Register a new user (Argon2 password hash; optional profilePicture and status) */
         post: operations["registerUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/verify-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify email using signed JWT from registration or resend (throttled per IP) */
+        post: operations["verifyEmail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/resend-verification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resend verification flow (throttled per email; constant response to avoid enumeration) */
+        post: operations["resendVerificationEmail"];
         delete?: never;
         options?: never;
         head?: never;
@@ -64,7 +98,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Email/password login (planned) */
+        /** Email/password login */
         post: operations["login"];
         delete?: never;
         options?: never;
@@ -81,8 +115,59 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Refresh access token (planned) */
+        /** Rotate refresh token and issue new access token */
         post: operations["refreshTokens"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke refresh token (logout) */
+        post: operations["logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/forgot-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request password reset email (same response whether or not email exists) */
+        post: operations["forgotPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/reset-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set new password using JWT from forgot-password email */
+        post: operations["resetPassword"];
         delete?: never;
         options?: never;
         head?: never;
@@ -235,7 +320,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Upload a file; messaging-service stores in S3 via AWS SDK (planned) */
+        /**
+         * Upload a file; messaging-service stores in S3 via AWS SDK (`@aws-sdk/lib-storage` Upload)
+         * @description Multipart field **`file`**. Max size is enforced by **`MEDIA_MAX_BYTES`** on the server
+         *     (default **30 MiB** per file for image/video; override via environment). Allowed MIME types
+         *     are server-defined (see messaging-service implementation).
+         */
         post: operations["uploadMedia"];
         delete?: never;
         options?: never;
@@ -273,6 +363,28 @@ export interface components {
             /** @description Optional short status line at signup */
             status?: string | null;
         };
+        VerifyEmailRequest: {
+            /** @description Signed JWT from registration or resend */
+            token: string;
+        };
+        VerifyEmailResponse: {
+            user: components["schemas"]["User"];
+            /** @description Access JWT for the verified session */
+            accessToken: string;
+            /** @description Opaque refresh token (stored in Redis) */
+            refreshToken: string;
+            /** @example Bearer */
+            tokenType: string;
+            /** @description Access token lifetime in seconds */
+            expiresIn: number;
+        };
+        ResendVerificationRequest: {
+            /** Format: email */
+            email: string;
+        };
+        ResendVerificationResponse: {
+            ok: boolean;
+        };
         /** @description Multipart parts — all optional; include at least one field to change */
         UpdateProfileRequest: {
             /**
@@ -294,13 +406,31 @@ export interface components {
         RefreshRequest: {
             refreshToken: string;
         };
+        LogoutRequest: {
+            refreshToken: string;
+        };
+        ForgotPasswordRequest: {
+            /** Format: email */
+            email: string;
+        };
+        ResetPasswordRequest: {
+            /** @description Signed JWT from forgot-password email */
+            token: string;
+            /** Format: password */
+            password: string;
+        };
+        OkResponse: {
+            ok: boolean;
+        };
         AuthResponse: {
-            accessToken: string;
+            /** @description null after register when email verification is pending; otherwise HS256 JWT */
+            accessToken?: string | null;
+            /** @description Opaque refresh token (Redis); null when access token is not issued */
             refreshToken?: string | null;
             /** @example Bearer */
             tokenType: string;
-            /** @description Access token lifetime in seconds */
-            expiresIn: number;
+            /** @description null when accessToken is null; otherwise access token lifetime in seconds */
+            expiresIn?: number | null;
         };
         User: {
             id: string;
@@ -512,7 +642,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Created */
+            /** @description Created. **`accessToken`** is **`null`** when **`emailVerified`** is false (email verification required); use **`POST /auth/verify-email`** then **`accessToken`** is returned there, or sign in with **`POST /auth/login`** after verification. When verification is not required, an access token is returned immediately. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -524,6 +654,110 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             /** @description Email already registered */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many registration attempts from this client */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Auth signing not configured (e.g. missing JWT_SECRET) */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    verifyEmail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerifyEmailRequest"];
+            };
+        };
+        responses: {
+            /** @description Email verified (or already verified) — includes **`accessToken`** for the verified session */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerifyEmailResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            /** @description Too many verification attempts */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Auth signing not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    resendVerificationEmail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResendVerificationRequest"];
+            };
+        };
+        responses: {
+            /** @description Request accepted (always ok true in body whether or not an unverified user existed). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResendVerificationResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            /** @description Too many resend requests for this email */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Auth signing not configured */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -546,7 +780,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Tokens issued */
+            /** @description Access and refresh tokens issued (**only** when **`emailVerified`** is true) */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -557,6 +791,15 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            /** @description Email not verified — complete **`POST /auth/verify-email`** first */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     refreshTokens: {
@@ -572,7 +815,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description New tokens */
+            /** @description New access and refresh tokens (previous refresh token invalidated) */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -582,6 +825,131 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            /** @description Email not verified — cannot refresh */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Auth signing not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    logout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LogoutRequest"];
+            };
+        };
+        responses: {
+            /** @description Refresh token revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            /** @description Auth signing not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    forgotPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForgotPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Request accepted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            /** @description Too many requests from this client */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Auth signing not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    resetPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResetPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Password updated; all refresh tokens invalidated server-side */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            /** @description Auth signing not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     getCurrentUser: {

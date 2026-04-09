@@ -1,10 +1,12 @@
 ---
-description: messaging-service — TypeScript, Express, MongoDB, Redis, patterns (PROJECT_GUIDELINES)
+description: messaging-service — TypeScript, Express, MongoDB, Redis; read docs/PROJECT_GUIDELINES.md first
 globs: apps/messaging-service/**
 alwaysApply: false
 ---
 
-# Backend (messaging-service) (from PROJECT_GUIDELINES.md)
+# Backend (messaging-service) (from `docs/PROJECT_GUIDELINES.md`)
+
+**Before coding:** read **`docs/PROJECT_GUIDELINES.md`** (§1–3 for Node/HTTP/DB). The **`project-authority`** rule applies to every chat.
 
 ## TypeScript & Node
 

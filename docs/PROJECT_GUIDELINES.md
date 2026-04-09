@@ -134,10 +134,16 @@ These patterns apply to **MongoDB** as the primary store for users, conversation
 
 ### 4.1 Tests before implementation for each UI component
 
-- For **each new or substantially changed UI component**, write **unit tests first**, then implement the component to satisfy those tests (**test-first** workflow).
+- For **each new or substantially changed React UI file** (**`*.tsx`** — components, pages, layouts), write **unit tests first**, then implement the UI to satisfy those tests (**test-first** workflow). **§4.1.1** defines what is *out of scope* for mandatory tests and coverage.
+- **Do not** use **`VITE_*`** or other client env vars to inject **user IDs**, tokens, or “dev identities” for Socket.IO or APIs—those ship in the bundle and invite abuse. Identity must come from **authenticated session** data; exercise real-time flows with **integration or E2E** tests or a controlled test environment instead.
 - Tests should describe **behavior** users care about (rendering, interactions, edge cases), not implementation details. Prefer **React Testing Library** with **Vitest** or **Jest** as configured in the repo.
 - Cover **accessibility** expectations where relevant: roles, labels, keyboard interaction for critical paths.
 - After implementation, ensure tests pass and **ESLint** passes. Refactor only when tests stay green.
+
+### 4.1.1 Scope of unit/integration tests and coverage (web-client)
+
+- **Mandatory** unit and integration tests (and the test-first rule in §4.1) apply **only** to **`*.tsx`** files that implement **React UI** (components, pages, route layouts). Do **not** treat plain **`*.ts`** modules as requiring matching **`*.test.ts`** or **`*.test.tsx`** by default—e.g. Redux slices, non-UI hooks, **`httpClient`**, config, utilities, Web Workers, or generated code—unless a task or PR explicitly asks for tests there.
+- **Test coverage** expectations and any CI coverage thresholds apply **only** to those **`*.tsx`** UI sources; do **not** use or enforce coverage targets for **`*.ts`**-only files under this rule.
 
 ### 4.2 UI quality (existing standards)
 
@@ -149,6 +155,13 @@ These patterns apply to **MongoDB** as the primary store for users, conversation
 - **One component per file**: at most one primary exported component per file (helpers/types may coexist per existing rules).
 - **Types**: non-prop domain/helper types live in **`types.ts`** in the module; component **props** types may stay with the component file.
 
+### 4.2.1 Responsive layouts (mobile and tablet / iPad)
+
+- **Required:** Every **new or substantially changed** layout and **UI component** in **web-client** must be designed and implemented to **adapt across viewport sizes** — at minimum **phone, tablet (including iPad in portrait and landscape), and desktop**. Do not ship layouts that only work at desktop widths unless the product explicitly excludes smaller surfaces and that exception is documented (e.g. in a PR or ADR).
+- **Implementation:** Use **responsive styling** (e.g. **Tailwind** breakpoints `sm:` / `md:` / `lg:` / `xl:`, container queries when they clarify a component), **flexbox** or **CSS grid**, **fluid typography and spacing**, and **min/max widths** so content reflows instead of overflowing horizontally. Prefer **mobile-first** defaults and add larger-viewport enhancements.
+- **Touch and ergonomics:** On phones and tablets, ensure **adequate tap targets**, spacing between controls, and scroll behaviour that does not trap focus or hide critical actions. Consider **safe areas** (notches) where the UI touches screen edges.
+- **Verification:** Before merge, **check** representative widths (e.g. narrow phone ~390px, tablet ~768px, desktop ~1024px+) or add automated tests where high value. Fix clipping, unreadable text, and unusable controls at those sizes.
+
 ### 4.3 State management — Redux and scalable structure
 
 - Use **Redux** via **Redux Toolkit (`@reduxjs/toolkit`)** and **`react-redux`** for **global, cross-cutting client state** (auth session, current user, conversation list caches, notification preferences, connection status, etc.) so the app can grow without ad hoc prop drilling.
@@ -157,7 +170,7 @@ These patterns apply to **MongoDB** as the primary store for users, conversation
 - **Typed hooks**: export typed `useAppDispatch` and `useAppSelector` from a single module (e.g. `store/hooks.ts`) and use them instead of raw `useDispatch`/`useSelector` for type safety.
 - **Reusable hooks**: place **custom hooks** in `hooks/` (or per-feature `hooks/`) for shared behavior—e.g. `useAuth()`, `useConversation(conversationId)`—implemented as thin wrappers over selectors, dispatch, and router params. Components should stay presentational where possible; hooks carry composition and subscription logic.
 - **Local vs global**: keep **UI-only** state (open/close modal, field focus, transient form state) in **component state** or colocated context when it does not need Redux. Do not put every keystroke in the global store.
-- **Testing**: Redux slices and reducers are unit-tested; components remain test-first per §4.1; hooks that contain logic should have tests when non-trivial.
+- **Testing**: follow §4.1 / §4.1.1 — mandatory tests and coverage apply to **`*.tsx`** UI only; Redux slices, hooks, and other **`*.ts`** modules are **not** required to carry unit/integration tests unless explicitly requested.
 
 ---
 
@@ -197,7 +210,8 @@ These patterns apply to **MongoDB** as the primary store for users, conversation
 - [ ] MongoDB queries bounded (pagination, projections); indexes match those access patterns
 - [ ] New list APIs paginated; limits enforced server-side
 - [ ] **OpenAPI** spec updated in the same PR as any REST route change; **Swagger UI** still accurate for dev
-- [ ] UI: **tests written first** for new/changed components, then implementation
+- [ ] **web-client UI (`*.tsx`):** **tests written first** for new/changed components, then implementation; **coverage** only for **`*.tsx`** (see §4.1.1)
+- [ ] **Responsive:** new/changed UI works on **mobile and tablet (iPad)** as well as desktop (§4.2.1)
 - [ ] Frontend: **Redux (RTK)** used for appropriate global state; **reusable hooks** for shared client logic; middleware used for cross-cutting dispatch-side concerns where applicable
 - [ ] ESLint passes; accessibility considered for interactive UI
 - [ ] `TASK_CHECKLIST.md` updated if feature-level work was scoped there

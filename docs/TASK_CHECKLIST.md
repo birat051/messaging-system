@@ -4,6 +4,8 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 **Pattern:** For each feature or cross-cutting area below, work is split into **(A) Infra, backend & deployment** and **(B) Web-client, UI, tests & state management** (Redux, hooks, test-first components per `PROJECT_GUIDELINES.md`). **Prerequisite — User keypair** runs before encrypted **Feature 1** work when E2EE is required.
 
+**Granularity:** Where a single bullet used to imply many files or layers (e.g. **MSW** + **handlers** + **test utils**, or **MongoDB** + **RabbitMQ** + **Socket.IO**), it is broken into **nested subtasks** so one PR or one agent prompt can close a **small vertical slice** without rewriting half the app.
+
 ---
 
 ## Project setup
@@ -30,11 +32,14 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
   - [ ] **Feature 7 (notifications):** emit **Socket.IO** notification events from domain paths — **no** Redis Streams
   - [x] **Feature 6 (read — WebSocket):** **`presence:getLastSeen`** + ack — **`resolveLastSeenForUser`** (`src/presence/resolveLastSeen.ts`): Redis → Mongo → **`{ status: 'not_available' }`**
 
-- [ ] **messaging-service (S3 / static uploads)** — **AWS S3** (or **S3-compatible**, e.g. **MinIO**) for **user-uploaded static assets**; uploads go **through messaging-service** using the **AWS SDK** (`PutObject` / managed upload), not direct browser→S3; object keys stored on messages per **`PROJECT_PLAN.md`**; full subtasks in **Cross-cutting — Media (AWS S3)**
+- [x] **messaging-service (S3 / static uploads)** — **`POST /v1/media/upload`** via **`@aws-sdk/client-s3`** + **`@aws-sdk/lib-storage`** (`Upload`); **MinIO** in Compose; object keys for messages still **Cross-cutting — Media** (MongoDB wire-up)
 
 - [ ] **Docker Compose, nginx, TLS, deployment**
   - [x] **`docker compose`**: **`infra/docker-compose.yml`** — **messaging-service** (image build), MongoDB, Redis, RabbitMQ, MinIO, **nginx** (entry **`http://localhost:8080`**); optional **coturn** — `docker compose -f infra/docker-compose.yml --profile turn up -d`
-  - [x] nginx: reverse-proxy REST + **Socket.IO** to **messaging-service** with upgrade headers (`infra/nginx/nginx.conf`); *pending:* serve **`apps/web-client/dist/`** as static root, TLS, production WebRTC hardening
+  - [x] nginx: reverse-proxy REST + **Socket.IO** to **messaging-service** with upgrade headers (`infra/nginx/nginx.conf`)
+  - [ ] nginx: serve **`apps/web-client/dist/`** as **static root** (SPA fallback **`index.html`**) — **`infra/nginx/nginx.conf`** + Compose volume or build args
+  - [ ] **TLS:** terminate HTTPS (cert paths, HSTS policy) — nginx or outer load balancer; document **`docs/ENVIRONMENT.md`**
+  - [ ] **Production WebRTC hardening** (TURN creds rotation, firewall notes) — beyond dev **coturn** profile
   - [x] Document hostnames, ports, one-command bring-up — root **`README.md`**, **`infra/.env.example`**
 
 ### (B) Web-client, UI, tests & state management
@@ -44,15 +49,59 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
   - [x] Strict TS (`tsconfig.app.json` — `strict`, unused locals/params, etc.) per `PROJECT_GUIDELINES.md` §1.1
   - [x] **Tailwind CSS v4** + **themes** — **`@tailwindcss/vite`**, **`tailwind.config.ts`**, semantic tokens + **`@theme`** in **`src/index.css`** (`background`, `foreground`, `surface`, `accent`, `border`, `muted`, `ring`, `radius-card`, `shadow-card`); **class-based dark mode** (`html.dark`) + **`ThemeProvider`** / **`useTheme`** / **`ThemeToggle`** + **`localStorage`** (`messaging-theme`); `prettier-plugin-tailwindcss` in **`.prettierrc.json`**
   - [x] **ESLint** (`typescript-eslint`, **`eslint-plugin-react-hooks`**, **`eslint-plugin-react-refresh`**); **Prettier**; optional a11y plugin later
-  - [ ] **react-router**, API base URL from env, **`socket.io-client`** (run in a **dedicated Web Worker** per `PROJECT_PLAN.md` §3.3; `postMessage` to main thread); **`emit('presence:heartbeat')` every 5s** while the socket is connected (**Feature 6**), **`dist/`** ready for nginx
-  - [ ] **Static assets / uploads (images, etc.):** follow **Cross-cutting — Media (AWS S3)** — **multipart (or binary) upload to messaging-service**, progress UX, composer UI, attachment rendering (**no AWS SDK in the browser**)
+  - [x] **react-router** + **`config/api.ts`** (**`VITE_API_BASE_URL`**, **`getApiBaseUrl`** / **`getSocketUrl`**) + **`App`/`main`** wiring
+  - [x] **Vite:** dev **proxy** to API + **`build.outDir`** (`dist/`) for nginx — **`vite.config.ts`**
+  - [x] **Socket.IO in a Web Worker:** **`src/workers/socketWorker.ts`** + **`src/realtime/socketBridge.ts`** (`postMessage` to main thread)
+  - [x] **Presence hook:** **`emit('presence:heartbeat')` every 5s** while connected — **`hooks/usePresenceConnection`** (**Feature 6**)
+  - [x] **Vitest** + **React Testing Library** + **jsdom** (`npm run test` / `test:watch`); **`src/setupTests.ts`**; example **`*.tsx`** component test (**`ThemeToggle`**); mandatory tests only for UI **`*.tsx`** per **`PROJECT_GUIDELINES.md` §4.1.1**; **no** client env-based user impersonation for Socket.IO (identity from session only, per **`PROJECT_GUIDELINES.md` §4.1)
+  - [ ] **Static assets / uploads (images, etc.):** follow **Cross-cutting — Media (AWS S3)** (**no AWS SDK in the browser**)
+    - [ ] **API:** call **`uploadMedia`** / **`POST /media/upload`** from UI (FormData); handle **`MediaUploadResponse`** (`key` / `url`) — **`src/api/mediaApi.ts`** + thin UI hook
+    - [ ] **Composer:** file picker, attach flow, pass **`mediaKey`** (or URL) into **`sendMessage`** payload per OpenAPI
+    - [ ] **UX:** upload **progress** (XHR/`axios` onUploadProgress or equivalent), cancel/retry, error states
+    - [ ] **Thread UI:** render image attachments from API URLs; loading/**lazy** **`alt`** / a11y (**see also** **Cross-cutting — Media (B)**)
 
-- [ ] **Redux and client architecture**
-  - [ ] `@reduxjs/toolkit`, `react-redux`, typed `useAppDispatch` / `useAppSelector`, `configureStore` + middleware extension points
-  - [ ] Feature slices (e.g. auth shell); `<Provider>` with router; `hooks/` for composed logic (`useAuth`, etc.); document middleware vs thunks vs components (`PROJECT_GUIDELINES.md` §4.3)
+- [ ] **web-client — REST mocking and integration tests** (`PROJECT_GUIDELINES.md` §4.1; behaviour-focused RTL + Vitest)
+  - [ ] **API boundary:** components/hooks import **`src/api/*`** only (no ad-hoc URLs); tests mock **`httpClient`** or **`authApi`** / **`usersApi`** / … — **see** **Feature API modules** + **`paths.ts`**
+  - [ ] **Unit tests — mock strategy:** prefer **`vi.mock('../api/httpClient')`** or **`vi.mock` one API module**; assert **method + path** (via **`API_PATHS`**) and **resolved UI/state** — not React internals; avoid **`fetch`** stubs
+  - [x] **MSW — dependency + Node setup:** add **`msw`** to **`package.json`**; **`src/setupTests.ts`** — **`setupServer`**, **`beforeAll`/`afterEach`/`afterAll`** (`listen`, **`resetHandlers`**, **`close`**)
+  - [x] **MSW — handlers:** **`src/mocks/handlers.ts`** (or feature-scoped files) — **`http.patch`** for **`*/v1/users/me`** aligned with **`docs/openapi/openapi.yaml`** (intercepts **`axios`**)
+  - [x] **Integration harness:** **`renderWithProviders(ui, { route, preloadedState? })`** in **`src/test-utils/`** — **`MemoryRouter`** + **`ThemeProvider`** + **`Provider`** + **`SWRConfig`** when needed
+  - [ ] **Integration tests:** **`server.use`** per test for **401**, empty lists, errors; **`waitFor` / `findBy`** for async UI
+  - [ ] **Fixtures:** **`__fixtures__/`** or factories for **`User`**, **`AuthResponse`**, list payloads
+  - [ ] **Security:** no **`VITE_*`** fake user IDs in tests — mock **HTTP** session/**401** only (`PROJECT_GUIDELINES.md` §4.1)
+
+- [x] **Redux and client architecture**
+  - [x] `@reduxjs/toolkit`, `react-redux`, typed `useAppDispatch` / `useAppSelector`, `configureStore` + middleware extension points
+  - [x] Feature slices (e.g. auth shell); `<Provider>` with router; `hooks/` for composed logic (`useAuth`, etc.); document middleware vs thunks vs components (`PROJECT_GUIDELINES.md` §4.3)
+
+- [ ] **web-client — Axios, SWR, and global HTTP** (depends on **Redux** + **`react-router`** for session + **401** navigation)
+  - [x] **Dependencies:** add **`axios`** and **`swr`** to **`apps/web-client`**; pin versions in **`package.json`** / lockfile
+  - [x] **Single Axios instance:** **`src/api/httpClient.ts`** + **`attachHttpAuth(store)`** from **`main.tsx`**; **`baseURL`** from **`getApiBaseUrl()`**; re-export **`httpClient`** from **`src/api/index.ts`**
+  - [x] **Token storage:** access JWT **in memory** (Redux **`auth.accessToken`** only); refresh token in **`localStorage`** (**`src/features/auth/authStorage.ts`**, key **`messaging-refresh-token`**); **`logout`** / **`clearSessionAndLogin`** clear both; **`applyAuthResponse`** for login/register responses
+  - [x] **Auth on requests:** request interceptor attaches **`Authorization: Bearer`** from Redux; **`POST /auth/refresh`** requests omit Bearer (no access token on refresh call)
+  - [x] **401 — refresh, retry, login** (**`src/api/httpClient.ts`**)
+    - [x] **401** on a normal request → if no refresh token → **`clearSessionAndLogin`**
+    - [x] **`POST /auth/refresh`** with **`skipAuthRefresh`**; mutex so concurrent **401**s share one refresh
+    - [x] Up to **3** refresh attempts, **1s** backoff when refresh error is not **401/403**; **401/403** from refresh → redirect immediately
+    - [x] On refresh success → Redux **`setSession`** + optional rotated refresh in **`localStorage`** → **retry original request once** (**`_retryAfterRefresh`**); second **401** → logout + **`/login`**
+  - [x] **Router:** **`src/routes/paths.ts`** (**`ROUTES.login`**, **`ROUTES.home`**), **`src/routes/navigation.ts`** (**`setNavigateHandler`** from **`App`**), placeholder **`LoginPage`** at **`/login`**
+  - [x] **SWR global setup**
+    - [x] **`SWRConfig`** in **`main.tsx`** (inside **`Provider`**) — **`src/api/swrConfig.ts`**
+    - [x] **`swrFetcher`:** **`httpClient.get` → `r.data`** so **`baseURL`**, interceptors, **401** refresh apply
+    - [x] **Mutations:** **`httpMutations.ts`** + **`useSWRMutation`** / **`authApi`** etc. for **POST/PATCH/DELETE**
+  - [x] **Feature API modules** (import **`httpClient`** only; types from **`api-types.ts`**)
+    - [x] **`paths.ts`** — **`API_PATHS`**
+    - [x] **`authApi`**, **`usersApi`**, **`conversationsApi`**, **`messagesApi`**, **`groupsApi`**, **`mediaApi`**, **`systemApi`**
+    - [x] Barrel **`index.ts`**
+  - [ ] **Tests (`*.tsx` only, §4.1.1)** — split by scenario (each can be one PR):
+    - [ ] **401 → refresh → retry success:** MSW or mock **`httpClient`** — first **GET** **401**, **`POST /auth/refresh`** **200**, retried **GET** **200**
+    - [ ] **401 → refresh fails → login redirect:** refresh **401** → assert **`navigateToLogin`** / logout (mock **`navigation`**)
+    - [ ] **Optional:** component using **`useSWR`(`API_PATHS.users.me`)** + MSW happy path (smoke)
 
 - [ ] **Connection status UI**
-  - [ ] **Connecting** / **connected** / **not connected** from **Socket.IO** lifecycle; Redux or hook; **tests first** for status component
+  - [ ] **Hook:** map **Socket.IO** lifecycle → **`connecting` | `connected` | `disconnected`** (**`usePresenceConnection`** / **`socketBridge`**)
+  - [ ] **State surface (optional):** Redux slice or context if multiple components need the same status
+  - [ ] **UI:** **`ConnectionStatusIndicator`** (`*.tsx`) — label + icon/badge; **tests first** per **`PROJECT_GUIDELINES.md` §4.1.1**
 
 ---
 
@@ -63,7 +112,11 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 - [x] Author **OpenAPI 3** spec under **`docs/openapi/`** (e.g. `openapi.yaml`): resources, schemas, Bearer JWT, errors, pagination; tags; `/v1`
 - [x] **Spec bump `0.1.0`:** user **`profilePicture`** + **`status`**; **`GET /users/search?email=`** + **`UserSearchResult`** (name, avatar, **`conversationId`** nullable); **`POST /messages`** with optional **`conversationId`** + **`recipientUserId`** for new direct threads; **`LimitQuery`** default documented — see **Cross-cutting — User profile, email search, send message, pagination**
 - [x] **Spec bump `0.1.1`:** **`RegisterRequest`** — optional **`profilePicture`** (URI) + **`status`** at signup; **`PATCH /users/me`** — **`multipart/form-data`** **`UpdateProfileRequest`** (optional **`file`**, **`status`**, **`displayName`**) — see **Feature 2** + **Cross-cutting**
-- [ ] **messaging-service:** validate requests with **Zod** (or equivalent) matching the spec; same PR when routes change
+- [x] **Spec bump `0.1.2`:** **`POST /media/upload`** — **`MediaUploadResponse`**; backend implemented — **Cross-cutting — Media**
+- [x] **Spec bump `0.1.3`:** **`POST /media/upload`** — **`MEDIA_MAX_BYTES`** (default 30 MiB) documented in OpenAPI description
+- [x] **Spec bump `0.1.4`:** **`/auth/register`**, **`/auth/verify-email`**, **`/auth/resend-verification`** — **Feature 2**
+- [ ] **Spec / docs (env-gated verification):** document that **`User.emailVerified`** and verify/resend behaviour depend on **`EMAIL_VERIFICATION_REQUIRED`** (see **Feature 2**); optional **`0.1.5`** if the spec gains a **`GET /config`** or similar — otherwise **`0.1.4`** + **`docs/ENVIRONMENT.md`** is enough
+- [x] **messaging-service:** **Zod** — **`src/validation/`** (`schemas.ts` mirrors OpenAPI request bodies / query / path; **`validateBody`**, **`validateQuery`**, **`validateParams`**); **`POST /media/upload`** uses **`createMulterFileSchema`**; **`presence:getLastSeen`** uses **`getLastSeenPayloadSchema`** — wire **`validate*`** on new HTTP routes as they land
 - [x] Serve **Swagger UI** from **messaging-service** (`swagger-ui-express`) at **`/api-docs`**; works in Docker Compose / local dev; URL documented in root **`README.md`** and **`OPENAPI_SPEC_PATH`** in **`docs/ENVIRONMENT.md`**
 - [ ] Optional: restrict Swagger to non-prod or auth
 - [ ] Process: update OpenAPI in same PR as route changes (`PROJECT_GUIDELINES.md` §3)
@@ -77,23 +130,30 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 ## Cross-cutting — User profile, email search, send message, pagination
 
-**Contract:** **`docs/openapi/openapi.yaml`** **v0.1.1** — regenerate **`apps/web-client`** with **`npm run generate:api`** when the spec changes.
+**Contract:** **`docs/openapi/openapi.yaml`** **`0.1.4`** (until a config bump) — regenerate **`apps/web-client`** with **`npm run generate:api`** when the spec changes. **Email verification** is **server-controlled** via env (**`EMAIL_VERIFICATION_REQUIRED`**, default **`false`**) — **Feature 2**.
 
 ### (A) Infra, backend & deployment
 
-- [ ] **User document (`users`):** include **`profilePicture`** (nullable URL / CDN) and **`status`** (short nullable string) per **`User`** / **`UserPublic`**; migrations if collections already exist
-- [ ] **Signup (`POST /auth/register`):** accept optional **`profilePicture`** (URI, e.g. after **`POST /media/upload`**) and **`status`** — optional JSON fields per **`RegisterRequest`** (`0.1.1`)
-- [ ] **Update profile (`PATCH /users/me`):** **`multipart/form-data`** with optional **`file`** (profile image), **`status`**, **`displayName`** — at least one part; persist image via S3 / same pipeline as media upload; return **`User`**
-- [ ] **Search by email (not user id):** implement **`GET /v1/users/search?email=`** — returns **`UserSearchResult[]`**: **`userId`**, **`displayName`**, **`profilePicture`**, **`conversationId`** (direct 1:1 with caller if it already exists, else `null`) — rate limits + privacy rules (**Feature 5**)
-- [ ] **Send message — optional `conversationId`:** implement **`POST /v1/messages`** — if **`conversationId`** omitted for a **new direct 1:1**, require **`recipientUserId`**; server **creates conversation** then **message**; for follow-up and group sends, client passes **`conversationId`** (omit **`recipientUserId`**) — **Feature 1**
-- [ ] **Paginated list APIs:** **`limit`** query param **optional** everywhere; **server default** when omitted (see **`LimitQuery`**, default `20`); enforce max cap in handlers
-- [ ] **Implementation order:** update **OpenAPI** first (done through **`0.1.1`**), then **Zod** + routes + **MongoDB** writes in same PR where possible
+- [ ] **User document (`users`):** schema fields **`profilePicture`**, **`status`** per **`User`** / **`UserPublic`**
+  - [ ] **MongoDB:** migrations / backfill if collections already exist
+- [ ] **Signup (`POST /auth/register`):** optional **`profilePicture`** + **`status`** in handler; **`emailVerified`** vs **`EMAIL_VERIFICATION_REQUIRED`** — **Feature 2** (may already match spec; verify)
+- [ ] **Update profile (`PATCH /users/me`):** **`multer`** + **`multipart/form-data`**; optional **`file`**, **`status`**, **`displayName`** (at least one part); image → S3 same as **`POST /media/upload`**; response **`User`**
+- [ ] **Search by email:** route **`GET /users/search`** + **`validateQuery`**; service resolves **`conversationId`** for direct 1:1 with caller
+  - [ ] **Policy:** rate limits + privacy (exact vs prefix) — **Feature 5**
+- [ ] **Send message:** route **`POST /messages`** + **`SendMessageRequest`** validation
+  - [ ] **New direct 1:1:** no **`conversationId`** → require **`recipientUserId`**; create **conversation** + **message** in one flow
+  - [ ] **Existing / group:** **`conversationId`** set; **`recipientUserId`** omitted; authz membership
+- [ ] **Paginated list APIs:** shared helper for **`limit`** (default **`20`**, max cap) on **`listConversations`**, **`listMessages`**, search, etc.
+- [ ] **PR order:** OpenAPI bump (if needed) → **Zod** → route handler → **MongoDB** persistence
 
 ### (B) Web-client, UI, tests & state management
 
-- [ ] **Profile:** **`PATCH /users/me`** — **`FormData`** with **image** file + **status** + **displayName**; **signup** may include optional **`profilePicture`** URL + **`status`** (after **`POST /media/upload`** if needed) per **`RegisterRequest`**
-- [ ] **Search UX:** query by **email**; results show **name**, **avatar**, and whether a **conversation** already exists (**`conversationId`**) before opening composer
-- [ ] **Composer / send:** first message to a user **without** `conversationId` — send **`recipientUserId`** from search; persist returned **`conversationId`** from **`Message`**; subsequent messages **always** include **`conversationId`** when known
+- [ ] **Profile — settings:** build **`FormData`**; **`updateCurrentUserProfile`**; loading/error toasts
+- [ ] **Profile — signup:** optional **`profilePicture`** URL + **`status`** on **`registerUser`** (after **`uploadMedia`** if file chosen) per **`RegisterRequest`**
+- [ ] **Search UX — input:** debounced **`email`** field; **`searchUsersByEmail`**; empty/loading/error
+- [ ] **Search UX — results:** list **name**, **avatar**, **`conversationId`** hint; keyboard/a11y (**Feature 5** overlap)
+- [ ] **Composer — new direct thread:** omit **`conversationId`**; pass **`recipientUserId`** from search; store **`Message.conversationId`** from response
+- [ ] **Composer — follow-up:** pass **`conversationId`**; omit **`recipientUserId`**
 
 ---
 
@@ -106,11 +166,12 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 ### (A) Infra, backend & deployment
 
 - [ ] **Design doc** in `docs/`: algorithms (e.g. ECDH + AES-GCM hybrid, or chosen suite), key sizes, threat model, rotation rules; server never stores private keys
-- [ ] **MongoDB** (or dedicated collection): `userId` → **public key** material, optional `keyVersion`, `updatedAt`; indexes for lookup by `userId`; **no device-level** rows
-- [ ] **REST APIs** (OpenAPI in same PR): `PUT`/`POST` register or rotate **current** public key (authenticated); `GET` public key by `userId` with **authz** (e.g. only for users who may message that person per your policy)
-- [ ] **Validation**: reject malformed keys; max payload size; rate-limit key updates
-- [ ] **Audit / security**: no private key fields in any schema; structured logs must never print key material
-- [ ] **Operational**: document user-initiated **rotation** (new version) and impact on decrypting old messages (product decision)
+- [ ] **MongoDB:** collection shape — `userId` → **public key** material, optional `keyVersion`, `updatedAt`; indexes on `userId`; **no device-level** rows
+- [ ] **OpenAPI:** paths + schemas for key register / rotate / **`GET` by `userId`**
+- [ ] **Routes + Zod:** implement handlers; **authz** on **`GET`** (e.g. only peers who may message)
+- [ ] **Validation:** reject malformed keys; max payload size; rate-limit key updates
+- [ ] **Audit / security:** no private key fields in any schema; structured logs must never print key material
+- [ ] **Operational:** document user-initiated **rotation** (new version) and impact on decrypting old messages (product decision)
 
 ### (B) Web-client, UI, tests & state management
 
@@ -128,40 +189,85 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 ### (A) Infra, backend & deployment
 
 - [ ] Depends on **Prerequisite — User keypair** for ciphertext fields and public-key APIs when E2EE is enabled
-- [ ] Direct conversation + message documents in **MongoDB**; access-pattern-driven indexes per `PROJECT_GUIDELINES.md` §2.0; **lazy-create** direct conversation when **`POST /messages`** omits **`conversationId`** (**Cross-cutting**)
-- [ ] **Socket.IO** + **RabbitMQ** (1:1): after persist, **single publish** to **recipient user-scoped** routing key → consume → emit to that user’s **Socket.IO** room (`PROJECT_PLAN.md` §3.2.1); **after auth**, join socket to `user:<userId>` (or equivalent) for direct delivery; multi-replica behaviour validated
-- [ ] REST: **`POST /messages`** (see **OpenAPI** `SendMessageRequest`); conversation history + pagination (**`limit`** optional, default per **`LimitQuery`**); validation; authz (participants only)
+- [ ] **MongoDB:** **`conversations`** + **`messages`** collections; indexes per **`PROJECT_GUIDELINES.md` §2.0**
+- [ ] **`POST /messages`:** **`validateBody`** + service — **lazy-create** direct conversation when **`conversationId`** omitted + **`recipientUserId`** set (**Cross-cutting**)
+- [ ] **`GET` conversation messages:** **`listMessages`** — cursor + **`limit`**; authz (**participant** only)
+- [ ] **RabbitMQ (1:1):** after persist, **one publish** to **recipient user-scoped** routing key (`PROJECT_PLAN.md` §3.2.1)
+- [ ] **RabbitMQ consumer:** consume → **`io.to('user:<id>').emit`** (or equivalent) — **`src/realtime/`** wiring
+- [ ] **Socket.IO:** on connection auth, join **`user:<userId>`** room; validate multi-replica (optional **Redis adapter**)
+- [ ] **Integration test / manual checklist:** send A→B, B receives on correct room with one broker publish
 - [ ] **OpenAPI** for messaging: covered in **`0.1.0`** — implement + **Swagger** stay aligned
 - [ ] If shipping **Feature 12** in the same release as Feature 1, add **receipt-related** fields to the message schema early; otherwise **Feature 12** may introduce a migration
 
 ### (B) Web-client, UI, tests & state management
 
-- [ ] **Tests first**, then UI: conversation list, message thread, composer (RTL + Vitest/Jest per guidelines)
-- [ ] **Redux** slices/selectors for active conversation, message list cache, send optimistic/error states
-- [ ] **Hooks**: `useConversation`, `useSendMessage`, Socket.IO listeners bound to store
-- [ ] **Socket.IO client:** subscribe to **own user id** channel/room for direct messages; **dedupe** by `messageId` (and reconcile optimistic sends vs server echo) per `PROJECT_PLAN.md` §3.2.1
-- [ ] Loading/empty/error states; accessibility for chat region
-- [ ] **Sent / delivered / seen ticks** per **Feature 12** when implemented (or stub **sent** only until Feature 12 ships)
+- [ ] **Tests first (`*.tsx`):** conversation **list** row; **thread** message list; **composer** — RTL per **`PROJECT_GUIDELINES.md` §4.1.1**
+- [ ] **UI — shell:** conversation list layout + active selection state
+- [ ] **UI — thread:** scroll container, message bubbles, timestamps
+- [ ] **UI — composer:** text input, send button, disabled/loading
+- [ ] **Redux:** active **`conversationId`**, normalized **`messagesByConversationId`**, send **pending/error** flags
+- [ ] **`useConversation` / `useSendMessage`:** call **`listMessages`** / **`sendMessage`** + wire optimistic updates
+- [ ] **Socket.IO:** join **`user:<userId>`** room (server); listen for incoming direct messages → dispatch to Redux; **dedupe** by **`messageId`** (`PROJECT_PLAN.md` §3.2.1)
+- [ ] **Optimistic vs server:** reconcile temp ids with server **`Message.id`**
+- [ ] **Loading / empty / error** states; **chat** **`role="log"`** / **`aria-live`** where appropriate
+- [ ] **Sent tick** (stub) or full **Feature 12** receipts when ready
 
 ---
 
-## Feature 2 — Sign up / log in with email and password (with verification)
+## Feature 2 — Sign up / log in with email and password *(email verification optional via env)*
+
+**Default (demo):** **`EMAIL_VERIFICATION_REQUIRED=false`** — new users get **`emailVerified: true`** on register; no mail. **`User.emailVerified`** stays on the model for all modes.
 
 ### (A) Infra, backend & deployment
 
-- [ ] User schema: unique email index, password hash (argon2/bcrypt); **`profilePicture`**, **`status`**, **`displayName`** on user record (see **OpenAPI** `User` + **Cross-cutting**)
-- [ ] Registration + rate limiting; signed verification tokens; verify + resend + throttle — accept optional **`profilePicture`** (URI) and **`status`** on **`RegisterRequest`** (optional at signup only)
-- [ ] Email provider or Docker **mail catcher** for dev
-- [ ] JWT access + refresh; login/logout/revocation; optional password reset
-- [ ] Auth middleware; verified-email rules where required
-- [x] **OpenAPI** — **`RegisterRequest`** optional **`profilePicture`** + **`status`**; **`PATCH /users/me`** — **`UpdateProfileRequest`** (see **`0.1.1`**); implement routes + **Zod** still **[ ]**
+- [x] User schema: **`users`** collection — unique indexes on **`email`** + **`id`**; **`passwordHash`** (**Argon2id** via **`argon2`**); **`profilePicture`**, **`status`**, **`displayName`**, **`emailVerified`**, **`lastSeenAt`** — see **`src/users/`** + **OpenAPI** `User` — **keep `emailVerified`** (do not remove)
+- [x] Registration + **`POST /auth/verify-email`** + **`POST /auth/resend-verification`** + verification JWTs — **`src/routes/auth.ts`**
+- [x] **`EMAIL_VERIFICATION_REQUIRED`** (boolean, default **`false`**) — **`apps/messaging-service/src/config/env.ts`**
+- [x] Document **`EMAIL_VERIFICATION_REQUIRED`** — **`docs/ENVIRONMENT.md`** + **`infra/.env.example`** (+ Compose)
+- [x] When **`EMAIL_VERIFICATION_REQUIRED=false`:** **`POST /auth/register`** sets **`emailVerified: true`**; **`/auth/verify-email`** + **`/auth/resend-verification`** return **400** **`EMAIL_VERIFICATION_DISABLED`** (**`ENVIRONMENT.md`**)
+- [x] When **`EMAIL_VERIFICATION_REQUIRED=true`:** **`POST /auth/register`** sets **`emailVerified: false`**
+- [x] **SendGrid path:** **`SENDGRID_API_KEY`** + **`EMAIL_FROM`** + **`PUBLIC_APP_BASE_URL`** — **`src/email/sendVerificationEmail.ts`**; verification mail on register; **`resend`** returns **503** if SendGrid throws
+- [x] **`verify-email` / `resend-verification`:** JWT validation + **Redis** rate limits (per route)
+- [x] **Auth middleware / protected routes:** **`user.emailVerified === true`** only when **`EMAIL_VERIFICATION_REQUIRED`** is **`true`** — **`requireAuthenticatedUser`** / **`requireAuthMiddleware`** (`src/middleware/requireAuth.ts`); **`requireUploadAuth`** for **`POST /v1/media/upload`**
+- [x] JWT access + refresh; login/logout/revocation; optional password reset — **`issueAuthTokens`**, Redis refresh tokens + **`refreshTokenVersion`** (`src/auth/issueTokens.ts`, **`refreshTokenRedis.ts`**); **`POST /auth/refresh`**, **`/auth/logout`**; **`/auth/forgot-password`** + **`/auth/reset-password`** (signed JWT + **`setUserPasswordAndBumpVersion`**); OpenAPI **0.1.6**
+- [x] **OpenAPI `0.1.4`** — **`/auth/register`**, **`/auth/verify-email`**, **`/auth/resend-verification`**; **`RegisterRequest`** optional **`profilePicture`** + **`status`**; **`PATCH /users/me`** — **`UpdateProfileRequest`** (**`0.1.1`**); **Zod** on auth bodies; login/refresh middleware still **[ ]**
 
 ### (B) Web-client, UI, tests & state management
 
-- [ ] **Tests first**, then UI: register, login, verify-email, forgot-password screens — optional **status** + **avatar URL** on register; **settings** screen for **`PATCH /users/me`** (**image upload** + **status** + **displayName**)
-- [ ] **Redux** `auth` slice: tokens, user, verified flag; secure storage strategy for refresh (httpOnly cookie vs memory — align with API)
-- [ ] Protected routes; redirect flows; session restore on load
-- [ ] Form validation UX; error messages from API shape
+- [x] **Register flow:** form + **`registerUser`** + **`applyAuthResponse`**; optional **`status`** + **`profilePicture`** URL; errors from **`ErrorResponse`** — **`RegisterPage`**, **`routes/paths`**, **`features/auth/apiError`**
+- [x] **Login flow:** form + **`login`** + **`applyAuthResponse`**; handle **403** “email not verified” vs **401** — **`LoginPage`**, **`parseLoginError`** in **`features/auth/apiError`**
+- [ ] **Forgot / reset password** *(deprioritized for now — backend routes exist; web-client screens later):* **`forgotPassword`** + **`resetPassword`** (token from **email link** / query param)
+- [x] **Verification UX when `User.emailVerified` is `false`:** **`verifyEmail`** + **`resendVerificationEmail`** screens (state from register or **`getCurrentUser`**) — **`VerifyEmailPage`**, **`ROUTES.verifyEmail`**, **`applyVerifyEmailResponse`**
+- [x] **Redux `auth`:** ensure **`user.emailVerified`** populated; after register, route to app vs “check your email” — **`selectEmailVerified`**, **`useAuth`**, **`RegisterPage`** / **`HomePage`** redirect to **`/verify-email`** when unverified
+- [x] **Protected routes:** wrapper or loader — unauthenticated → **`/login`**; post-login redirect — **`ProtectedRoute`**, **`postLoginRedirect.ts`**, **`App.tsx`** nested route; login/register/verify preserve **`state.from`**
+- [x] **Session restore:** on app load, **`getCurrentUser`** (or refresh) if refresh token present — **`main`/`App`** bootstrap — **`SessionRestore`**, **`sessionBootstrap.ts`** (**`refreshTokens`** → **`getCurrentUser`**)
+- [x] **Settings / profile:** **`PATCH /users/me`** via **`updateCurrentUserProfile`** (FormData: image + **status** + **displayName**) — **`SettingsPage`**, **`ROUTES.settings`**
+- [x] **Tests first (`*.tsx`):** one screen per test file or shared **`renderWithProviders`** — RTL + MSW per **`PROJECT_GUIDELINES.md` §4.1.1** — **`src/test-utils/renderWithProviders.tsx`**, **`src/mocks/handlers.ts`** + **`server`**, **`SettingsPage.test.tsx`**, **`HomePage.test.tsx`**, **`ThemeToggle.test.tsx`**
+- [x] **Form validation UX** (client) + **API** error mapping (`code` / `message`) — **`lib/formValidation.ts`**, **`parseApiError`** / **`ApiErrorAlert`**, auth + **`SettingsPage`**
+
+---
+
+## Feature 2a — Guest / try-the-platform (temporary access)
+
+**Goal (demo / playground):** Instead of shared demo passwords, visitors **enter a display name only** and receive **temporary access** to **message other users** on the system and explore the product. **Product decisions to lock early:** who may guests contact (any registered user vs allowlist vs demo-only users), session length, and whether guests may join groups / calls.
+
+### (A) Infra, backend & deployment
+
+- [ ] **Product rules:** Document guest **TTL**, **rate limits**, and **who guests can message** (and what is blocked: e.g. admin, password change, billing).
+- [ ] **OpenAPI + Zod:** e.g. **`POST /v1/auth/guest`** — body **`{ displayName }`**; response **`accessToken`**, **`user`** (or public profile), **`expiresAt`**; **`guest: true`** (or equivalent) in **`User`** / token claims — bump spec + **`generate:api`** in same PR as routes.
+- [ ] **Persistence:** Guest identity — either rows in **`users`** with **`isGuest: true`** + nullable **`email`**, or a dedicated **`guest_sessions`** / **`users`** slice; indexes + optional **MongoDB TTL** on session documents.
+- [ ] **JWT:** Short‑lived access token with **`guest`** claim; align with **Feature 2** token shape so one **auth middleware** can branch **guest vs full user** (refresh for guests optional or omitted).
+- [ ] **Rate limits:** Per **IP** (and optionally per **fingerprint** header) on **`POST /auth/guest`**; abuse caps on sends for guest **`userId`**.
+- [ ] **AuthZ:** Apply guest rules on **REST** and **Socket.IO** (join rooms, **`POST /messages`**, search) — guests cannot escalate to full account actions until they **register**.
+- [ ] **Lifecycle:** Clear behaviour on expiry (401 + client redirect to name screen); optional **“Continue as guest”** re-issue with same display name policy (collision handling: suffix, uniqueness window).
+
+### (B) Web-client, UI, tests & state management
+
+- [ ] **Entry UX:** **“Try the app”** / **Continue as guest** — single field **display name** (validation: length, profanity optional) → call **`POST /auth/guest`** → store token + user in **`auth`** slice (**Feature 2**).
+- [ ] **Discoverability:** From landing, guest path sits **beside** sign-up / login; no email verification for guests.
+- [ ] **Session UI:** Persistent **banner** — *You’re using a temporary guest session* — link to **Create account**; show **time remaining** if API exposes **`expiresAt`**.
+- [ ] **Routing:** Guest **protected routes** mirror logged-in users where allowed; **block** or **hide** settings that require a real account.
+- [ ] **Tests first**, then UI: happy path, expired token, name validation; Redux tests for **guest** vs **registered** state.
 
 ---
 
@@ -209,9 +315,11 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 ### (B) Web-client, UI, tests & state management
 
-- [ ] **Tests first**, then UI: search input (**email**), debounced requests, results list (**name**, **avatar**, **existing conversation** hint via **`conversationId`**)
-- [ ] **Redux** or local state for search results + loading; empty states
-- [ ] Keyboard navigation and screen reader labels for results
+- [ ] **Tests first (`*.tsx`):** debounced **`searchUsersByEmail`**; loading → results; empty state
+- [ ] **Search field:** controlled input, debounce, **`searchUsersByEmail`** via **`usersApi`**
+- [ ] **Results list:** **name**, **avatar**, **`conversationId`** hint; navigate to composer / existing thread
+- [ ] **State:** local **`useState`** or small Redux slice for results + **`isLoading`**
+- [ ] **a11y:** keyboard navigation, **`aria`** on listbox / options
 
 ---
 
@@ -229,10 +337,12 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 ### (B) Web-client, UI, tests & state management
 
-- [ ] **Heartbeat client:** in the **Socket.IO Web Worker**, **`setInterval(5000)`** → **`socket.emit('presence:heartbeat')`** while connected; clear interval on **`disconnect`**
-- [ ] **Last seen read:** **`socket.emit('presence:getLastSeen', { targetUserId }, ack)`** — handle **`ok`** (show **`lastSeenAt`**, note **`source`**), **`not_available`**, **`error`**
-- [ ] **Tests first**, then UI: display last seen in chat headers / contact rows (relative time); “online” vs stale per product rules + read API
-- [ ] **Redux** or derived selectors for presence map keyed by user id
+- [ ] **Worker — heartbeat:** **`setInterval(5000)`** → **`socket.emit('presence:heartbeat')`** while connected; clear on **`disconnect`** (**`socketWorker.ts`**)
+- [ ] **Worker / bridge — getLastSeen:** emit **`presence:getLastSeen`** + **`targetUserId`**; forward **ack** to main via **`socketBridge`**
+- [ ] **Main thread:** hook **`useLastSeen(targetUserId)`** (or similar) — parse **`ok`** / **`not_available`** / **`error`**
+- [ ] **UI — display:** relative time in header / contact row; “online” vs stale (product rules)
+- [ ] **Tests first (`*.tsx`):** presentational row/header with mocked **`lastSeenAt`**
+- [ ] **State:** **`presenceByUserId`** in Redux or context; selectors for “online” heuristic
 
 ---
 
@@ -245,10 +355,12 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 ### (B) Web-client, UI, tests & state management
 
-- [ ] **Socket.IO client in a Web Worker**; worker forwards notification payloads to main thread (`postMessage`); main thread updates Redux / toasts
-- [ ] **Tests first**, then UI: in-app toast/banner, notification centre optional; permission prompt only if Web Push is in scope
-- [ ] **Redux** slice for notification queue / read state; middleware for cross-tab or analytics optional
-- [ ] Map notification types to UI (message vs call); respect DND/mute preferences when API exists
+- [ ] **Worker:** parse **`notification`** event; **`postMessage`** discriminated payload to main (**`socketWorker`** / **`socketBridge`**)
+- [ ] **Main thread:** listener dispatches to Redux or shows toast — thin **`useNotifications`** hook
+- [ ] **Redux:** **`notifications`** slice (queue, read ids) — optional middleware later
+- [ ] **UI — toasts:** map **`kind`** (`message` vs `call_incoming`, …); **tests first (`*.tsx`)**
+- [ ] **UI — optional:** notification centre panel; **Web Push** permission only if (A) implements push
+- [ ] **Preferences:** wire DND/mute when server API exists
 
 ---
 
@@ -365,21 +477,23 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 ### (A) messaging-service (backend) — AWS SDK
 
-- [ ] Dependencies: **`@aws-sdk/client-s3`**; add **`@aws-sdk/lib-storage`** (`Upload`) if streaming or multipart uploads exceed simple `PutObject` limits; **do not** add AWS SDK to **web-client**
-- [ ] **S3 client factory:** configure `S3Client` from env (`docs/ENVIRONMENT.md`): region, bucket, optional key prefix; **S3-compatible endpoints** for **MinIO** (`endpoint`, `forcePathStyle: true`); credentials via **IAM role** in AWS or documented **access key** in dev only (**no secrets** in repo)
-- [ ] **Upload path:** authenticated **REST** route (OpenAPI in same PR), e.g. `POST /v1/media/upload` — accept **multipart/form-data** or **raw** body with strict **Content-Length** / stream limits; **authz** before writing (user/conversation policy)
-- [ ] **Before calling SDK:** validate **max size**, **MIME** sniff / allowlist (e.g. `image/jpeg`, `image/png`, `image/webp`); generate stable **object keys** (e.g. `users/{userId}/…`); avoid loading entire huge files into memory — **stream** to `PutObject` / `Upload` where practical
-- [ ] **AWS SDK calls:** `PutObjectCommand` and/or **`Upload`** from `@aws-sdk/lib-storage`; handle errors (throttle, network); return **`{ key, bucket }`** and a **browser-safe URL** for display if applicable (HTTPS GET URL, or separate **GetObject** presign **only if** you add a read endpoint later — not required for MVP if URLs are public-read or behind CDN)
+- [x] Dependencies: **`@aws-sdk/client-s3`**; **`@aws-sdk/lib-storage`** (`Upload`); **do not** add AWS SDK to **web-client**
+- [x] **S3 client factory:** `src/storage/s3Client.ts` — env from `docs/ENVIRONMENT.md`; **MinIO** (`S3_ENDPOINT`, path-style when endpoint set); credentials via env or IAM default chain on AWS
+- [x] **Upload path:** **`POST /v1/media/upload`** — multipart **`file`**; **`Authorization: Bearer`** (HS256, `sub`) when **`JWT_SECRET`** set; non-production **`X-User-Id`** for local dev; **conversation-level authz** can be added with messaging (**Feature 1**)
+- [x] **Before calling SDK:** **`MEDIA_MAX_BYTES`** (default **30 MiB** via env); allowlisted **MIME** (images + common video types); keys `users/{userId}/{uuid}-{name}`; in-memory buffer up to max (stream to **`Upload`** later if needed)
+- [x] **AWS SDK:** **`Upload`** from `@aws-sdk/lib-storage`; response **`{ key, bucket, url? }`** per **OpenAPI** `MediaUploadResponse`
 - [ ] **MongoDB:** message (or attachment) documents store **S3 key** (and optional public/base URL); access patterns per `PROJECT_GUIDELINES.md` §2.0
-- [ ] **Operational:** structured logs **without** raw object bytes; optional **`/v1/ready`** dependency check (e.g. `HeadBucket`); **Compose / dev** MinIO bucket + env parity with AWS
+- [x] **Operational:** **`HeadBucket`** on **`/v1/ready`** when S3 configured; **`ensureBucketExists`** at startup; **Compose** wires **MinIO** + **`S3_*`** env (see **`infra/docker-compose.yml`**)
 
 ### (B) Web-client (UI) — upload via API only
 
-- [ ] **Tests first**, then UI: file picker, **upload progress** (XHR/fetch upload events to **messaging-service**), **image preview** in composer; cancel/retry
-- [ ] **Flow:** **`FormData`** or binary **POST** to **messaging-service** upload endpoint → use returned **key/URL** in **send message** payload; **no** direct calls to S3 from the browser
-- [ ] **Hooks / state:** `useMediaUpload` (or Redux async) wrapping API upload + errors only (**no** `aws-sdk` in client `package.json`)
-- [ ] **Rendering:** show **images** in thread from URLs the API returns; **lazy load**; **alt** / a11y; optional **lightbox**
-- [ ] **Env:** `VITE_API_BASE_URL` documented; if media is served from a separate **CDN/public base URL**, document it for `<img src>` construction
+- [ ] **Tests first (`*.tsx`):** MSW **`POST /media/upload`** → progress callback → resolved **`MediaUploadResponse`**
+- [ ] **File picker + FormData:** **`file`** field per OpenAPI; **`uploadMedia`** (**`mediaApi.ts`**)
+- [ ] **Progress + cancel:** **`axios` `onUploadProgress`** or XHR; **`AbortController`** for cancel; retry UX
+- [ ] **Composer:** after upload, pass **`mediaKey`** / preview URL into **`sendMessage`** — **no** browser **S3** calls
+- [ ] **`useMediaUpload` hook:** percent + error state (**no** `aws-sdk` in **`package.json`**)
+- [ ] **Thread:** **`<img>`** from API/CDN URLs; **`loading="lazy"`**; **`alt`**; optional lightbox
+- [ ] **Env / CDN:** **`VITE_API_BASE_URL`** in **`docs/ENVIRONMENT.md`**; public **bucket/CDN** base URL for **`src`** if different from API origin
 
 ---
 
@@ -397,16 +511,39 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 ---
 
-## Definition of done (MVP smoke)
+## Manual full-system test checkpoints
 
-- [ ] Full stack runs via documented `docker-compose` with nginx, TLS, static client, backends
-- [ ] **OpenAPI** checked in; **Swagger UI** at **messaging-service** (`/api-docs`) in dev — *served; see README*
-- [ ] Redux + typed hooks; features extend slices/hooks per `PROJECT_GUIDELINES.md`
-- [ ] End-to-end: register → verify → login → contact → 1:1 chat → group create → group message → media → notifications → 1:1 call
-- [ ] **Socket.IO** connection state visible (**connecting** / **connected** / **not connected**)
-- [ ] *(If E2EE is in scope for release)* **Prerequisite — User keypair** completed; **Feature 11** wire behaviour done; 1:1 and group ciphertext on wire/at rest; **one public key per user** on server; **private keys client-only**
-- [ ] *(If receipts are in scope)* **Feature 12**: **sent** / **delivered** / **seen** for 1:1 (and group policy) end-to-end
+Run these when you want to exercise the **whole stack** (Compose, nginx, **messaging-service**, **web-client**, MongoDB, Redis, RabbitMQ, MinIO, optional coturn). Use **after** major merges, **before** demos, or when debugging cross-cutting issues. (Automate later if useful.)
+
+- [ ] **Compose bring-up:** `docker compose -f infra/docker-compose.yml up -d --build` — `docker compose ps` shows expected containers; **`README.md`** host/port match your test.
+- [ ] **HTTP health:** **`GET /v1/health`** and **`GET /v1/ready`** via nginx entry (e.g. **`http://localhost:8080`**) — **200** when dependencies are up; **`/v1/ready`** reflects MongoDB, Redis, RabbitMQ, S3 as configured.
+- [ ] **Swagger:** **`/api-docs`** loads; spot-check a **public** route, then **Authorize** with a Bearer token and hit a protected route.
+- [ ] **Web client:** `npm run dev` in **`apps/web-client`** *or* static **`dist/`** behind nginx — app shell loads; browser **Network** tab shows API calls to expected **`VITE_API_BASE_URL`** / proxy.
+- [ ] **Auth path:** register + login **or** login only — session survives refresh (refresh token); **logout** clears client storage as designed; optional: **`EMAIL_VERIFICATION_REQUIRED=true`** path documented in **`ENVIRONMENT.md`**.
+- [ ] **Socket.IO:** client reaches **connected** (UI or worker); no repeated **401** loops; **presence:heartbeat** only if **Feature 6** path is enabled.
+- [ ] **Quality gates:** `npm run lint` + `npm run typecheck` in **`apps/web-client`** and **`apps/messaging-service`** (and **`npm run test`** where UI **`*.tsx`** tests exist).
+
+When **Feature 1** messaging and later features land, also run the **Definition of done (MVP smoke)** bullets below end-to-end.
 
 ---
 
-*Checklist version: 4.2 — Feature 6 read hardening (authz / REST mirror) deprioritized.*
+## Definition of done (MVP smoke)
+
+- [ ] **`docker compose`** brings up **messaging-service** + deps per **`README.md`**
+- [ ] **nginx** serves **web-client** **`dist/`** + proxies API (or documented equivalent)
+- [ ] **TLS** documented for production (even if local dev stays HTTP)
+- [ ] **OpenAPI** in repo; **`npm run generate:api`** in **web-client**; **Swagger** at **`/api-docs`**
+- [ ] **Redux** + typed hooks per **`PROJECT_GUIDELINES.md`**
+- [ ] **Smoke — auth:** register → login ( **`EMAIL_VERIFICATION_REQUIRED=false`** default; separate smoke if **`true`** )
+- [ ] **Smoke — messaging:** 1:1 thread send/receive; optional **group** create + message
+- [ ] **Smoke — media:** upload + attach in thread
+- [ ] **Smoke — notifications:** in-tab **`notification`** event for a message (or stub)
+- [ ] **Smoke — call:** 1:1 call happy path (or documented skip)
+- [ ] **Feature 2a (optional):** guest path → message per policy
+- [ ] **Socket.IO** status visible (**connecting** / **connected** / **disconnected**)
+- [ ] *(If E2EE in scope)* **User keypair** prerequisite + **Feature 11** wire + ciphertext on wire/at rest
+- [ ] *(If receipts in scope)* **Feature 12** **sent** / **delivered** / **seen** end-to-end
+
+---
+
+*Checklist version: 5.3 — added **Manual full-system test checkpoints**; subtasks split for smaller PRs/prompts; `EMAIL_VERIFICATION_REQUIRED` (default `false`); keep `User.emailVerified`; conditional verify flow.*

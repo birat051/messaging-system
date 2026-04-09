@@ -15,9 +15,7 @@ const HEARTBEAT_MIN_INTERVAL_MS = 4500;
 let adapterPubClient: ReturnType<typeof createClient> | null = null;
 let adapterSubClient: ReturnType<typeof createClient> | null = null;
 
-function readUserIdFromHandshake(
-  auth: unknown,
-): string | undefined {
+function readUserIdFromHandshake(auth: unknown): string | undefined {
   if (auth === null || typeof auth !== 'object') {
     return undefined;
   }
@@ -35,7 +33,9 @@ function readUserIdFromHandshake(
  * Last seen: client emits **`presence:heartbeat` every ~5s** while connected → Redis; on **disconnect** → flush to MongoDB (`users.lastSeenAt`) and clear Redis key.
  * Read path: **`presence:getLastSeen`** with `{ targetUserId }` + ack — Redis → Mongo → **`not_available`**.
  */
-export async function attachSocketIo(httpServer: HttpServer): Promise<SocketIoServer> {
+export async function attachSocketIo(
+  httpServer: HttpServer,
+): Promise<SocketIoServer> {
   const env = loadEnv();
   const corsOrigin = env.SOCKET_IO_CORS_ORIGIN;
   const io = new SocketIoServer(httpServer, {
@@ -76,35 +76,38 @@ export async function attachSocketIo(httpServer: HttpServer): Promise<SocketIoSe
     socket.on('presence:heartbeat', onHeartbeat);
 
     // Authz: tighten who may query which targetUserId when JWT/session exists (Feature 2).
-    socket.on('presence:getLastSeen', async (raw: unknown, ack?: (r: unknown) => void) => {
-      if (typeof ack !== 'function') {
-        logger.warn(
-          { socketId: socket.id },
-          'presence:getLastSeen missing acknowledgement callback',
-        );
-        return;
-      }
-      const targetUserId = parseGetLastSeenPayload(raw);
-      if (targetUserId === undefined) {
-        ack({
-          status: 'error',
-          code: 'invalid_payload',
-          message: 'expected { targetUserId: string }',
-        });
-        return;
-      }
-      try {
-        const result = await resolveLastSeenForUser(targetUserId);
-        ack(result);
-      } catch (err: unknown) {
-        logger.error({ err, targetUserId }, 'presence:getLastSeen failed');
-        ack({
-          status: 'error',
-          code: 'internal_error',
-          message: 'failed to resolve last seen',
-        });
-      }
-    });
+    socket.on(
+      'presence:getLastSeen',
+      async (raw: unknown, ack?: (r: unknown) => void) => {
+        if (typeof ack !== 'function') {
+          logger.warn(
+            { socketId: socket.id },
+            'presence:getLastSeen missing acknowledgement callback',
+          );
+          return;
+        }
+        const targetUserId = parseGetLastSeenPayload(raw);
+        if (targetUserId === undefined) {
+          ack({
+            status: 'error',
+            code: 'invalid_payload',
+            message: 'expected { targetUserId: string }',
+          });
+          return;
+        }
+        try {
+          const result = await resolveLastSeenForUser(targetUserId);
+          ack(result);
+        } catch (err: unknown) {
+          logger.error({ err, targetUserId }, 'presence:getLastSeen failed');
+          ack({
+            status: 'error',
+            code: 'internal_error',
+            message: 'failed to resolve last seen',
+          });
+        }
+      },
+    );
 
     logger.info(
       { socketId: socket.id, hasUserId: Boolean(userId) },

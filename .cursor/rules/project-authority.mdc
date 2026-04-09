@@ -1,19 +1,23 @@
 ---
-description: Authoritative project rules — docs hierarchy, process, merge checklist (PROJECT_GUIDELINES)
+description: Authoritative project rules — read PROJECT_GUIDELINES before coding; docs hierarchy, process, merge checklist
 alwaysApply: true
 ---
 
 # Project authority (holy grail)
 
-`docs/PROJECT_GUIDELINES.md` is the **authoritative** “how to build” standard. Pair it with `docs/PROJECT_PLAN.md` (architecture) and `docs/TASK_CHECKLIST.md` (what to ship and when).
+## Before writing or editing code
 
-**Precedence:** If a user prompt conflicts with these guidelines, **follow PROJECT_GUIDELINES.md** unless the user explicitly updates that document.
+**Always read (or re-read) [`docs/PROJECT_GUIDELINES.md`](docs/PROJECT_GUIDELINES.md)** before implementing or changing behavior in this repo. It is the **authoritative** “how to build” standard: TypeScript, Node, MongoDB, APIs, React/Redux, tests (**test-first** and **coverage** for **web-client `*.tsx`** UI only per §4.1.1 — not mandatory for plain **`*.ts`**), security, and process.
+
+Then use **`docs/PROJECT_PLAN.md`** (architecture, stack) and **`docs/TASK_CHECKLIST.md`** (what to ship and when) as needed for the task.
+
+**Precedence:** If a user prompt conflicts with these guidelines, **follow `docs/PROJECT_GUIDELINES.md`** unless the user explicitly updates that document.
 
 ## Required references
 
-- **`PROJECT_PLAN.md`** — stack, services, Socket.IO + RabbitMQ, repo layout.
-- **`PROJECT_GUIDELINES.md`** — TypeScript, Node, MongoDB, APIs, React/Redux, tests, process.
-- **`TASK_CHECKLIST.md`** — tasks/subtasks; capture work there before large features; check off as you ship.
+- **`docs/PROJECT_PLAN.md`** — stack, services, Socket.IO + RabbitMQ, repo layout.
+- **`docs/PROJECT_GUIDELINES.md`** — TypeScript, Node, MongoDB, APIs, React/Redux, tests, process.
+- **`docs/TASK_CHECKLIST.md`** — tasks/subtasks; capture work there before large features; check off as you ship.
 
 ## Process (non-negotiable)
 
@@ -25,4 +29,4 @@ alwaysApply: true
 
 ## Before merge (quick gate)
 
-Strict TS; env validated at startup; no secrets in repo; authz on mutating routes; MongoDB access patterns reasoned; list APIs paginated with server-enforced limits; OpenAPI in sync; ESLint clean; UI tests-first for new/changed components when touching `web-client`; Redux/hooks per guidelines for global client state.
+Strict TS; env validated at startup; no secrets in repo; authz on mutating routes; MongoDB access patterns reasoned; list APIs paginated with server-enforced limits; OpenAPI in sync; ESLint clean; **`web-client`:** tests-first + coverage only for **`*.tsx`** UI (`PROJECT_GUIDELINES.md` §4.1.1); **responsive layouts (mobile, iPad/tablet, desktop)** per §4.2.1; Redux/hooks per guidelines for global client state.

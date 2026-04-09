@@ -1,7 +1,6 @@
 import { getDb } from '../db/mongo.js';
+import { USERS_COLLECTION } from '../users/constants.js';
 import { getLastSeen } from './lastSeen.js';
-
-const USERS_COLLECTION = 'users';
 
 /** Response for `presence:getLastSeen` Socket.IO ack (Feature 6). */
 export type LastSeenSocketResult =
@@ -21,7 +20,9 @@ export type LastSeenSocketResult =
  * Resolve last-seen for a user: **Redis first** (hot online presence), else **MongoDB**
  * `users.lastSeenAt`. If neither has a value, **`not_available`**.
  */
-export async function resolveLastSeenForUser(userId: string): Promise<LastSeenSocketResult> {
+export async function resolveLastSeenForUser(
+  userId: string,
+): Promise<LastSeenSocketResult> {
   const trimmed = userId.trim();
   if (trimmed.length === 0) {
     return {

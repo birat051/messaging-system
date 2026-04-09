@@ -1,0 +1,42 @@
+import type { Request } from 'express';
+import { jwtVerify } from 'jose';
+import type { Env } from '../config/env.js';
+
+/**
+ * Resolves user id: **`Authorization: Bearer`** (HS256, `sub`) when **`JWT_SECRET`** is set;
+ * otherwise in **non-production** only, **`X-User-Id`** header for local development.
+ */
+export async function resolveUploadUserId(
+  req: Request,
+  env: Env,
+): Promise<string | undefined> {
+  const bearer = req.headers.authorization;
+  if (bearer?.startsWith('Bearer ') && env.JWT_SECRET) {
+    const token = bearer.slice('Bearer '.length).trim();
+    if (!token) {
+      return undefined;
+    }
+    try {
+      const secret = new TextEncoder().encode(env.JWT_SECRET);
+      const { payload } = await jwtVerify(token, secret, {
+        algorithms: ['HS256'],
+      });
+      const sub = payload.sub;
+      if (typeof sub === 'string' && sub.trim() !== '') {
+        return sub.trim();
+      }
+    } catch {
+      return undefined;
+    }
+    return undefined;
+  }
+
+  if (env.NODE_ENV !== 'production') {
+    const raw = req.headers['x-user-id'];
+    if (typeof raw === 'string' && raw.trim() !== '') {
+      return raw.trim();
+    }
+  }
+
+  return undefined;
+}

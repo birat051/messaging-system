@@ -1,21 +1,25 @@
 ---
-description: web-client — React, Vite, Redux Toolkit, test-first UI, a11y (PROJECT_GUIDELINES)
+description: web-client — React, Vite, Redux; test-first + coverage for *.tsx UI only (§4.1.1); read docs/PROJECT_GUIDELINES.md first
 globs: apps/web-client/**
 alwaysApply: false
 ---
 
-# Web client (from PROJECT_GUIDELINES.md)
+# Web client (from `docs/PROJECT_GUIDELINES.md`)
 
-## Tests before implementation
+**Before coding:** read **`docs/PROJECT_GUIDELINES.md`** (especially §4 React/UI). The **`project-authority`** rule applies to every chat.
 
-For **each new or substantially changed UI component:** write **tests first** (React Testing Library + Vitest/Jest), then implement. Test **behaviour** (render, interaction, a11y), not implementation details.
+## Tests before implementation (UI only — `*.tsx`)
+
+For **each new or substantially changed React UI file** (**`*.tsx`** — components, pages, layouts): write **unit and integration tests first** (React Testing Library + Vitest/Jest), then implement. Test **behaviour** (render, interaction, a11y), not implementation details.
+
+**Do not** require mandatory unit/integration tests or coverage for plain **`*.ts`** files (Redux slices, hooks without UI, `httpClient`, utils, workers, etc.) unless the task explicitly asks — see **`docs/PROJECT_GUIDELINES.md` §4.1.1**. **Coverage** gates apply only to **`*.tsx`** UI sources.
 
 ## Redux (RTK)
 
 - `@reduxjs/toolkit` + `react-redux`. Typed **`useAppDispatch`** / **`useAppSelector`** from one module (e.g. `store/hooks.ts`).
 - Feature **`createSlice`**; middleware for logging, analytics, API error normalization as needed.
 - **Custom hooks** in `hooks/` wrapping selectors + dispatch + router. **Local state** for UI-only (modals, fields); do not put every keystroke in Redux.
-- Unit-test non-trivial slice logic and hooks.
+- **Tests:** mandatory tests only for **`*.tsx`** UI (§4.1.1); not for **`*.ts`** modules by default.
 
 ## Styling (Tailwind + themes)
 
@@ -26,6 +30,13 @@ For **each new or substantially changed UI component:** write **tests first** (R
 - Pixel-conscious, calm theme (colour, contrast, spacing, typography). Smooth scroll/section motion where specified without harming focus.
 - **Accessibility:** keyboard, visible focus, no traps, semantic HTML, ARIA when needed.
 - **One primary component per file.** Non-prop types in module **`types.ts`**; props types may stay with the component.
+
+## Responsive layouts (mobile, tablet / iPad, desktop)
+
+- **Every** new or changed **layout and component** must be **responsive**: phone, **tablet (including iPad)**, and desktop — unless the task explicitly documents a desktop-only exception.
+- Use **Tailwind breakpoints** (`sm:` / `md:` / `lg:` / …), **flex/grid**, fluid spacing, **no fixed desktop-only widths** that break narrow views. Prefer **mobile-first** base styles.
+- **Touch targets** and spacing suitable for phones/tablets; **safe areas** at screen edges when relevant.
+- **Verify** at representative widths (e.g. ~390px, ~768px, ~1024px+) before merge. See **`docs/PROJECT_GUIDELINES.md` §4.2.1**.
 
 ## Real-time (Socket.IO)
 

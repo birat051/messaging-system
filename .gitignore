@@ -1,8 +1,13 @@
 node_modules/
 dist/
 build/
+# Env files with secrets / machine-specific values (do not commit).
+# `apps/web-client/.env.development` and `.env.production` are committed; `*.local` overrides are not.
 .env
-.env.*
+.env.local
+.env.development.local
+.env.production.local
+.env.test.local
 *.log
 .DS_Store
 coverage/
