@@ -4,14 +4,14 @@ import { Provider } from 'react-redux';
 import { BrowserRouter } from 'react-router-dom';
 import { SWRConfig } from 'swr';
 import './index.css';
-import { attachHttpAuth } from './api/httpClient';
-import { swrConfigValue } from './api/swrConfig';
+import { attachHttpAuth } from './common/api/httpClient';
+import { swrConfigValue } from './common/api/swrConfig';
+import { ThemeProvider } from './common/theme/ThemeProvider';
 import App from './App';
-import { SessionRestore } from './features/auth/SessionRestore';
+import { SessionRestore } from './modules/auth/components/SessionRestore';
 import { store } from './store';
 
 attachHttpAuth(store);
-import { ThemeProvider } from './theme/ThemeProvider';
 
 const root = document.getElementById('root');
 if (!root) {

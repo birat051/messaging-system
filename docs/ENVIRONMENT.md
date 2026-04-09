@@ -36,7 +36,7 @@ Single reference for variables passed into each deployable (Docker Compose, loca
 | `S3_PUBLIC_BASE_URL` | no | — | No trailing slash — used to build optional **`url`** in **`MediaUploadResponse`** (e.g. `http://localhost:9000` for local MinIO from the host browser). |
 | `MEDIA_MAX_BYTES` | no | `31457280` | Max **`multipart`** `file` size per upload (**30 MiB** default for image/video). Upper bound in validation: **500 MiB**. |
 | `JWT_SECRET` | no | — | **Required** for **`POST /auth/register`**, **`/auth/verify-email`**, **`/auth/resend-verification`** (HS256 signing). Also used for **`POST /v1/media/upload`** when Bearer auth is enabled. When unset, **`X-User-Id`** dev upload header only applies in non-production. |
-| `EMAIL_VERIFICATION_REQUIRED` | no | `false` | When **`true`**, **`POST /auth/register`** sets **`emailVerified: false`** and verification JWT / mail flow applies. When **`false`** (default), new users get **`emailVerified: true`** immediately (no verification email). **`POST /auth/verify-email`** and **`POST /auth/resend-verification`** return **400** with code **`EMAIL_VERIFICATION_DISABLED`** — not used on the happy path when verification is off. |
+| `EMAIL_VERIFICATION_REQUIRED` | no | `false` | See **[Email verification](#email-verification-email_verification_required)** below. |
 | `EMAIL_VERIFICATION_TOKEN_TTL_HOURS` | no | `48` | Lifetime of signed email-verification JWTs. |
 | `ACCESS_TOKEN_TTL_SECONDS` | no | `3600` | Access token TTL on **`POST /auth/register`**, **`/auth/login`**, **`/auth/refresh`**, **`/auth/verify-email`**. |
 | `REFRESH_TOKEN_TTL_SECONDS` | no | `604800` | Opaque refresh token TTL in **Redis** (default **7 days**). |
@@ -57,6 +57,17 @@ Single reference for variables passed into each deployable (Docker Compose, loca
 
 *Future:* separate signing keys for access vs refresh — extend here and `loadEnv()` in the same PR.
 
+### Email verification (`EMAIL_VERIFICATION_REQUIRED`)
+
+**Feature 2** (see [`TASK_CHECKLIST.md`](./TASK_CHECKLIST.md) — *Feature 2 — Sign up / log in*): **`User.emailVerified`** is always part of the **`User`** model, but **whether verification is enforced** is controlled only by the **messaging-service** env **`EMAIL_VERIFICATION_REQUIRED`** (not exposed as **`GET /config`** in the API — clients learn behavior from responses and **`User`** / error payloads).
+
+| Server setting | `POST /auth/register` | `User.emailVerified` on new users | `POST /auth/verify-email` / `POST /auth/resend-verification` | Protected JWT routes when verification is required |
+|----------------|----------------------|-------------------------------------|--------------------------------------------------------------|---------------------------------------------------|
+| **`false`** (default) | Issues tokens per **`AuthResponse`**; no mail required | **`true`** immediately | Return **400** with **`EMAIL_VERIFICATION_DISABLED`** if called | Middleware allows access when token is valid (user is already verified at signup). |
+| **`true`** | May return **`accessToken: null`** until verified; SendGrid mail if configured | **`false`** until token consumed | Normal verify/resend flow (rate limits apply) | **`requireAuth`** may reject until **`emailVerified`** is **`true`** (see service middleware). |
+
+**Web-client:** show verify/resend UI when **`getCurrentUser`** / session shows **`emailVerified: false`** and your deployment uses verification — the app does **not** read a separate config flag from the API; align UX with **`docs/openapi/openapi.yaml`** and the env table above.
+
 ---
 
 ## web-client
@@ -67,7 +78,7 @@ Env files live under **`apps/web-client/`**. **Committed:** **`.env.development`
 |----------|----------|---------|-------------|
 | `VITE_API_BASE_URL` | no | *(relative)* `/v1` on current origin in dev | REST base URL **including** `/v1`, or a path (`/v1`) when using **Vite** `server.proxy` to nginx (**`8080`**). Absolute example: `http://localhost:8080/v1`. |
 
-**Tokens (browser):** access JWT is **in memory** (Redux); refresh token is **`localStorage`** key **`messaging-refresh-token`**. **`POST /v1/auth/refresh`** on **401** (up to **3** attempts, **1s** between failures, then redirect to **`/login`**) — see **`apps/web-client/src/api/httpClient.ts`**.
+**Tokens (browser):** access JWT is **in memory** (Redux); refresh token is **`localStorage`** key **`messaging-refresh-token`**. **`POST /v1/auth/refresh`** on **401** (up to **3** attempts, **1s** between failures, then redirect to **`/login`**) — see **`apps/web-client/src/common/api/httpClient.ts`**.
 
 ---
 

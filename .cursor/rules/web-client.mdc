@@ -1,12 +1,54 @@
 ---
-description: web-client — React, Vite, Redux; test-first + coverage for *.tsx UI only (§4.1.1); read docs/PROJECT_GUIDELINES.md first
+description: web-client — React, Vite, Redux; common/ + modules/ layout; test-first + coverage for *.tsx UI only (§4.1.1); read docs/PROJECT_GUIDELINES.md first
 globs: apps/web-client/**
 alwaysApply: false
 ---
 
 # Web client (from `docs/PROJECT_GUIDELINES.md`)
 
-**Before coding:** read **`docs/PROJECT_GUIDELINES.md`** (especially §4 React/UI). The **`project-authority`** rule applies to every chat.
+**Before coding:** read **`docs/PROJECT_GUIDELINES.md`** (especially **§4.0** file layout and **§4** React/UI). See **`docs/PROJECT_PLAN.md` §10.1** for the full tree. The **`project-authority`** rule applies to every chat.
+
+## Folder layout (`common/` + `modules/`)
+
+| Location | Purpose |
+|----------|---------|
+| **`src/common/api/`** | HTTP client, **`API_PATHS`**, feature API modules (`authApi`, `usersApi`, …). **Only** place that talks to **`httpClient`** / **`axios`** for REST (ESLint enforces this for UI). |
+| **`src/common/components/`**, **`constants/`**, **`types/`**, **`utils/`**, **`hooks/`** | Shared UI, constants, client-only types, pure helpers, and cross-module hooks (**`useAuth`**, **`usePresenceConnection`**, …). |
+| **`src/common/realtime/`** | Socket.IO main-thread bridge + **`socketWorkerProtocol`** (shared with **`src/workers/`**). |
+| **`src/common/theme/`** | **`ThemeProvider`**, **`useTheme`**, theme storage (app-wide). |
+| **`src/common/mocks/`**, **`src/common/test-utils/`**, **`src/common/integration/`** | MSW **`handlers`** + **`server`**, RTL **`renderWithProviders`**, cross-route integration tests. |
+| **`src/modules/<module-id>/`** | One folder per feature or route area — see **`src/modules/README.md`** for **`home`**, **`settings`**, **`auth`** and **`*Page.tsx`** in **`pages/`**. Subfolders: **`components/`**, **`stores/`**, **`api/`**, **`constants/`**, **`utils/`**, **`types/`**, **`pages/`**. |
+| **`src/store/`** | **`configureStore`**, root reducer wiring, **`hooks.ts`** (`useAppDispatch` / `useAppSelector`). Slice **files** live under **`modules/*/stores/`**; registered here. |
+| **`src/routes/`** | **`paths.ts`** (**`ROUTES`**), **`lazyPages.ts`** (**`React.lazy`**), **`RouteFallback`**, **`ProtectedRoute`**, navigation — **`App.tsx`** uses **`Suspense`**. |
+| **`src/generated/`** | OpenAPI codegen — do not hand-edit. |
+| **`src/workers/`** | Web Worker entries (e.g. Socket.IO). |
+| **`src/`** root | **`main.tsx`**, **`App.tsx`**, **`index.css`**, **`setupTests.ts`**. |
+
+**Layout:** REST under **`src/common/api/`**; pages under **`src/modules/<module-id>/pages/`**; feature state (e.g. auth) under **`src/modules/<module-id>/`**. **New work** should colocate under **`modules/`** when adding features.
+
+## Rules of thumb
+
+1. **Shared vs module-only:** If code is imported from **two or more** modules or from **`App`**, it belongs in **`common/`** (or **`store/`** / **`routes/`** as appropriate). If only one module uses it, keep it under **`modules/<module-id>/`**.
+2. **REST boundary:** Pages, layouts, and module components import **`authApi`**, **`usersApi`**, **`API_PATHS`**, **`swrFetcher`**, or the **`common/api`** barrel — **not** **`httpClient`**, **`httpMutations`**, or raw URLs. See **`src/common/api/README.md`**.
+3. **Imports:** Prefer **relative** imports inside a single **`modules/<id>/`** tree. **Cross-cutting** imports use paths into **`common/`** (and **`@/`** aliases if configured in **`vite.config.ts`** / **`tsconfig`**).
+
+## Import examples (target)
+
+```ts
+// From e.g. modules/settings/pages/SettingsPage.tsx — shared API (barrel or named module)
+import { usersApi, API_PATHS } from '../../../common/api'; // depth varies; use '@/common/api' if aliased
+
+// From a module component — only if the call is module-specific
+import { someThinWrapper } from '../api/contactsApi';
+
+// Redux — typed hooks from the app store (path depth depends on file location)
+import { useAppDispatch, useAppSelector } from '../../../store/hooks';
+
+// Same module — relative
+import { ProfileCard } from '../components/ProfileCard';
+```
+
+**Tests — mock `httpClient` or a single `*Api` module** (see **`docs/PROJECT_GUIDELINES.md`** and **`src/common/api/README.md`**). Use mock paths relative to the test file (e.g. **`vi.mock('@/common/api/httpClient')`** or **`../common/api/httpClient`** from **`pages/`**).
 
 ## Tests before implementation (UI only — `*.tsx`)
 
@@ -14,22 +56,27 @@ For **each new or substantially changed React UI file** (**`*.tsx`** — compone
 
 **Do not** require mandatory unit/integration tests or coverage for plain **`*.ts`** files (Redux slices, hooks without UI, `httpClient`, utils, workers, etc.) unless the task explicitly asks — see **`docs/PROJECT_GUIDELINES.md` §4.1.1**. **Coverage** gates apply only to **`*.tsx`** UI sources.
 
+## One test file per component (`*.tsx` + `*.test.tsx`)
+
+**Mandatory in `apps/web-client`:** For every **`ComponentName.tsx`** that exports a primary UI component under **`src/common/`** or **`src/modules/`** (or legacy **`pages/`** until migrated), create or update **`ComponentName.test.tsx` in the same folder** — tests only for that component. Do not merge unrelated components into one test file. Exceptions: **`main.tsx`**, generated code, barrels with no UI — see **`docs/PROJECT_GUIDELINES.md` §4.1.2**. Cross-route tests (e.g. **`src/common/integration/*.test.tsx`**) are extra, not a substitute for colocated tests.
+
 ## Redux (RTK)
 
-- `@reduxjs/toolkit` + `react-redux`. Typed **`useAppDispatch`** / **`useAppSelector`** from one module (e.g. `store/hooks.ts`).
-- Feature **`createSlice`**; middleware for logging, analytics, API error normalization as needed.
-- **Custom hooks** in `hooks/` wrapping selectors + dispatch + router. **Local state** for UI-only (modals, fields); do not put every keystroke in Redux.
+- `@reduxjs/toolkit` + `react-redux`. Typed **`useAppDispatch`** / **`useAppSelector`** from **`src/store/hooks.ts`**.
+- Feature **`createSlice`** files under **`modules/<module-id>/stores/`**; register in **`store/store.ts`** (or equivalent). Middleware for logging, analytics, API error normalization as needed.
+- **Custom hooks** shared across modules: **`common/hooks/`** (or **`common/utils/`** if the team prefers). Module-only hooks stay under the owning **`modules/<id>/`**.
+- **Local state** for UI-only (modals, fields); do not put every keystroke in Redux.
 - **Tests:** mandatory tests only for **`*.tsx`** UI (§4.1.1); not for **`*.ts`** modules by default.
 
 ## Styling (Tailwind + themes)
 
-- **Tailwind CSS v4** via **`@tailwindcss/vite`**; tokens and **`@theme`** live in **`src/index.css`** (semantic colours: `background`, `foreground`, `surface`, `accent`, etc.). **Dark mode:** `html` **`class="dark"`** — use **`ThemeProvider`** / **`useTheme`** (`src/theme/`). Prefer utility classes; run **Prettier** so **`prettier-plugin-tailwindcss`** sorts classes.
+- **Tailwind CSS v4** via **`@tailwindcss/vite`**; tokens and **`@theme`** live in **`src/index.css`** (semantic colours: `background`, `foreground`, `surface`, `accent`, etc.). **Dark mode:** `html` **`class="dark"`** — use **`ThemeProvider`** / **`useTheme`** (`src/common/theme/`). Prefer utility classes; run **Prettier** so **`prettier-plugin-tailwindcss`** sorts classes.
 
 ## UI quality
 
 - Pixel-conscious, calm theme (colour, contrast, spacing, typography). Smooth scroll/section motion where specified without harming focus.
 - **Accessibility:** keyboard, visible focus, no traps, semantic HTML, ARIA when needed.
-- **One primary component per file.** Non-prop types in module **`types.ts`**; props types may stay with the component.
+- **One primary component per file.** Non-prop types in module **`types/`** or **`types.ts`**; shared types in **`common/types/`**; props types may stay with the component.
 
 ## Responsive layouts (mobile, tablet / iPad, desktop)
 

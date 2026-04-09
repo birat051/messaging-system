@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 import { io, type Socket } from 'socket.io-client';
-import type { MainToWorkerMessage, WorkerToMainMessage } from '../realtime/socketWorkerProtocol';
+import type { MainToWorkerMessage, WorkerToMainMessage } from '../common/realtime/socketWorkerProtocol';
 
 const HEARTBEAT_MS = 5000;
 

@@ -64,7 +64,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Verify email using signed JWT from registration or resend (throttled per IP) */
+        /**
+         * Verify email using signed JWT from registration or resend (throttled per IP)
+         * @description When **`EMAIL_VERIFICATION_REQUIRED`** is **`false`** on the server, returns **400** with **`ErrorResponse`**
+         *     **`code`** **`EMAIL_VERIFICATION_DISABLED`** — the verification flow is not used (see **`docs/ENVIRONMENT.md`**).
+         */
         post: operations["verifyEmail"];
         delete?: never;
         options?: never;
@@ -81,7 +85,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Resend verification flow (throttled per email; constant response to avoid enumeration) */
+        /**
+         * Resend verification flow (throttled per email; constant response to avoid enumeration)
+         * @description When **`EMAIL_VERIFICATION_REQUIRED`** is **`false`**, returns **400** with **`code`** **`EMAIL_VERIFICATION_DISABLED`**.
+         */
         post: operations["resendVerificationEmail"];
         delete?: never;
         options?: never;
@@ -437,6 +444,7 @@ export interface components {
             /** Format: email */
             email: string;
             displayName?: string | null;
+            /** @description Present on every **`User`**. Meaning depends on deployment: when **`EMAIL_VERIFICATION_REQUIRED`** is **`true`** (messaging-service env), new users may be **`false`** until **`POST /auth/verify-email`** succeeds; when **`false`**, registration typically sets this to **`true`** immediately. See **`docs/ENVIRONMENT.md`** — email verification. */
             emailVerified?: boolean;
             /**
              * Format: uri

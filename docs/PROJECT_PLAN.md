@@ -327,19 +327,71 @@ Additional **`kind`** values (e.g. `call_missed`, `group_invite`) should be adde
 
 Top-level apps use **clear names**: **`web-client`** and **`messaging-service`**. Each app keeps its **own** structural folders—**`types/`**, **`utils/`**, **`controllers/`** (or route handlers), **`hooks/`** (where applicable), **`services/`**, **`repositories/`**, etc.—so concerns stay **isolated per deployable**. Cross-cutting **REST contracts** are defined in **`docs/openapi/`** (OpenAPI 3); **web-client** uses **generated** types from that spec, not a shared `packages` library. **Tooling:** each deployable has its **own** **`package.json`**, **TypeScript**, **ESLint**, and **Prettier**; **no** single repo-root TypeScript/ESLint/Prettier for the entire monorepo.
 
+### 10.1 Web-client — `common/` + `modules/` (target layout)
+
+**Goal:** Separate **cross-cutting client code** (reused everywhere) from **feature- or page-scoped code** (owned by a single route or product area). **Shared** building blocks live under **`src/common/`**; each **feature / page area** lives under **`src/modules/<module-id>/`** with its own **components**, **stores**, **api**, **constants**, **utils**, and **types** so modules stay **encapsulated** and easier to navigate as the app grows.
+
+| Area | Purpose |
+|------|---------|
+| **`src/common/`** | Code reused across the SPA: **`api/`** (HTTP client, **`API_PATHS`**, OpenAPI-typed REST modules), **`components/`** (shared UI), **`constants/`**, **`types/`**, **`utils/`**. Optional: **`hooks/`** for shared React hooks if not placed under **`utils`**. |
+| **`src/modules/<module-id>/`** | One folder per **feature or page** (e.g. `home`, `settings`, `auth-login`). Each module may contain **`components/`**, **`stores/`** (Redux slices or local state owned by the module), **`api/`** (thin wrappers over **`common/api`** when calls are module-specific), **`constants/`**, **`utils/`**, **`types/`**, and **`pages/`** (route entry components) or a single **`Page.tsx`** at the module root — **team convention** should stay consistent. |
+| **`src/store/`** | Global Redux **`configureStore`**, root reducer wiring, **registering slices** exported from **`modules/*/stores`**. |
+| **`src/routes/`** | Router shell, **`ProtectedRoute`**, **path constants** (e.g. **`paths.ts`** / **`ROUTES`**) — **only** location for SPA pathname strings; see **`PROJECT_GUIDELINES.md` §4.0**. |
+| **`src/generated/`** | OpenAPI codegen output — **unchanged** path for **`openapi-typescript`**. |
+| **`src/workers/`** | Web Worker entries (e.g. Socket.IO) per §3.3. |
+| **`src/main.tsx`**, **`App.tsx`**, **`index.css`** | Application bootstrap at **`src/`** root. |
+
+**Example (illustrative — not exhaustive):**
+
+```
+apps/web-client/src/
+  main.tsx
+  App.tsx
+  index.css
+  common/
+    api/              # httpClient, paths, authApi, usersApi, …
+    components/       # Shared presentational / layout components
+    constants/
+    types/
+    utils/
+    hooks/            # Shared React hooks (e.g. useAuth, usePresenceConnection)
+    realtime/         # Socket.IO main-thread bridge + protocol (pairs with workers/)
+    theme/            # ThemeProvider, useTheme, storage
+  modules/
+    home/
+      components/
+      stores/
+      api/
+      constants/
+      utils/
+      types/
+      pages/          # e.g. HomePage.tsx
+    settings/
+      components/
+      stores/
+      api/
+      constants/
+      utils/
+      types/
+      pages/
+    auth-login/
+      …
+  store/
+  routes/
+  generated/
+  workers/
+```
+
+**Rules of thumb:** (1) If a file is **only** used by one feature, it belongs in that **module**. (2) If it is imported from **two or more** modules or from **`App`**, it belongs in **`common/`** (or **`store/`** / **`routes/`** as appropriate). (3) **REST DTO types** still come from **`generated/`** + **`common/api`**; module **`types/`** are for **view/UI** shapes specific to that module.
+
+**Legacy note:** Remaining migration items are tracked in **`TASK_CHECKLIST.md`**. Pages live under **`src/modules/<module-id>/pages/`**; REST client under **`src/common/api/`**; shared Socket.IO bridge + theme under **`src/common/realtime/`** and **`src/common/theme/`**; auth Redux and helpers under **`src/modules/auth/`**.
+
 ```
 messaging-system/
   apps/
     web-client/
       src/
-        components/
-        hooks/           # React hooks — only in web-client
-        workers/         # e.g. socket.io Web Worker entry (see §3.3)
-        types/           # UI/domain view types — scoped to client
-        utils/
-        store/           # e.g. Redux (see PROJECT_GUIDELINES.md)
-        generated/       # TypeScript from OpenAPI codegen (see docs/openapi/)
-        ...
+        …            # see §10.1 for target tree; legacy layout may persist during migration
     messaging-service/
       src/
         controllers/     # HTTP (and Socket.IO attachment points if colocated)
@@ -391,4 +443,4 @@ messaging-system/
 
 ---
 
-_Document version: 2.1 — §8: unified `notification` Socket.IO payload (`kind`: message \| call_incoming)._
+_Document version: 2.2 — §10.1: web-client **`common/`** + **`modules/`** target layout; legacy flat `src/` may persist until migration._

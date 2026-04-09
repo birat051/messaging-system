@@ -49,24 +49,24 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
   - [x] Strict TS (`tsconfig.app.json` — `strict`, unused locals/params, etc.) per `PROJECT_GUIDELINES.md` §1.1
   - [x] **Tailwind CSS v4** + **themes** — **`@tailwindcss/vite`**, **`tailwind.config.ts`**, semantic tokens + **`@theme`** in **`src/index.css`** (`background`, `foreground`, `surface`, `accent`, `border`, `muted`, `ring`, `radius-card`, `shadow-card`); **class-based dark mode** (`html.dark`) + **`ThemeProvider`** / **`useTheme`** / **`ThemeToggle`** + **`localStorage`** (`messaging-theme`); `prettier-plugin-tailwindcss` in **`.prettierrc.json`**
   - [x] **ESLint** (`typescript-eslint`, **`eslint-plugin-react-hooks`**, **`eslint-plugin-react-refresh`**); **Prettier**; optional a11y plugin later
-  - [x] **react-router** + **`config/api.ts`** (**`VITE_API_BASE_URL`**, **`getApiBaseUrl`** / **`getSocketUrl`**) + **`App`/`main`** wiring
+  - [x] **react-router** + **`src/common/utils/apiConfig.ts`** (**`VITE_API_BASE_URL`**, **`getApiBaseUrl`** / **`getSocketUrl`**) + **`App`/`main`** wiring
   - [x] **Vite:** dev **proxy** to API + **`build.outDir`** (`dist/`) for nginx — **`vite.config.ts`**
-  - [x] **Socket.IO in a Web Worker:** **`src/workers/socketWorker.ts`** + **`src/realtime/socketBridge.ts`** (`postMessage` to main thread)
-  - [x] **Presence hook:** **`emit('presence:heartbeat')` every 5s** while connected — **`hooks/usePresenceConnection`** (**Feature 6**)
+  - [x] **Socket.IO in a Web Worker:** **`src/workers/socketWorker.ts`** + **`src/common/realtime/socketBridge.ts`** (`postMessage` to main thread)
+  - [x] **Presence hook:** **`emit('presence:heartbeat')` every 5s** while connected — **`src/common/hooks/usePresenceConnection`** (**Feature 6**)
   - [x] **Vitest** + **React Testing Library** + **jsdom** (`npm run test` / `test:watch`); **`src/setupTests.ts`**; example **`*.tsx`** component test (**`ThemeToggle`**); mandatory tests only for UI **`*.tsx`** per **`PROJECT_GUIDELINES.md` §4.1.1**; **no** client env-based user impersonation for Socket.IO (identity from session only, per **`PROJECT_GUIDELINES.md` §4.1)
   - [ ] **Static assets / uploads (images, etc.):** follow **Cross-cutting — Media (AWS S3)** (**no AWS SDK in the browser**)
-    - [ ] **API:** call **`uploadMedia`** / **`POST /media/upload`** from UI (FormData); handle **`MediaUploadResponse`** (`key` / `url`) — **`src/api/mediaApi.ts`** + thin UI hook
+    - [ ] **API:** call **`uploadMedia`** / **`POST /media/upload`** from UI (FormData); handle **`MediaUploadResponse`** (`key` / `url`) — **`src/common/api/mediaApi.ts`** + thin UI hook
     - [ ] **Composer:** file picker, attach flow, pass **`mediaKey`** (or URL) into **`sendMessage`** payload per OpenAPI
     - [ ] **UX:** upload **progress** (XHR/`axios` onUploadProgress or equivalent), cancel/retry, error states
     - [ ] **Thread UI:** render image attachments from API URLs; loading/**lazy** **`alt`** / a11y (**see also** **Cross-cutting — Media (B)**)
 
 - [ ] **web-client — REST mocking and integration tests** (`PROJECT_GUIDELINES.md` §4.1; behaviour-focused RTL + Vitest)
-  - [ ] **API boundary:** components/hooks import **`src/api/*`** only (no ad-hoc URLs); tests mock **`httpClient`** or **`authApi`** / **`usersApi`** / … — **see** **Feature API modules** + **`paths.ts`**
-  - [ ] **Unit tests — mock strategy:** prefer **`vi.mock('../api/httpClient')`** or **`vi.mock` one API module**; assert **method + path** (via **`API_PATHS`**) and **resolved UI/state** — not React internals; avoid **`fetch`** stubs
+  - [x] **API boundary:** components/hooks import **`src/common/api/*`** only (no ad-hoc URLs); tests mock **`httpClient`** or **`authApi`** / **`usersApi`** / … — **see** **`src/common/api/README.md`**, **`API_PATHS`**, ESLint **`no-restricted-imports`** (no direct **`httpClient`** / **`httpMutations`** / **`axios`** in pages, components, hooks)
+  - [x] **Unit tests — mock strategy:** prefer **`vi.mock('../common/api/httpClient')`** or **`vi.mock` one API module**; assert **method + path** (via **`API_PATHS`**) and **resolved UI/state** — not React internals; avoid **`fetch`** stubs — **`src/common/api/usersApi.test.ts`**, **`src/modules/settings/pages/SettingsPage.usersApiMock.test.tsx`**, **`src/common/api/README.md`**
   - [x] **MSW — dependency + Node setup:** add **`msw`** to **`package.json`**; **`src/setupTests.ts`** — **`setupServer`**, **`beforeAll`/`afterEach`/`afterAll`** (`listen`, **`resetHandlers`**, **`close`**)
-  - [x] **MSW — handlers:** **`src/mocks/handlers.ts`** (or feature-scoped files) — **`http.patch`** for **`*/v1/users/me`** aligned with **`docs/openapi/openapi.yaml`** (intercepts **`axios`**)
-  - [x] **Integration harness:** **`renderWithProviders(ui, { route, preloadedState? })`** in **`src/test-utils/`** — **`MemoryRouter`** + **`ThemeProvider`** + **`Provider`** + **`SWRConfig`** when needed
-  - [ ] **Integration tests:** **`server.use`** per test for **401**, empty lists, errors; **`waitFor` / `findBy`** for async UI
+  - [x] **MSW — handlers:** **`src/common/mocks/handlers.ts`** (or feature-scoped files) — **`http.patch`** for **`*/v1/users/me`** aligned with **`docs/openapi/openapi.yaml`** (intercepts **`axios`**)
+  - [x] **Integration harness:** **`renderWithProviders(ui, { route, preloadedState? })`** in **`src/common/test-utils/`** — **`MemoryRouter`** + **`ThemeProvider`** + **`Provider`** + **`SWRConfig`** when needed
+  - [x] **Integration tests:** **`server.use`** per test for **401**, empty lists, errors; **`waitFor` / `findBy`** for async UI — **`src/common/integration/msw.integration.test.tsx`**
   - [ ] **Fixtures:** **`__fixtures__/`** or factories for **`User`**, **`AuthResponse`**, list payloads
   - [ ] **Security:** no **`VITE_*`** fake user IDs in tests — mock **HTTP** session/**401** only (`PROJECT_GUIDELINES.md` §4.1)
 
@@ -76,17 +76,17 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 - [ ] **web-client — Axios, SWR, and global HTTP** (depends on **Redux** + **`react-router`** for session + **401** navigation)
   - [x] **Dependencies:** add **`axios`** and **`swr`** to **`apps/web-client`**; pin versions in **`package.json`** / lockfile
-  - [x] **Single Axios instance:** **`src/api/httpClient.ts`** + **`attachHttpAuth(store)`** from **`main.tsx`**; **`baseURL`** from **`getApiBaseUrl()`**; re-export **`httpClient`** from **`src/api/index.ts`**
-  - [x] **Token storage:** access JWT **in memory** (Redux **`auth.accessToken`** only); refresh token in **`localStorage`** (**`src/features/auth/authStorage.ts`**, key **`messaging-refresh-token`**); **`logout`** / **`clearSessionAndLogin`** clear both; **`applyAuthResponse`** for login/register responses
+  - [x] **Single Axios instance:** **`src/common/api/httpClient.ts`** + **`attachHttpAuth(store)`** from **`main.tsx`**; **`baseURL`** from **`getApiBaseUrl()`**; re-export **`httpClient`** from **`src/common/api/index.ts`**
+  - [x] **Token storage:** access JWT **in memory** (Redux **`auth.accessToken`** only); refresh token in **`localStorage`** (**`src/modules/auth/utils/authStorage.ts`**, key **`messaging-refresh-token`**); **`logout`** / **`clearSessionAndLogin`** clear both; **`applyAuthResponse`** for login/register responses
   - [x] **Auth on requests:** request interceptor attaches **`Authorization: Bearer`** from Redux; **`POST /auth/refresh`** requests omit Bearer (no access token on refresh call)
-  - [x] **401 — refresh, retry, login** (**`src/api/httpClient.ts`**)
+  - [x] **401 — refresh, retry, login** (**`src/common/api/httpClient.ts`**)
     - [x] **401** on a normal request → if no refresh token → **`clearSessionAndLogin`**
     - [x] **`POST /auth/refresh`** with **`skipAuthRefresh`**; mutex so concurrent **401**s share one refresh
     - [x] Up to **3** refresh attempts, **1s** backoff when refresh error is not **401/403**; **401/403** from refresh → redirect immediately
     - [x] On refresh success → Redux **`setSession`** + optional rotated refresh in **`localStorage`** → **retry original request once** (**`_retryAfterRefresh`**); second **401** → logout + **`/login`**
   - [x] **Router:** **`src/routes/paths.ts`** (**`ROUTES.login`**, **`ROUTES.home`**), **`src/routes/navigation.ts`** (**`setNavigateHandler`** from **`App`**), placeholder **`LoginPage`** at **`/login`**
   - [x] **SWR global setup**
-    - [x] **`SWRConfig`** in **`main.tsx`** (inside **`Provider`**) — **`src/api/swrConfig.ts`**
+    - [x] **`SWRConfig`** in **`main.tsx`** (inside **`Provider`**) — **`src/common/api/swrConfig.ts`**
     - [x] **`swrFetcher`:** **`httpClient.get` → `r.data`** so **`baseURL`**, interceptors, **401** refresh apply
     - [x] **Mutations:** **`httpMutations.ts`** + **`useSWRMutation`** / **`authApi`** etc. for **POST/PATCH/DELETE**
   - [x] **Feature API modules** (import **`httpClient`** only; types from **`api-types.ts`**)
@@ -103,6 +103,47 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
   - [ ] **State surface (optional):** Redux slice or context if multiple components need the same status
   - [ ] **UI:** **`ConnectionStatusIndicator`** (`*.tsx`) — label + icon/badge; **tests first** per **`PROJECT_GUIDELINES.md` §4.1.1**
 
+### Web-client — directory structure migration (`common/` + `modules/`)
+
+**Reference:** [`PROJECT_PLAN.md`](./PROJECT_PLAN.md) **§10.1** — target layout: **`src/common/`** (shared **`api`**, **`components`**, **`constants`**, **`types`**, **`utils`**) and **`src/modules/<module-id>/`** (per-feature **`components`**, **`stores`**, **`api`**, **`constants`**, **`utils`**, **`types`**, **`pages/`** or **`Page.tsx`**). **Do not** start this migration until the checklist is agreed; execute tasks **in order** where dependencies apply.
+
+- [ ] **Documentation & conventions**
+  - [x] Update **`PROJECT_GUIDELINES.md`** (file layout / imports / testing paths) to match **`PROJECT_PLAN.md` §10.1** — replace references to flat **`src/pages/`**, **`src/api/`**, **`src/features/`** with **`common/*`** and **`modules/*`** once migration lands (**§1.2**, **§4.0**, **§4.1.2**, **§4.2**, **§4.3**)
+  - [x] Update **`.cursor/rules/web-client.mdc`** (and any README under **`apps/web-client`**) with new import examples and folder rules
+  - [x] **Decide once:** route path constants live in **`src/routes/`** only vs **`common/constants/routes`** — **decision:** **`src/routes/`** only (**`paths.ts`** etc.); documented in **`PROJECT_GUIDELINES.md` §4.0**
+
+- [ ] **Scaffold `common/`**
+  - [x] Create **`src/common/api/`**, **`src/common/components/`**, **`src/common/constants/`**, **`src/common/types/`**, **`src/common/utils/`** (add minimal **`index.ts`** barrels only where the codebase already uses barrels — avoid empty noise — **`common/api/index.ts`** retained; other dirs have **no** empty barrels)
+  - [x] Optional: **`src/common/hooks/`** for shared React hooks if not colocated under **`utils`** (align with §10.1) — **`useAuth`**, **`usePresenceConnection`** moved from **`src/hooks/`**
+
+- [ ] **Move shared / cross-cutting code into `common/`**
+  - [x] Move **`src/api/**`** → **`src/common/api/**`** (including **`httpClient`**, **`API_PATHS`**, feature API modules, **`README.md`**); update **`openapi-typescript`** output path only if codegen scripts reference **`src/api`** — **default:** keep **`src/generated/`** at **`src/`** root per §10.1
+  - [x] Move **`src/config/`** (e.g. **`api.ts`**) → **`common/constants`** or **`common/utils`** per usage — **`src/common/utils/apiConfig.ts`** (**`getApiBaseUrl`**, **`getSocketUrl`**; env accessors are **utils**, not static constants)
+  - [x] Move shared **`src/components/**`** → **`src/common/components/**`**
+  - [x] Move shared **`src/lib/**`** into **`common/utils`** as appropriate (**`src/hooks/**`** → **`src/common/hooks/`** done) — **`formValidation.ts`**, **`presenceLabel.ts`** → **`src/common/utils/`**
+  - [x] Move shared **`src/types/**`** → **`src/common/types/**`** where still client-local (OpenAPI types remain **`src/generated/`**) — **`axios-auth.d.ts`** (Axios module augmentation)
+
+- [ ] **Scaffold `modules/` and migrate by feature**
+  - [x] For each route / feature (e.g. **home**, **settings**, **auth**), create **`src/modules/<module-id>/`** with **`components/`**, **`stores/`**, **`api/`**, **`constants/`**, **`utils/`**, **`types/`**, and **`pages/`** (or **`Page.tsx`**) — **use one naming convention** for page files across modules — **done:** **`modules/home`**, **`modules/settings`**, **`modules/auth`** + **`src/modules/README.md`** (**`*Page.tsx`** in **`pages/`**)
+  - [x] Migrate **`src/pages/*`** into the corresponding **`modules/*/pages/`** (or module root) — **`home`**, **`settings`**, **`auth`**; **`App.tsx`** + **`common/integration/msw.integration.test.tsx`** updated; ESLint **`src/modules/**/pages/**`**
+  - [x] Migrate **`src/features/auth/**`** (and other feature folders) into **`modules/<auth-module-id>/`** — split **`login`** / **`register`** submodules if that matches routing — **single `modules/auth`**: **`stores/`** (slice + selectors), **`utils/`** (apiError, applyAuthResponse, authStorage, sessionBootstrap), **`components/`** (SessionRestore); login/register/verify **pages** stay in **`modules/auth/pages/`**
+  - [x] Move **`src/realtime/`**, **`src/theme/`**, etc., to **`common/`** or the owning **`module/`** based on §10.1 rules of thumb (shared vs single-feature) — **`src/common/realtime/`**, **`src/common/theme/`** (used app-wide, not single module)
+
+- [ ] **Redux & app shell**
+  - [x] Colocate slice files under **`modules/*/stores/`**; keep **`src/store/`** for **`configureStore`**, **`rootReducer`**, and wiring imports from modules — **`modules/auth/stores/`** (auth + selectors); **`modules/app/stores/appSlice.ts`** (shell placeholder **`app`** reducer); **`store/store.ts`** wires **`app`** + **`auth`**
+  - [x] Update **`main.tsx`**, **`App.tsx`**, **`routes/**`** lazy imports and **`ProtectedRoute`** paths — **`routes/lazyPages.ts`** (**`React.lazy`** per module page), **`routes/RouteFallback.tsx`** + **`Suspense`** in **`App.tsx`**; **`ProtectedRoute`** unchanged (**`ROUTES`** from **`paths.ts`**)
+
+- [ ] **Tooling & quality gates**
+  - [x] **`tsconfig.app.json`** / **`vite.config.ts`**: add or adjust path aliases (**`@/common/*`**, **`@/modules/*`**) if used; ensure **`vitest`** / **`@` imports** resolve
+  - [x] **`eslint.config.mjs`**: refresh **`no-restricted-imports`** (forbid **`httpClient`** outside **`common/api`**, etc.) for new paths
+  - [x] Move **`src/mocks/`**, **`src/test-utils/`**, **`src/integration/`** only if needed; **update all imports** in tests and **`setupTests.ts`**
+  - [x] Co-locate **`*.{test,spec}.tsx`** with moved components/pages; fix **`vi.mock`** paths
+
+- [ ] **Verification & cleanup**
+  - [x] **`npm run typecheck`**, **`npm run lint`**, **`npm run test`** (and **`test:integration`** if present) — all green
+  - [x] Remove empty legacy folders (none blocking — **`src/pages/`**, **`src/features/`** migrated)
+  - [x] Smoke **dev server** + critical routes (**login**, **settings**, **home**)
+
 ---
 
 ## API specification (OpenAPI) and Swagger UI — *complete before REST feature work*
@@ -115,7 +156,7 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 - [x] **Spec bump `0.1.2`:** **`POST /media/upload`** — **`MediaUploadResponse`**; backend implemented — **Cross-cutting — Media**
 - [x] **Spec bump `0.1.3`:** **`POST /media/upload`** — **`MEDIA_MAX_BYTES`** (default 30 MiB) documented in OpenAPI description
 - [x] **Spec bump `0.1.4`:** **`/auth/register`**, **`/auth/verify-email`**, **`/auth/resend-verification`** — **Feature 2**
-- [ ] **Spec / docs (env-gated verification):** document that **`User.emailVerified`** and verify/resend behaviour depend on **`EMAIL_VERIFICATION_REQUIRED`** (see **Feature 2**); optional **`0.1.5`** if the spec gains a **`GET /config`** or similar — otherwise **`0.1.4`** + **`docs/ENVIRONMENT.md`** is enough
+- [x] **Spec / docs (env-gated verification):** **`User.emailVerified`** + verify/resend **`EMAIL_VERIFICATION_REQUIRED`** — **`docs/ENVIRONMENT.md`** + **`openapi.yaml` `0.1.7`** (no **`GET /config`**)
 - [x] **messaging-service:** **Zod** — **`src/validation/`** (`schemas.ts` mirrors OpenAPI request bodies / query / path; **`validateBody`**, **`validateQuery`**, **`validateParams`**); **`POST /media/upload`** uses **`createMulterFileSchema`**; **`presence:getLastSeen`** uses **`getLastSeenPayloadSchema`** — wire **`validate*`** on new HTTP routes as they land
 - [x] Serve **Swagger UI** from **messaging-service** (`swagger-ui-express`) at **`/api-docs`**; works in Docker Compose / local dev; URL documented in root **`README.md`** and **`OPENAPI_SPEC_PATH`** in **`docs/ENVIRONMENT.md`**
 - [ ] Optional: restrict Swagger to non-prod or auth
@@ -128,9 +169,23 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 ---
 
+## Cross-cutting — Runtime configuration (MongoDB)
+
+**Goal:** Persist **product toggles** in the database so operations can change behaviour **without redeploying** env files. Env vars remain for **bootstrap**, **secrets**, and **defaults** until a config document exists.
+
+- [ ] **Schema:** e.g. singleton **`system_config`** / **`app_settings`** document (or versioned row) in **MongoDB** — fields at minimum:
+  - [ ] **`emailVerificationRequired`** (boolean) — **migrates** current **`EMAIL_VERIFICATION_REQUIRED`** semantics from **`apps/messaging-service/src/config/env.ts`**; **fallback:** read env when document missing / first boot
+  - [ ] **`guestSessionsEnabled`** (boolean) — when **`false`**, **`POST /auth/guest`** is rejected (**403** / documented **`ErrorResponse` `code`**); when **`true`**, guest flow per **Feature 2a**
+- [ ] **Read path:** auth + registration + verify/resend + guest issuance **query effective config** (cached in process memory with short TTL or change-stream invalidation — subtask)
+- [ ] **Write path:** internal **admin API**, CLI migration, or seed script to update toggles (authz TBD); **audit** optional
+- [ ] **Docs:** **`docs/ENVIRONMENT.md`** — which env keys are **deprecated** / **override-only** vs **DB-owned**; **`docs/GUEST_PRODUCT_RULES.md`** — align **TTL** (30 min) and **refresh** rules when implemented
+- [ ] **Tests:** unit/integration for fallback **env → DB** and disabled guest / email verification branches
+
+---
+
 ## Cross-cutting — User profile, email search, send message, pagination
 
-**Contract:** **`docs/openapi/openapi.yaml`** **`0.1.4`** (until a config bump) — regenerate **`apps/web-client`** with **`npm run generate:api`** when the spec changes. **Email verification** is **server-controlled** via env (**`EMAIL_VERIFICATION_REQUIRED`**, default **`false`**) — **Feature 2**.
+**Contract:** **`docs/openapi/openapi.yaml`** **`0.1.4`** (until a config bump) — regenerate **`apps/web-client`** with **`npm run generate:api`** when the spec changes. **Email verification** is **server-controlled** — today via env (**`EMAIL_VERIFICATION_REQUIRED`**); **planned:** **`emailVerificationRequired`** in **MongoDB** runtime config (see **Cross-cutting — Runtime configuration (MongoDB)**) — **Feature 2**.
 
 ### (A) Infra, backend & deployment
 
@@ -218,8 +273,11 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 **Default (demo):** **`EMAIL_VERIFICATION_REQUIRED=false`** — new users get **`emailVerified: true`** on register; no mail. **`User.emailVerified`** stays on the model for all modes.
 
+**Planned:** **`emailVerificationRequired`** moves to **MongoDB** runtime config — see **Cross-cutting — Runtime configuration (MongoDB)** (env remains bootstrap/fallback until migrated).
+
 ### (A) Infra, backend & deployment
 
+- [ ] **Email verification toggle (DB):** implement **`emailVerificationRequired`** from **MongoDB** config document; **deprecate** env-only **`EMAIL_VERIFICATION_REQUIRED`** for runtime decisions once migration exists (keep env as **default seed** / **fallback**) — ties to **Cross-cutting — Runtime configuration (MongoDB)**
 - [x] User schema: **`users`** collection — unique indexes on **`email`** + **`id`**; **`passwordHash`** (**Argon2id** via **`argon2`**); **`profilePicture`**, **`status`**, **`displayName`**, **`emailVerified`**, **`lastSeenAt`** — see **`src/users/`** + **OpenAPI** `User` — **keep `emailVerified`** (do not remove)
 - [x] Registration + **`POST /auth/verify-email`** + **`POST /auth/resend-verification`** + verification JWTs — **`src/routes/auth.ts`**
 - [x] **`EMAIL_VERIFICATION_REQUIRED`** (boolean, default **`false`**) — **`apps/messaging-service/src/config/env.ts`**
@@ -234,29 +292,31 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 ### (B) Web-client, UI, tests & state management
 
-- [x] **Register flow:** form + **`registerUser`** + **`applyAuthResponse`**; optional **`status`** + **`profilePicture`** URL; errors from **`ErrorResponse`** — **`RegisterPage`**, **`routes/paths`**, **`features/auth/apiError`**
-- [x] **Login flow:** form + **`login`** + **`applyAuthResponse`**; handle **403** “email not verified” vs **401** — **`LoginPage`**, **`parseLoginError`** in **`features/auth/apiError`**
+- [x] **Register flow:** form + **`registerUser`** + **`applyAuthResponse`**; optional **`status`** + **`profilePicture`** URL; errors from **`ErrorResponse`** — **`RegisterPage`**, **`routes/paths`**, **`modules/auth/utils/apiError`**
+- [x] **Login flow:** form + **`login`** + **`applyAuthResponse`**; handle **403** “email not verified” vs **401** — **`LoginPage`**, **`parseLoginError`** in **`modules/auth/utils/apiError`**
 - [ ] **Forgot / reset password** *(deprioritized for now — backend routes exist; web-client screens later):* **`forgotPassword`** + **`resetPassword`** (token from **email link** / query param)
 - [x] **Verification UX when `User.emailVerified` is `false`:** **`verifyEmail`** + **`resendVerificationEmail`** screens (state from register or **`getCurrentUser`**) — **`VerifyEmailPage`**, **`ROUTES.verifyEmail`**, **`applyVerifyEmailResponse`**
 - [x] **Redux `auth`:** ensure **`user.emailVerified`** populated; after register, route to app vs “check your email” — **`selectEmailVerified`**, **`useAuth`**, **`RegisterPage`** / **`HomePage`** redirect to **`/verify-email`** when unverified
 - [x] **Protected routes:** wrapper or loader — unauthenticated → **`/login`**; post-login redirect — **`ProtectedRoute`**, **`postLoginRedirect.ts`**, **`App.tsx`** nested route; login/register/verify preserve **`state.from`**
 - [x] **Session restore:** on app load, **`getCurrentUser`** (or refresh) if refresh token present — **`main`/`App`** bootstrap — **`SessionRestore`**, **`sessionBootstrap.ts`** (**`refreshTokens`** → **`getCurrentUser`**)
 - [x] **Settings / profile:** **`PATCH /users/me`** via **`updateCurrentUserProfile`** (FormData: image + **status** + **displayName**) — **`SettingsPage`**, **`ROUTES.settings`**
-- [x] **Tests first (`*.tsx`):** one screen per test file or shared **`renderWithProviders`** — RTL + MSW per **`PROJECT_GUIDELINES.md` §4.1.1** — **`src/test-utils/renderWithProviders.tsx`**, **`src/mocks/handlers.ts`** + **`server`**, **`SettingsPage.test.tsx`**, **`HomePage.test.tsx`**, **`ThemeToggle.test.tsx`**
+- [x] **Tests first (`*.tsx`):** one screen per test file or shared **`renderWithProviders`** — RTL + MSW per **`PROJECT_GUIDELINES.md` §4.1.1** — **`src/common/test-utils/renderWithProviders.tsx`**, **`src/common/mocks/handlers.ts`** + **`server`**, **`SettingsPage.test.tsx`**, **`HomePage.test.tsx`**, **`src/common/components/ThemeToggle.test.tsx`**
 - [x] **Form validation UX** (client) + **API** error mapping (`code` / `message`) — **`lib/formValidation.ts`**, **`parseApiError`** / **`ApiErrorAlert`**, auth + **`SettingsPage`**
 
 ---
 
 ## Feature 2a — Guest / try-the-platform (temporary access)
 
-**Goal (demo / playground):** Instead of shared demo passwords, visitors **enter a display name only** and receive **temporary access** to **message other users** on the system and explore the product. **Product decisions to lock early:** who may guests contact (any registered user vs allowlist vs demo-only users), session length, and whether guests may join groups / calls.
+**Goal (demo / playground):** Instead of shared demo passwords, visitors **enter a display name only** and receive **temporary access** to **message other users** on the system and explore the product. **Product rules (locked):** [`docs/GUEST_PRODUCT_RULES.md`](./GUEST_PRODUCT_RULES.md) — *update doc on implementation:* **30 min** session + refresh, rate limits, search + DM to registered users, **no settings** / admin / password / billing. **Guest access** **on/off** via **`guestSessionsEnabled`** in **MongoDB** (see **Cross-cutting — Runtime configuration (MongoDB)**), not env-only. Open items (e.g. groups / calls) remain in checklist.
 
 ### (A) Infra, backend & deployment
 
-- [ ] **Product rules:** Document guest **TTL**, **rate limits**, and **who guests can message** (and what is blocked: e.g. admin, password change, billing).
-- [ ] **OpenAPI + Zod:** e.g. **`POST /v1/auth/guest`** — body **`{ displayName }`**; response **`accessToken`**, **`user`** (or public profile), **`expiresAt`**; **`guest: true`** (or equivalent) in **`User`** / token claims — bump spec + **`generate:api`** in same PR as routes.
+- [x] **Product rules:** Document guest **TTL**, **rate limits**, and **who guests can message** (and what is blocked: e.g. admin, password change, billing) — **[`docs/GUEST_PRODUCT_RULES.md`](./GUEST_PRODUCT_RULES.md)**
+- [ ] **Guest enable/disable (DB):** enforce **`guestSessionsEnabled`** from **MongoDB** runtime config — reject **`POST /auth/guest`** when disabled — **Cross-cutting — Runtime configuration (MongoDB)**
+- [ ] **Session + refresh TTL (30 minutes):** **access token** lifetime **30 minutes**; issue a **refresh token** for guests with **30 minutes** validity (Redis TTL / stored expiry aligned); document in OpenAPI + **`docs/GUEST_PRODUCT_RULES.md`** + **`docs/ENVIRONMENT.md`** when vars exist
+- [ ] **OpenAPI + Zod:** e.g. **`POST /v1/auth/guest`** — body **`{ displayName }`**; response **`accessToken`**, **`refreshToken`**, **`user`** (or public profile), **`expiresAt`**; **`guest: true`** (or equivalent) in **`User`** / token claims — bump spec + **`generate:api`** in same PR as routes.
 - [ ] **Persistence:** Guest identity — either rows in **`users`** with **`isGuest: true`** + nullable **`email`**, or a dedicated **`guest_sessions`** / **`users`** slice; indexes + optional **MongoDB TTL** on session documents.
-- [ ] **JWT:** Short‑lived access token with **`guest`** claim; align with **Feature 2** token shape so one **auth middleware** can branch **guest vs full user** (refresh for guests optional or omitted).
+- [ ] **JWT:** Access + refresh for guests (**30 min** each, per above) with **`guest`** claim; align with **Feature 2** token shape so one **auth middleware** can branch **guest vs full user**; **`POST /auth/refresh`** for guest refresh tokens within validity window
 - [ ] **Rate limits:** Per **IP** (and optionally per **fingerprint** header) on **`POST /auth/guest`**; abuse caps on sends for guest **`userId`**.
 - [ ] **AuthZ:** Apply guest rules on **REST** and **Socket.IO** (join rooms, **`POST /messages`**, search) — guests cannot escalate to full account actions until they **register**.
 - [ ] **Lifecycle:** Clear behaviour on expiry (401 + client redirect to name screen); optional **“Continue as guest”** re-issue with same display name policy (collision handling: suffix, uniqueness window).

@@ -9,7 +9,7 @@ TypeScript **web client** and **Node.js microservice** for real-time **chat**, *
 | **Data** | MongoDB (primary store), Redis (presence / hot paths), RabbitMQ (post-persist routing), S3-compatible object storage (MinIO in development) |
 | **Real time** | Socket.IO server on **messaging-service** (chat, signaling channel, notification transport) |
 
-Detailed vision, scaling assumptions, and phased delivery: **[`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md)**. Task tracking: **[`docs/TASK_CHECKLIST.md`](docs/TASK_CHECKLIST.md)**. Engineering conventions: **[`docs/PROJECT_GUIDELINES.md`](docs/PROJECT_GUIDELINES.md)**.
+Detailed vision, scaling assumptions, and phased delivery: **[`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md)**. Task tracking: **[`docs/TASK_CHECKLIST.md`](docs/TASK_CHECKLIST.md)**. Engineering conventions: **[`docs/PROJECT_GUIDELINES.md`](docs/PROJECT_GUIDELINES.md)**. Guest / try-the-platform **product rules** (TTL, limits, blocked surfaces): **[`docs/GUEST_PRODUCT_RULES.md`](docs/GUEST_PRODUCT_RULES.md)**.
 
 ---
 
@@ -31,7 +31,7 @@ Target capabilities include **direct and group messaging**, **last-seen presence
 
 | Area | Specification | Repository today |
 |------|----------------|-------------------|
-| **Identity** | Register, login, verification, reset; JWT access + refresh | REST APIs per OpenAPI on **messaging-service**; **web-client**: Redux session, shared **`httpClient`**, refresh-on-401 flow — [`apps/web-client/src/api/httpClient.ts`](apps/web-client/src/api/httpClient.ts) |
+| **Identity** | Register, login, verification, reset; JWT access + refresh | REST APIs per OpenAPI on **messaging-service**; **web-client**: Redux session, shared **`httpClient`**, refresh-on-401 flow — [`apps/web-client/src/common/api/httpClient.ts`](apps/web-client/src/common/api/httpClient.ts) |
 | **Messaging** | Persist → RabbitMQ → Socket.IO rooms | Broker + Socket.IO + MongoDB integrated on the service; end-user chat UI and full pipeline items tracked in **`TASK_CHECKLIST.md`** |
 | **Presence** | Redis while connected; flush **last seen** to Mongo | **Live**: heartbeat (~5 s), Redis, **`presence:getLastSeen`** resolution |
 | **Media** | Server-mediated upload to object storage | **`POST /v1/media/upload`** implemented; multipart UX in client backlog |

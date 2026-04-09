@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Messaging API
-  version: 0.1.6
+  version: 0.1.7
   description: |
     **Source of truth** for REST contracts between **web-client** and **messaging-service**
     (single HTTP API; there is no separate notification REST service).
@@ -32,6 +32,14 @@ info:
 
     **Pagination:** every list endpoint that supports **`limit`** documents it as **optional** with a
     **server default** (see `LimitQuery`).
+
+    **Email verification (env-gated, no `GET /config`):** **`User.emailVerified`** is always returned on **`User`**.
+    Whether registration leaves users unverified, whether **`POST /auth/verify-email`** and **`POST /auth/resend-verification`**
+    are part of the happy path, and whether **`EMAIL_VERIFICATION_DISABLED`** is returned for those routes when verification
+    is off are determined by the **messaging-service** environment variable **`EMAIL_VERIFICATION_REQUIRED`**
+    (default **`false`**). See **`docs/ENVIRONMENT.md`** — *Email verification (`EMAIL_VERIFICATION_REQUIRED`)* — and **Feature 2**
+    in **`docs/TASK_CHECKLIST.md`**. Clients must not assume a fixed mode; use **`User.emailVerified`**, **`AuthResponse`**, and
+    error **`code`** values (e.g. **`EMAIL_VERIFICATION_DISABLED`**) from responses.
 
 servers:
   - url: /v1
@@ -137,6 +145,9 @@ paths:
     post:
       operationId: verifyEmail
       summary: Verify email using signed JWT from registration or resend (throttled per IP)
+      description: |
+        When **`EMAIL_VERIFICATION_REQUIRED`** is **`false`** on the server, returns **400** with **`ErrorResponse`**
+        **`code`** **`EMAIL_VERIFICATION_DISABLED`** — the verification flow is not used (see **`docs/ENVIRONMENT.md`**).
       tags:
         - Auth
       requestBody:
@@ -171,6 +182,8 @@ paths:
     post:
       operationId: resendVerificationEmail
       summary: Resend verification flow (throttled per email; constant response to avoid enumeration)
+      description: |
+        When **`EMAIL_VERIFICATION_REQUIRED`** is **`false`**, returns **400** with **`code`** **`EMAIL_VERIFICATION_DISABLED`**.
       tags:
         - Auth
       requestBody:
@@ -894,6 +907,10 @@ components:
           nullable: true
         emailVerified:
           type: boolean
+          description: >-
+            Present on every **`User`**. Meaning depends on deployment: when **`EMAIL_VERIFICATION_REQUIRED`** is **`true`**
+            (messaging-service env), new users may be **`false`** until **`POST /auth/verify-email`** succeeds; when **`false`**,
+            registration typically sets this to **`true`** immediately. See **`docs/ENVIRONMENT.md`** — email verification.
         profilePicture:
           type: string
           format: uri

@@ -30,6 +30,7 @@ If something here conflicts with a one-off prompt, **these guidelines win** unle
 ### 1.2 Project layout and boundaries
 
 - Organize by **feature** or by **layer** consistently within each app (e.g. `routes` → `services` → `repositories`). Do not mix unrelated concerns in one giant file.
+- **web-client (`apps/web-client`):** follow **`PROJECT_PLAN.md` §10.1** — shared code under **`src/common/`** (`api`, `components`, `constants`, `types`, `utils`; optional **`hooks/`**), feature- or page-scoped code under **`src/modules/<module-id>/`** (each module may include `components`, `stores`, `api`, `constants`, `utils`, `types`, `pages/`). App shell pieces stay at **`src/`** root (`main.tsx`, `App.tsx`, `store/`, `routes/`, `generated/`, `workers/`). **Concrete import and testing path rules** are in **§4.0** below.
 - **HTTP contract:** the **OpenAPI 3** document in `docs/openapi/` is the source of truth for REST. **web-client** generates TypeScript types with **`openapi-typescript`** (`npm run generate:api` in `apps/web-client`)—**no** `packages/shared` package for DTOs. **messaging-service** validates with **Zod** (or equivalent) at the boundary; keep schemas aligned with the OpenAPI spec in the same PR when routes change.
 - **Configuration**: validate all required environment variables **at startup** (e.g. with Zod or a small env schema). Fail fast with clear errors if misconfigured.
 - **Secrets**: never commit secrets or tokens. Use environment variables or a secrets manager; document required vars in **`docs/ENVIRONMENT.md`** (per microservice) and keep them aligned with Docker Compose / deployment.
@@ -132,6 +133,30 @@ These patterns apply to **MongoDB** as the primary store for users, conversation
 
 ## 4. React UI and testing (mandatory order)
 
+### 4.0 Web-client file layout, imports, and test paths
+
+**Authoritative tree:** [`PROJECT_PLAN.md`](./PROJECT_PLAN.md) **§10.1**. Use this section for **how** files are named and where tests live after the **`common/` + `modules/`** layout is adopted (during migration, legacy paths may still exist — prefer the target paths for new work).
+
+| Area | Path (under `apps/web-client/src/`) | Contents |
+|------|-------------------------------------|----------|
+| **Shared UI, HTTP, types, utils, hooks, realtime, theme** | **`common/api/`**, **`common/components/`**, **`common/constants/`**, **`common/types/`**, **`common/utils/`**, **`common/hooks/`**, **`common/realtime/`**, **`common/theme/`** | Anything imported from **more than one** module or from the app shell: OpenAPI-typed REST modules (`httpClient`, `API_PATHS`, `authApi`, …), reusable components, shared React hooks (`useAuth`, …), Socket.IO bridge + protocol (with **`src/workers/`**), app-wide theming (**`ThemeProvider`** / **`useTheme`**), cross-cutting constants and client-only types, pure helpers. **Do not** put feature-only code here. |
+| **Feature / page** | **`modules/<module-id>/`** | Each folder is one product area or route group. Subfolders: **`components/`**, **`stores/`** (Redux slices owned by the module), **`api/`** (thin wrappers when calls are module-specific), **`constants/`**, **`utils/`**, **`types/`**, **`pages/`** (route entry components such as `HomePage.tsx`) — or a single **`Page.tsx`** at module root if the team standardizes on that. |
+| **App shell** | **`store/`**, **`routes/`**, **`generated/`**, **`workers/`**, **`main.tsx`**, **`App.tsx`** | Global Redux wiring, router definitions, codegen output, Web Workers — unchanged role; see §10.1. |
+| **Tests & mocks (cross-cutting)** | **`common/integration/`**, **`common/mocks/`**, **`common/test-utils/`**, **`setupTests.ts`** (at **`src/`** root) | Shared MSW + RTL harness under **`common/`**; **`setupTests.ts`** stays beside **`main.tsx`** (not inside each module’s tree unless you colocate a test with a file — see §4.1.2). |
+
+**Route path constants (decided):** **SPA pathname strings** (e.g. **`/login`**, **`/home`**) and exported objects like **`ROUTES`** live **only** under **`src/routes/`** — typically **`paths.ts`** (or **`routePaths.ts`**) colocated with **`navigation.ts`**, **`ProtectedRoute`**, and **`App.tsx`** route definitions. **Do not** maintain a second copy under **`common/constants/routes`**. Modules, **`common/`**, and tests **import** path constants from **`routes/`** (e.g. `import { ROUTES } from '../../routes/paths'` or an alias to **`src/routes/paths`**). *Rationale:* route segments are part of the **router shell**, not generic reusable constants; keeping one source avoids drift and matches **`react-router`** configuration.
+
+**Imports:**
+
+- **Pages, layouts, and module components** import shared APIs and UI via paths into **`common/`** (e.g. `import { usersApi } from '@/common/api'` or relative `../../../common/api` — match **`vite.config.ts` / `tsconfig`** aliases).
+- **REST boundary:** UI and hooks **outside** `common/api` do **not** import `httpClient`, `axios`, or ad-hoc URLs directly — use **`common/api`** modules and **`API_PATHS`** (see **`TASK_CHECKLIST.md`** and ESLint `no-restricted-imports`).
+- **Module internals** use **relative imports** within the same **`modules/<module-id>/`** tree when it keeps coupling obvious; promote duplicated logic to **`common/`** when a second module needs it.
+
+**Testing paths:**
+
+- **Colocated UI tests:** **`ComponentName.test.tsx`** sits **next to** **`ComponentName.tsx`** — e.g. **`modules/settings/pages/SettingsPage.tsx`** + **`SettingsPage.test.tsx`**; **`common/components/ThemeToggle.tsx`** + **`ThemeToggle.test.tsx`**.
+- **Integration / MSW:** keep **`src/common/integration/*.test.tsx`**, **`src/common/mocks/`**, **`src/common/test-utils/`**; update import paths when source files move (mocks still intercept the same HTTP paths).
+
 ### 4.1 Tests before implementation for each UI component
 
 - For **each new or substantially changed React UI file** (**`*.tsx`** — components, pages, layouts), write **unit tests first**, then implement the UI to satisfy those tests (**test-first** workflow). **§4.1.1** defines what is *out of scope* for mandatory tests and coverage.
@@ -145,6 +170,13 @@ These patterns apply to **MongoDB** as the primary store for users, conversation
 - **Mandatory** unit and integration tests (and the test-first rule in §4.1) apply **only** to **`*.tsx`** files that implement **React UI** (components, pages, route layouts). Do **not** treat plain **`*.ts`** modules as requiring matching **`*.test.ts`** or **`*.test.tsx`** by default—e.g. Redux slices, non-UI hooks, **`httpClient`**, config, utilities, Web Workers, or generated code—unless a task or PR explicitly asks for tests there.
 - **Test coverage** expectations and any CI coverage thresholds apply **only** to those **`*.tsx`** UI sources; do **not** use or enforce coverage targets for **`*.ts`**-only files under this rule.
 
+### 4.1.2 One colocated test file per UI module (web-client)
+
+- **Practice (entire web-client):** For each **`apps/web-client/src/**/*.tsx`** file that exports a **primary** React component (**`modules/*/pages/`** or **`modules/*/`** page entries, **layouts**, **`common/components/`**, route shells), maintain a **paired** test file in the **same directory** with the same basename: **`ComponentName.test.tsx`** beside **`ComponentName.tsx`** (e.g. **`common/components/ThemeToggle.tsx`** + **`ThemeToggle.test.tsx`**; **`modules/home/pages/HomePage.tsx`** + **`HomePage.test.tsx`**).
+- **Scope of each test file:** Tests in **`Foo.test.tsx`** cover **only** the UI and behaviour of **`Foo.tsx`** (and its colocated helpers if any). Do **not** combine unrelated components into one **`*.test.tsx`** file; use **`describe`** blocks for scenarios, not for unrelated components.
+- **Cross-cutting or multi-route tests** (e.g. MSW integration across APIs, **`src/common/integration/*.test.tsx`**) are **additive** — they do not replace per-component **`*.test.tsx`** files when those components ship user-facing UI.
+- **Exceptions (no paired file required, or optional):** **`main.tsx`** (bootstrap only); type-only **`*.tsx`**; generated sources under **`src/generated/`**; files that export **only** non-component utilities; existing **`*.test.tsx`** / **`*.spec.tsx`**. When adding a **new** UI file, add its **`*.test.tsx`** in the **same PR** (test-first per §4.1).
+
 ### 4.2 UI quality (existing standards)
 
 - **Pixel-perfect**, **soothing** theme: intentional colour, contrast, spacing, and typography.
@@ -152,8 +184,8 @@ These patterns apply to **MongoDB** as the primary store for users, conversation
 - **Accessibility**: keyboard support, visible focus, no keyboard traps, semantic HTML, ARIA when needed, screen-reader-friendly structure.
 - **Strong UI/UX**: clarity and hierarchy first; avoid flashy effects that hurt usability.
 - **No unnecessary duplication**: small reusable components or data-driven UIs where it reduces repeat markup without over-abstracting.
-- **One component per file**: at most one primary exported component per file (helpers/types may coexist per existing rules).
-- **Types**: non-prop domain/helper types live in **`types.ts`** in the module; component **props** types may stay with the component file.
+- **One component per file**: at most one primary exported component per file (helpers/types may coexist per existing rules). Pair with **§4.1.2** — one **`ComponentName.test.tsx`** per **`ComponentName.tsx`** in **web-client**.
+- **Types**: non-prop domain/helper types live in **`types.ts`** in the **module** (`modules/<module-id>/types/`) or next to the file; shared shapes live under **`common/types/`**. Component **props** types may stay with the component file.
 
 ### 4.2.1 Responsive layouts (mobile and tablet / iPad)
 
@@ -166,9 +198,9 @@ These patterns apply to **MongoDB** as the primary store for users, conversation
 
 - Use **Redux** via **Redux Toolkit (`@reduxjs/toolkit`)** and **`react-redux`** for **global, cross-cutting client state** (auth session, current user, conversation list caches, notification preferences, connection status, etc.) so the app can grow without ad hoc prop drilling.
 - **Redux middleware**: use the store’s **middleware pipeline** for cross-cutting concerns that belong next to dispatches—e.g. structured logging, analytics, **API error normalization**, offline queue hooks (if introduced later)—without scattering that logic across components.
-- Organize state by **feature slices** (`createSlice`) colocated with feature folders where practical; register reducers in a single store setup. Prefer **RTK** patterns (`extraReducers`, `createAsyncThunk` when appropriate) over manual boilerplate.
-- **Typed hooks**: export typed `useAppDispatch` and `useAppSelector` from a single module (e.g. `store/hooks.ts`) and use them instead of raw `useDispatch`/`useSelector` for type safety.
-- **Reusable hooks**: place **custom hooks** in `hooks/` (or per-feature `hooks/`) for shared behavior—e.g. `useAuth()`, `useConversation(conversationId)`—implemented as thin wrappers over selectors, dispatch, and router params. Components should stay presentational where possible; hooks carry composition and subscription logic.
+- Organize state by **feature slices** (`createSlice`) under **`modules/<module-id>/stores/`**; **`src/store/`** holds **`configureStore`**, root reducer composition, and registration of slices imported from modules. Prefer **RTK** patterns (`extraReducers`, `createAsyncThunk` when appropriate) over manual boilerplate.
+- **Typed hooks**: export typed `useAppDispatch` and `useAppSelector` from a single module (e.g. **`src/store/hooks.ts`**) and use them instead of raw `useDispatch`/`useSelector` for type safety.
+- **Reusable hooks**: place **custom hooks** shared across modules under **`common/hooks/`** (or **`common/utils/`** if the team prefers); **module-only** hooks may live under **`modules/<module-id>/`** next to components or in a **`hooks/`** subfolder inside that module. Examples: `useAuth()`, `useConversation(conversationId)` — thin wrappers over selectors, dispatch, and router params. Components should stay presentational where possible; hooks carry composition and subscription logic.
 - **Local vs global**: keep **UI-only** state (open/close modal, field focus, transient form state) in **component state** or colocated context when it does not need Redux. Do not put every keystroke in the global store.
 - **Testing**: follow §4.1 / §4.1.1 — mandatory tests and coverage apply to **`*.tsx`** UI only; Redux slices, hooks, and other **`*.ts`** modules are **not** required to carry unit/integration tests unless explicitly requested.
 
@@ -210,7 +242,7 @@ These patterns apply to **MongoDB** as the primary store for users, conversation
 - [ ] MongoDB queries bounded (pagination, projections); indexes match those access patterns
 - [ ] New list APIs paginated; limits enforced server-side
 - [ ] **OpenAPI** spec updated in the same PR as any REST route change; **Swagger UI** still accurate for dev
-- [ ] **web-client UI (`*.tsx`):** **tests written first** for new/changed components, then implementation; **coverage** only for **`*.tsx`** (see §4.1.1)
+- [ ] **web-client UI (`*.tsx`):** **tests written first** for new/changed components, then implementation; **coverage** only for **`*.tsx`** (see §4.1.1); **colocated** **`ComponentName.test.tsx`** per **`ComponentName.tsx`** (see §4.1.2); **paths** under **`common/`** and **`modules/`** per §4.0 / **`PROJECT_PLAN.md` §10.1**
 - [ ] **Responsive:** new/changed UI works on **mobile and tablet (iPad)** as well as desktop (§4.2.1)
 - [ ] Frontend: **Redux (RTK)** used for appropriate global state; **reusable hooks** for shared client logic; middleware used for cross-cutting dispatch-side concerns where applicable
 - [ ] ESLint passes; accessibility considered for interactive UI
