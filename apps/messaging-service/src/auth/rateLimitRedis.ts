@@ -3,6 +3,7 @@ import { getRedisClient } from '../redis/redis.js';
 
 /**
  * Fixed-window counter: first request sets TTL. Returns current count after increment.
+ * Global REST cap uses the same primitive — see **`docs/GLOBAL_RATE_LIMIT.md`** (bursts, clock skew).
  */
 export async function fixedWindowIncrement(
   key: string,

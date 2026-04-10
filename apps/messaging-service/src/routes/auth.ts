@@ -30,6 +30,7 @@ import { toUserApiShape } from '../users/publicUser.js';
 import type { RegisterRequest } from '../validation/schemas.js';
 import { sendPasswordResetEmail } from '../email/sendPasswordResetEmail.js';
 import { sendVerificationEmail } from '../email/sendVerificationEmail.js';
+import { getEffectiveRuntimeConfig } from '../config/runtimeConfig.js';
 import { validateBody } from '../validation/middleware.js';
 import {
   forgotPasswordRequestSchema,
@@ -53,19 +54,28 @@ function requireJwtForAuth(env: Env): void {
 }
 
 /** When verification is off, verify/resend are not part of the happy path — reject with a clear error. */
-function requireEmailVerificationEnabled(env: Env): void {
-  if (!env.EMAIL_VERIFICATION_REQUIRED) {
+async function requireEmailVerificationEnabled(env: Env): Promise<void> {
+  if (!(await getEffectiveRuntimeConfig(env)).emailVerificationRequired) {
     throw new AppError(
       'EMAIL_VERIFICATION_DISABLED',
       400,
-      'Email verification is not enabled (EMAIL_VERIFICATION_REQUIRED=false). Accounts are verified on registration.',
+      'Email verification is not enabled. Accounts are verified on registration.',
     );
   }
 }
 
+/**
+ * Auth HTTP routes. Per-route Redis caps (**`REGISTER_RATE_LIMIT_*`**, **`FORGOT_PASSWORD_RATE_LIMIT_*`**, …)
+ * **stack** with **`GLOBAL_RATE_LIMIT_*`** (middleware runs first on **`/v1`** — separate keys).
+ */
 export function createAuthRouter(env: Env): Router {
   const router = Router();
 
+  /**
+   * **`POST /auth/register`** — OpenAPI **`RegisterRequest`**: optional **`profilePicture`** (URI) + **`status`**.
+   * **`emailVerified`** on the new user is **`false`** when **`getEffectiveRuntimeConfig(env).emailVerificationRequired`**
+   * is **`true`** (MongoDB **`system_config`** or env **`EMAIL_VERIFICATION_REQUIRED`**); otherwise **`true`**.
+   */
   router.post(
     '/auth/register',
     validateBody(registerRequestSchema),
@@ -92,7 +102,8 @@ export function createAuthRouter(env: Env): Router {
         }
 
         const body = req.body as RegisterRequest;
-        const emailVerified = !env.EMAIL_VERIFICATION_REQUIRED;
+        const runtimeCfg = await getEffectiveRuntimeConfig(env);
+        const emailVerified = !runtimeCfg.emailVerificationRequired;
         const user = await createUser({
           email: body.email,
           password: body.password,
@@ -101,7 +112,7 @@ export function createAuthRouter(env: Env): Router {
           emailVerified,
         });
 
-        if (env.EMAIL_VERIFICATION_REQUIRED) {
+        if (runtimeCfg.emailVerificationRequired) {
           const verificationToken = await signEmailVerificationToken(
             env,
             user.id,
@@ -133,7 +144,7 @@ export function createAuthRouter(env: Env): Router {
         } else {
           logger.info(
             { userId: user.id, email: user.email },
-            'user registered; email verification skipped (EMAIL_VERIFICATION_REQUIRED=false)',
+            'user registered; email verification skipped (verification not required)',
           );
         }
 
@@ -255,7 +266,11 @@ export function createAuthRouter(env: Env): Router {
           );
           return;
         }
-        if (env.EMAIL_VERIFICATION_REQUIRED && !user.emailVerified) {
+        const refreshRuntimeCfg = await getEffectiveRuntimeConfig(env);
+        if (
+          refreshRuntimeCfg.emailVerificationRequired &&
+          !user.emailVerified
+        ) {
           next(
             new AppError(
               'EMAIL_NOT_VERIFIED',
@@ -382,7 +397,7 @@ export function createAuthRouter(env: Env): Router {
     async (req, res, next) => {
       try {
         requireJwtForAuth(env);
-        requireEmailVerificationEnabled(env);
+        await requireEmailVerificationEnabled(env);
         const ip = getClientIp(req);
         const key = `ratelimit:verify-email:ip:${ip}`;
         if (
@@ -466,7 +481,7 @@ export function createAuthRouter(env: Env): Router {
     async (req, res, next) => {
       try {
         requireJwtForAuth(env);
-        requireEmailVerificationEnabled(env);
+        await requireEmailVerificationEnabled(env);
         const body = req.body as { email: string };
         const emailKey = emailRateLimitKey(body.email);
         if (

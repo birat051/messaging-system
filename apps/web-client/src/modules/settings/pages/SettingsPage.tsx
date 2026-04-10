@@ -1,31 +1,27 @@
 import { type FormEvent, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useToast } from '@/common/components/toast/useToast';
 import { updateCurrentUserProfile } from '@/common/api/usersApi';
-import { ApiErrorAlert } from '../../../common/components/ApiErrorAlert';
-import { parseApiError, type ParsedApiError } from '../../auth/utils/apiError';
+import { isRateLimitedError, parseApiError } from '../../auth/utils/apiError';
 import {
   DISPLAY_NAME_MAX_LENGTH,
   STATUS_MAX_LENGTH,
   validateSettingsFields,
 } from '../../../common/utils/formValidation';
+import { buildProfileFormData } from '../utils/buildProfileFormData';
 import { setUser } from '../../auth/stores/authSlice';
 import { useAuth } from '../../../common/hooks/useAuth';
 import { ROUTES } from '../../../routes/paths';
 import { useAppDispatch } from '../../../store/hooks';
 
-function normalize(s: string | null | undefined): string {
-  return (s ?? '').trim();
-}
-
 export function SettingsPage() {
   const dispatch = useAppDispatch();
+  const toast = useToast();
   const { user } = useAuth();
   const [displayName, setDisplayName] = useState('');
   const [status, setStatus] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [clientError, setClientError] = useState<string | null>(null);
-  const [apiError, setApiError] = useState<ParsedApiError | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -38,30 +34,14 @@ export function SettingsPage() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setClientError(null);
-    setApiError(null);
-    setSuccess(null);
 
-    const fd = new FormData();
-    let hasPart = false;
-
-    if (file && file.size > 0) {
-      fd.append('file', file);
-      hasPart = true;
-    }
-
-    const dn = normalize(displayName);
-    const st = normalize(status);
-    const initialDn = normalize(user?.displayName);
-    const initialSt = normalize(user?.status);
-
-    if (dn !== initialDn) {
-      fd.append('displayName', dn);
-      hasPart = true;
-    }
-    if (st !== initialSt) {
-      fd.append('status', st);
-      hasPart = true;
-    }
+    const { formData: fd, hasPart } = buildProfileFormData({
+      file,
+      displayName,
+      status,
+      previousDisplayName: user?.displayName,
+      previousStatus: user?.status,
+    });
 
     if (!hasPart) {
       setClientError(
@@ -83,9 +63,12 @@ export function SettingsPage() {
       setFile(null);
       setDisplayName(updated.displayName ?? '');
       setStatus(updated.status ?? '');
-      setSuccess('Profile updated.');
+      toast.success('Profile updated.');
     } catch (err) {
-      setApiError(parseApiError(err));
+      const parsed = parseApiError(err);
+      if (!isRateLimitedError(err)) {
+        toast.error(parsed.message);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -183,16 +166,11 @@ export function SettingsPage() {
             {clientError}
           </p>
         )}
-        <ApiErrorAlert error={apiError} />
-        {success && (
-          <p className="text-muted text-sm" role="status">
-            {success}
-          </p>
-        )}
 
         <button
           type="submit"
           disabled={submitting}
+          aria-busy={submitting}
           className="bg-accent text-accent-foreground hover:bg-accent/90 focus:ring-accent/50 w-full rounded-md px-4 py-2 text-sm font-medium focus:ring-2 focus:outline-none disabled:opacity-60 sm:w-auto"
         >
           {submitting ? 'Saving…' : 'Save changes'}

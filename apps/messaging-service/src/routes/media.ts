@@ -1,37 +1,12 @@
-import { Upload } from '@aws-sdk/lib-storage';
-import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import multer from 'multer';
 import type { Env } from '../config/env.js';
 import { AppError } from '../errors/AppError.js';
 import { requireUploadAuth } from '../middleware/uploadAuth.js';
 import { getS3Client } from '../storage/s3Client.js';
+import { uploadUserMediaToS3 } from '../storage/userMediaUpload.js';
 import { formatZodError } from '../validation/formatZodError.js';
 import { createMulterFileSchema } from '../validation/schemas.js';
-
-function safeFilename(name: string): string {
-  const base = name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 128);
-  return base || 'file';
-}
-
-function buildObjectKey(env: Env, userId: string, filename: string): string {
-  const prefix = env.S3_KEY_PREFIX?.replace(/^\/+|\/+$/g, '').trim();
-  const middle = `users/${userId}/${randomUUID()}-${safeFilename(filename)}`;
-  return prefix ? `${prefix}/${middle}` : middle;
-}
-
-/** Path-style public URL: `{base}/{bucket}/{key}` with per-segment encoding. */
-function publicObjectUrl(env: Env, key: string): string | null {
-  if (!env.S3_PUBLIC_BASE_URL || !env.S3_BUCKET) {
-    return null;
-  }
-  const base = env.S3_PUBLIC_BASE_URL.replace(/\/$/, '');
-  const path = key
-    .split('/')
-    .map((s) => encodeURIComponent(s))
-    .join('/');
-  return `${base}/${encodeURIComponent(env.S3_BUCKET)}/${path}`;
-}
 
 export function createMediaRouter(env: Env): Router {
   const router = Router();
@@ -104,22 +79,16 @@ export function createMediaRouter(env: Env): Router {
         }
         const validFile = fileCheck.data;
 
-        const key = buildObjectKey(env, userId, validFile.originalname);
-        const managed = new Upload({
-          client,
-          params: {
-            Bucket: env.S3_BUCKET,
-            Key: key,
-            Body: validFile.buffer,
-            ContentType: validFile.mimetype,
-          },
+        const { key, url } = await uploadUserMediaToS3(env, client, userId, {
+          buffer: validFile.buffer,
+          originalname: validFile.originalname,
+          mimetype: validFile.mimetype,
         });
-        await managed.done();
 
         res.status(201).json({
           key,
           bucket: env.S3_BUCKET,
-          url: publicObjectUrl(env, key),
+          url,
         });
       } catch (err) {
         next(err);

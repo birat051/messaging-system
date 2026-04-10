@@ -1,6 +1,9 @@
 /// <reference lib="webworker" />
 import { io, type Socket } from 'socket.io-client';
-import type { MainToWorkerMessage, WorkerToMainMessage } from '../common/realtime/socketWorkerProtocol';
+import type {
+  MainToWorkerMessage,
+  WorkerToMainMessage,
+} from '../common/realtime/socketWorkerProtocol';
 
 const HEARTBEAT_MS = 5000;
 
@@ -27,26 +30,18 @@ function startHeartbeat(): void {
   }, HEARTBEAT_MS);
 }
 
-self.onmessage = (ev: MessageEvent<MainToWorkerMessage>): void => {
-  const msg = ev.data;
-  if (msg.type === 'disconnect') {
-    clearHeartbeat();
-    socket?.disconnect();
-    socket = null;
-    post({ type: 'disconnected', reason: 'client' });
-    return;
-  }
-
-  if (msg.type !== 'connect') {
-    return;
-  }
-
+function connectSocket(msg: Extract<MainToWorkerMessage, { type: 'connect' }>): void {
   clearHeartbeat();
   socket?.disconnect();
 
+  const auth: Record<string, string> = { userId: msg.userId };
+  if (msg.accessToken?.trim()) {
+    auth.token = msg.accessToken.trim();
+  }
+
   socket = io(msg.url, {
     path: '/socket.io',
-    auth: { userId: msg.userId },
+    auth,
     transports: ['websocket', 'polling'],
     autoConnect: true,
   });
@@ -68,6 +63,40 @@ self.onmessage = (ev: MessageEvent<MainToWorkerMessage>): void => {
   socket.on('notification', (payload: unknown) => {
     post({ type: 'notification', payload });
   });
+}
+
+self.onmessage = (ev: MessageEvent<MainToWorkerMessage>) => {
+  const msg = ev.data;
+
+  if (msg.type === 'disconnect') {
+    clearHeartbeat();
+    socket?.disconnect();
+    socket = null;
+    post({ type: 'disconnected', reason: 'client' });
+    return;
+  }
+
+  if (msg.type === 'message_send') {
+    if (!socket?.connected) {
+      post({
+        type: 'message_send_ack',
+        requestId: msg.requestId,
+        ack: {
+          code: 'UNAVAILABLE',
+          message: 'Socket not connected',
+        },
+      });
+      return;
+    }
+    socket.emit('message:send', msg.payload, (ack: unknown) => {
+      post({ type: 'message_send_ack', requestId: msg.requestId, ack });
+    });
+    return;
+  }
+
+  if (msg.type === 'connect') {
+    connectSocket(msg);
+  }
 };
 
 export {};

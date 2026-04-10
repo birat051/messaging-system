@@ -1,11 +1,13 @@
 import { type FormEvent, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useToast } from '@/common/components/toast/useToast';
 import { registerUser } from '../../../common/api/authApi';
-import { getCurrentUser } from '../../../common/api/usersApi';
+import { getCurrentUser, updateCurrentUserProfile } from '../../../common/api/usersApi';
 import { ApiErrorAlert } from '../../../common/components/ApiErrorAlert';
 import { parseApiError, type ParsedApiError } from '../utils/apiError';
 import {
   PASSWORD_MIN_LENGTH,
+  REGISTER_AVATAR_MAX_BYTES,
   STATUS_MAX_LENGTH,
   validateRegisterForm,
   type RegisterFieldKey,
@@ -22,6 +24,7 @@ export function RegisterPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const location = useLocation();
+  const toast = useToast();
   const { isAuthenticated } = useAuth();
 
   useEffect(() => {
@@ -39,7 +42,8 @@ export function RegisterPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState('');
-  const [profilePicture, setProfilePicture] = useState('');
+  const [profileFile, setProfileFile] = useState<File | null>(null);
+  const [profilePictureUrl, setProfilePictureUrl] = useState('');
   const [fieldErrors, setFieldErrors] = useState<
     Partial<Record<RegisterFieldKey, string>>
   >({});
@@ -60,7 +64,8 @@ export function RegisterPage() {
       email,
       password,
       status,
-      profilePicture,
+      profilePictureUrl,
+      profileFile,
     });
     if (!v.valid) {
       setFieldErrors(v.fields);
@@ -72,16 +77,26 @@ export function RegisterPage() {
         email: email.trim(),
         password,
         ...(status.trim() ? { status: status.trim() } : {}),
-        ...(profilePicture.trim()
-          ? { profilePicture: profilePicture.trim() }
+        ...(!profileFile && profilePictureUrl.trim()
+          ? { profilePicture: profilePictureUrl.trim() }
           : {}),
       };
       const data = await registerUser(body);
       if (data.accessToken) {
         applyAuthResponse(dispatch, data, null);
+        if (profileFile) {
+          const fd = new FormData();
+          fd.append('file', profileFile);
+          await updateCurrentUserProfile(fd);
+        }
         const user = await getCurrentUser();
         dispatch(setUser(user));
         if (user.emailVerified === false) {
+          if (profileFile) {
+            toast.info(
+              'Verify your email to finish setup. You can change your photo anytime in Settings.',
+            );
+          }
           navigate(ROUTES.verifyEmail, {
             replace: true,
             state: verifyEmailState(user.email),
@@ -90,6 +105,11 @@ export function RegisterPage() {
         }
         navigate(getPostLoginRedirectPath(location.state), { replace: true });
         return;
+      }
+      if (profileFile) {
+        toast.info(
+          'Account created. After you verify your email and sign in, add a profile photo from Settings.',
+        );
       }
       navigate(ROUTES.verifyEmail, {
         replace: true,
@@ -106,8 +126,9 @@ export function RegisterPage() {
     <div className="text-foreground mx-auto max-w-md px-6 py-16">
       <h1 className="text-2xl font-semibold tracking-tight">Create account</h1>
       <p className="text-muted mt-2 text-sm">
-        Password at least {PASSWORD_MIN_LENGTH} characters. Optional: status (max{' '}
-        {STATUS_MAX_LENGTH} chars) and profile picture URL (e.g. after media upload).
+        Password at least {PASSWORD_MIN_LENGTH} characters. Optional status (max {STATUS_MAX_LENGTH}{' '}
+        chars) and profile photo — upload an image (preferred); or paste a URL in the advanced
+        section.
       </p>
 
       <form onSubmit={onSubmit} className="mt-8 space-y-4">
@@ -178,29 +199,66 @@ export function RegisterPage() {
             </p>
           )}
         </div>
+
         <div>
-          <label htmlFor="register-avatar" className="mb-1 block text-sm font-medium">
-            Profile picture URL <span className="text-muted font-normal">(optional)</span>
+          <label htmlFor="register-avatar-file" className="mb-1 block text-sm font-medium">
+            Profile photo <span className="text-muted font-normal">(optional)</span>
           </label>
           <input
-            id="register-avatar"
-            name="profilePicture"
-            type="url"
-            value={profilePicture}
-            onChange={(ev) => setProfilePicture(ev.target.value)}
+            id="register-avatar-file"
+            name="avatarFile"
+            type="file"
+            accept="image/*"
+            onChange={(ev) => {
+              const f = ev.target.files?.[0];
+              setProfileFile(f ?? null);
+              if (f) {
+                setProfilePictureUrl('');
+              }
+            }}
             aria-invalid={Boolean(fieldErrors.profilePicture)}
-            aria-describedby={
-              fieldErrors.profilePicture ? 'register-avatar-err' : undefined
-            }
-            className={`bg-background ring-ring focus:ring-accent/40 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 ${fieldBorderClass('profilePicture')}`}
-            placeholder="https://…"
+            aria-describedby={fieldErrors.profilePicture ? 'register-avatar-err' : undefined}
+            className={`bg-background ring-ring focus:ring-accent/40 w-full rounded-md border px-3 py-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-surface file:px-3 file:py-1 file:text-sm outline-none focus:ring-2 ${fieldBorderClass('profilePicture')}`}
           />
+          <p className="text-muted mt-1 text-xs">
+            Max {Math.round(REGISTER_AVATAR_MAX_BYTES / (1024 * 1024))} MiB, image types only. Applied
+            after sign-up when you receive a session.
+          </p>
           {fieldErrors.profilePicture && (
             <p id="register-avatar-err" className="mt-1 text-xs text-red-600 dark:text-red-400" role="alert">
               {fieldErrors.profilePicture}
             </p>
           )}
         </div>
+
+        <details className="text-sm">
+          <summary className="text-muted cursor-pointer select-none hover:text-foreground">
+            Or paste image URL instead (advanced)
+          </summary>
+          <div className="border-border mt-3 rounded-md border p-3">
+            <label htmlFor="register-avatar-url" className="mb-1 block font-medium">
+              Image URL
+            </label>
+            <input
+              id="register-avatar-url"
+              name="profilePictureUrl"
+              type="url"
+              value={profilePictureUrl}
+              onChange={(ev) => {
+                setProfilePictureUrl(ev.target.value);
+                if (ev.target.value.trim()) {
+                  setProfileFile(null);
+                }
+              }}
+              disabled={Boolean(profileFile)}
+              className="bg-background ring-ring focus:ring-accent/40 w-full rounded-md border border-border px-3 py-2 text-sm outline-none focus:ring-2 disabled:opacity-50"
+              placeholder="https://…"
+            />
+            {profileFile ? (
+              <p className="text-muted mt-2 text-xs">Clear the file above to use a URL.</p>
+            ) : null}
+          </div>
+        </details>
 
         <ApiErrorAlert error={apiError} />
 

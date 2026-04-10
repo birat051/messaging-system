@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { limitQuerySchema } from './limitQuery.js';
+import { parseP256SpkiPublicKeyOrThrow } from './publicKeyP256.js';
 
 /** MIME allowlist for `POST /v1/media/upload` — keep in sync with OpenAPI description and `routes/media.ts`. */
 export const MEDIA_UPLOAD_MIME_TYPES = [
@@ -102,6 +104,22 @@ export const sendMessageRequestSchema = z
         path: ['recipientUserId'],
       });
     }
+
+    const bodyHas =
+      data.body !== undefined &&
+      data.body !== null &&
+      String(data.body).trim().length > 0;
+    const mediaHas =
+      data.mediaKey !== undefined &&
+      data.mediaKey !== null &&
+      String(data.mediaKey).trim().length > 0;
+    if (!bodyHas && !mediaHas) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Provide body text and/or mediaKey',
+        path: ['body'],
+      });
+    }
   });
 
 /** `components/schemas/CreateGroupRequest` */
@@ -110,22 +128,56 @@ export const createGroupRequestSchema = z.object({
   memberIds: z.array(z.string().min(1)).optional(),
 });
 
-/** `components/parameters/LimitQuery` + `CursorQuery` */
+/** `components/parameters/LimitQuery` + `CursorQuery` — use **`resolveListLimit`** on **`limit`**. */
 export const paginationQuerySchema = z.object({
   cursor: z.string().min(1).optional(),
-  limit: z.coerce.number().int().min(1).max(100).optional(),
+  limit: limitQuerySchema,
 });
 
-/** `GET /users/search` query */
+/** `GET /users/search` query — use **`resolveListLimit`** on **`limit`**. */
 export const searchUsersQuerySchema = z.object({
   email: z.string().email(),
-  limit: z.coerce.number().int().min(1).max(100).optional(),
+  limit: limitQuerySchema,
 });
 
 /** Path: `components/parameters/UserIdPath` */
 export const userIdPathSchema = z.object({
   userId: z.string().min(1),
 });
+
+/**
+ * **`publicKey`:** Base64 (or Base64url) **SPKI** DER for **P-256** — validated with **`node:crypto`**
+ * (rejects wrong curves, RSA, garbage).
+ */
+export const publicKeySpkiP256Schema = z
+  .string()
+  .min(1)
+  .max(2048)
+  .superRefine((val, ctx) => {
+    try {
+      parseP256SpkiPublicKeyOrThrow(val);
+    } catch (e) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: e instanceof Error ? e.message : 'Invalid public key',
+      });
+    }
+  });
+
+/** `components/schemas/PutPublicKeyRequest` — **`.strict()`** rejects unknown keys (e.g. `privateKey`). */
+export const putPublicKeyRequestSchema = z
+  .object({
+    publicKey: publicKeySpkiP256Schema,
+    keyVersion: z.number().int().min(1).optional(),
+  })
+  .strict();
+
+/** `components/schemas/RotatePublicKeyRequest` — **`.strict()`** rejects unknown keys (e.g. `privateKey`). */
+export const rotatePublicKeyRequestSchema = z
+  .object({
+    publicKey: publicKeySpkiP256Schema,
+  })
+  .strict();
 
 /** Path: `components/parameters/ConversationIdPath` */
 export const conversationIdPathSchema = z.object({
@@ -172,3 +224,5 @@ export type SendMessageRequest = z.infer<typeof sendMessageRequestSchema>;
 export type CreateGroupRequest = z.infer<typeof createGroupRequestSchema>;
 export type SearchUsersQuery = z.infer<typeof searchUsersQuerySchema>;
 export type PaginationQuery = z.infer<typeof paginationQuerySchema>;
+export type PutPublicKeyRequest = z.infer<typeof putPublicKeyRequestSchema>;
+export type RotatePublicKeyRequest = z.infer<typeof rotatePublicKeyRequestSchema>;

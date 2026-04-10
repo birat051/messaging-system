@@ -5,6 +5,7 @@ import { useAuth } from '../../../common/hooks/useAuth';
 import { usePresenceConnection } from '@/common/hooks/usePresenceConnection';
 import { presenceLabel } from '../../../common/utils/presenceLabel';
 import { ROUTES } from '../../../routes/paths';
+import { UserSearchPanel } from '../components/UserSearchPanel';
 
 export function HomePage() {
   const { user, emailVerified } = useAuth();
@@ -44,7 +45,8 @@ export function HomePage() {
           </div>
           <ThemeToggle />
         </header>
-        <main className="rounded-card border-border bg-surface shadow-card space-y-4 border p-6">
+        <main className="rounded-card border-border bg-surface shadow-card space-y-6 border p-6">
+          <UserSearchPanel />
           <p className="text-foreground">
             Semantic tokens: <code className="text-accent">background</code>,{' '}
             <code className="text-accent">surface</code>,{' '}

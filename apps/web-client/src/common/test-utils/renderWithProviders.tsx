@@ -7,6 +7,7 @@ import { SWRConfig } from 'swr';
 import { appReducer } from '../../modules/app/stores/appSlice';
 import { authReducer } from '../../modules/auth/stores/authSlice';
 import type { RootState } from '../../store/store';
+import { ToastProvider } from '../components/toast/ToastProvider';
 import { ThemeProvider } from '../theme/ThemeProvider';
 
 const defaultRootState: RootState = {
@@ -66,9 +67,11 @@ export function renderWithProviders(
       <Provider store={store}>
         <MemoryRouter initialEntries={[route]}>
           <ThemeProvider>
-            <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
-              {children}
-            </SWRConfig>
+            <ToastProvider>
+              <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+                {children}
+              </SWRConfig>
+            </ToastProvider>
           </ThemeProvider>
         </MemoryRouter>
       </Provider>

@@ -115,6 +115,19 @@ const envSchema = z.object({
     }
     return val === true || val === 'true' || val === '1' || val === 1;
   }, z.boolean()),
+  /**
+   * Default until **`system_config`** in MongoDB defines **`guestSessionsEnabled`**.
+   * When **`false`**, **`POST /auth/guest`** must be rejected once that route exists (**Feature 2a**).
+   */
+  GUEST_SESSIONS_ENABLED: z.preprocess((val) => {
+    if (val === undefined || val === '') {
+      return true;
+    }
+    if (val === false || val === 0 || val === '0' || val === 'false') {
+      return false;
+    }
+    return val === true || val === 'true' || val === '1' || val === 1;
+  }, z.boolean()),
   /** Lifetime of signed email-verification JWTs (hours). */
   EMAIL_VERIFICATION_TOKEN_TTL_HOURS: z.coerce
     .number()
@@ -200,6 +213,82 @@ const envSchema = z.object({
     .positive()
     .default(3600),
   FORGOT_PASSWORD_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(5),
+  /** Rate limit: `GET /users/search` per client IP (Redis). */
+  USER_SEARCH_RATE_LIMIT_WINDOW_SEC: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60),
+  USER_SEARCH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),
+  /**
+   * When **`true`**, **`GET /users/{userId}/public-key`** (other than self) requires an existing **direct**
+   * conversation between caller and target. When **`false`** (default), any authenticated user may
+   * fetch a registered user's key (matches “may start a DM” / first encrypted message before a thread row).
+   */
+  PUBLIC_KEY_FETCH_REQUIRE_DIRECT_THREAD: z.preprocess((val) => {
+    if (val === undefined || val === '') {
+      return false;
+    }
+    if (val === false || val === 0 || val === '0' || val === 'false') {
+      return false;
+    }
+    return val === true || val === 'true' || val === '1' || val === 1;
+  }, z.boolean()),
+  /**
+   * Redis fixed-window rate limit: **`PUT /users/me/public-key`** and **`POST /users/me/public-key/rotate`**
+   * combined per **authenticated user id** (not IP).
+   */
+  PUBLIC_KEY_UPDATE_RATE_LIMIT_WINDOW_SEC: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(3600),
+  PUBLIC_KEY_UPDATE_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
+  /**
+   * Max JSON body size (bytes) for **`PUT /users/me/public-key`** and **`POST /users/me/public-key/rotate`** —
+   * stricter than the global **`1mb`** parser so directory updates cannot send large blobs.
+   */
+  PUBLIC_KEY_JSON_BODY_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(65536)
+    .default(8192),
+  /**
+   * Fixed window for **`POST /messages`** and **`message:send`** (Redis) — **`user`** / **`IP`** / **`socket`**.
+   */
+  MESSAGE_SEND_RATE_LIMIT_WINDOW_SEC: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60),
+  MESSAGE_SEND_RATE_LIMIT_MAX_PER_USER: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(120),
+  MESSAGE_SEND_RATE_LIMIT_MAX_PER_IP: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(360),
+  /** Used only for Socket.IO **`message:send`** (per **`socket.id`**). */
+  MESSAGE_SEND_RATE_LIMIT_MAX_PER_SOCKET: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(120),
+  /**
+   * Global per-client-IP cap for REST **`/v1/*`** (middleware — **`docs/GLOBAL_RATE_LIMIT.md`**).
+   * Default **500** requests per **60** seconds ≈ **500/min** average; not calendar-aligned.
+   * **Stacks** with route-specific limits (**`REGISTER_*`**, **`USER_SEARCH_*`**, **`MESSAGE_SEND_*`**, …) — **`docs/ENVIRONMENT.md`**.
+   */
+  GLOBAL_RATE_LIMIT_WINDOW_SEC: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60),
+  GLOBAL_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(500),
 });
 
 const envSchemaRefined = envSchema.superRefine((data, ctx) => {

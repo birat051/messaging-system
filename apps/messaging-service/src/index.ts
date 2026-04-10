@@ -8,12 +8,23 @@ import { logger } from './logger.js';
 import { attachSocketIo, closeSocketIo } from './realtime/socket.js';
 import { ensureBucketExists } from './storage/ensureBucket.js';
 import { getS3Client } from './storage/s3Client.js';
-import { ensureUserIndexes } from './users/ensureIndexes.js';
+import { ensureConversationIndexes } from './conversations/ensureIndexes.js';
+import { ensureMessageIndexes } from './messages/ensureIndexes.js';
+import { ensureUserPublicKeyIndexes } from './userPublicKeys/ensureIndexes.js';
+import {
+  ensureUserIndexes,
+  ensureUserProfileFieldsBackfill,
+} from './users/ensureIndexes.js';
 
 async function main(): Promise<void> {
   const env = loadEnv();
   await connectMongo();
-  await ensureUserIndexes(getDb());
+  const db = getDb();
+  await ensureUserIndexes(db);
+  await ensureConversationIndexes(db);
+  await ensureMessageIndexes(db);
+  await ensureUserPublicKeyIndexes(db);
+  await ensureUserProfileFieldsBackfill(db);
   await connectRedis();
   await connectRabbit();
 

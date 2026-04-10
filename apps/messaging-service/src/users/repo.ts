@@ -18,6 +18,18 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+/** Legacy BSON may omit **`profilePicture`** / **`status`** — align with **`User`** / **`UserPublic`** (nullable). */
+export function normalizeUserDocument(doc: UserDocument | null): UserDocument | null {
+  if (!doc) {
+    return null;
+  }
+  return {
+    ...doc,
+    profilePicture: doc.profilePicture ?? null,
+    status: doc.status ?? null,
+  };
+}
+
 /**
  * Insert a new user — **`email`** is normalized (lowercase); **`password`** is Argon2-hashed.
  */
@@ -64,9 +76,10 @@ export async function findUserByEmail(
   email: string,
 ): Promise<UserDocument | null> {
   const normalized = normalizeEmail(email);
-  return getDb()
+  const found = await getDb()
     .collection<UserDocument>(USERS_COLLECTION)
     .findOne({ email: normalized });
+  return normalizeUserDocument(found);
 }
 
 export async function findUserById(id: string): Promise<UserDocument | null> {
@@ -74,9 +87,45 @@ export async function findUserById(id: string): Promise<UserDocument | null> {
   if (trimmed.length === 0) {
     return null;
   }
-  return getDb()
+  const found = await getDb()
     .collection<UserDocument>(USERS_COLLECTION)
     .findOne({ id: trimmed });
+  return normalizeUserDocument(found);
+}
+
+export type UpdateUserProfilePatch = {
+  profilePicture?: string | null;
+  status?: string | null;
+  displayName?: string | null;
+};
+
+/**
+ * Partial update — only keys present in **`patch`** are written (plus **`updatedAt`**).
+ */
+export async function updateUserProfile(
+  userId: string,
+  patch: UpdateUserProfilePatch,
+): Promise<UserDocument | null> {
+  const col = getDb().collection<UserDocument>(USERS_COLLECTION);
+  const $set: Record<string, unknown> = { updatedAt: new Date() };
+  if (patch.profilePicture !== undefined) {
+    $set.profilePicture = patch.profilePicture;
+  }
+  if (patch.status !== undefined) {
+    $set.status = patch.status;
+  }
+  if (patch.displayName !== undefined) {
+    $set.displayName = patch.displayName;
+  }
+  const keys = Object.keys($set).filter((k) => k !== 'updatedAt');
+  if (keys.length === 0) {
+    return findUserById(userId);
+  }
+  const result = await col.updateOne({ id: userId }, { $set });
+  if (result.matchedCount === 0) {
+    return null;
+  }
+  return findUserById(userId);
 }
 
 export async function setUserEmailVerified(

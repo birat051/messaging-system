@@ -18,6 +18,6 @@ All **HTTP** traffic to **messaging-service** is centralized here (**`src/common
 
 | Module | Role |
 |--------|------|
-| [`httpClient.ts`](./httpClient.ts) | Shared Axios instance + **`attachHttpAuth`** (only **`main.tsx`** wires interceptors). |
+| [`httpClient.ts`](./httpClient.ts) | Shared Axios instance + **`attachHttpAuth`** (only **`main.tsx`** wires interceptors). **429** is rejected immediately (no token refresh, no interceptor retry); shows a **`warning`** toast via **`toastBridge`** when **`ToastProvider`** is mounted. Use **`parseApiError`** / **`getApiErrorMessage`** for inline errors; **`isRateLimitedError`** avoids duplicate **`toast.error`** in **`catch`**. |
 | [`paths.ts`](./paths.ts) | **`API_PATHS`** — single source of path strings. |
 | `*Api.ts` | One file per area (`auth`, `users`, `messages`, …). |

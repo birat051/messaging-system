@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import type { Env } from '../config/env.js';
+import { getEffectiveRuntimeConfig } from '../config/runtimeConfig.js';
 import { AppError } from '../errors/AppError.js';
 import { findUserById } from '../users/repo.js';
 import type { UserDocument } from '../users/types.js';
@@ -7,7 +8,7 @@ import { resolveUploadUserId } from '../auth/resolveBearer.js';
 
 /**
  * Resolves the caller from **`Authorization: Bearer`** (or dev **`X-User-Id`**), loads **`users`**, and
- * enforces **`emailVerified`** only when **`EMAIL_VERIFICATION_REQUIRED`** is **`true`**.
+ * enforces **`emailVerified`** only when **`emailVerificationRequired`** is **`true`** (MongoDB **`system_config`** or env default).
  */
 export async function requireAuthenticatedUser(
   req: Request,
@@ -27,7 +28,10 @@ export async function requireAuthenticatedUser(
   if (!user) {
     throw new AppError('UNAUTHORIZED', 401, 'User not found');
   }
-  if (env.EMAIL_VERIFICATION_REQUIRED && !user.emailVerified) {
+  if (
+    (await getEffectiveRuntimeConfig(env)).emailVerificationRequired &&
+    !user.emailVerified
+  ) {
     throw new AppError(
       'EMAIL_NOT_VERIFIED',
       403,

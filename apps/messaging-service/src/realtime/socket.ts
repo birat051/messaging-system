@@ -2,12 +2,20 @@ import type { Server as HttpServer } from 'node:http';
 import { createClient } from 'redis';
 import { Server as SocketIoServer } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
+import { getSocketClientIp } from '../auth/getClientIp.js';
+import { AppError } from '../errors/AppError.js';
 import { loadEnv } from '../config/env.js';
 import { logger } from '../logger.js';
+import { sendMessageForUser } from '../messages/sendMessage.js';
+import { messageDocumentToApi } from '../messages/messageApiShape.js';
+import { isMessageSendRateLimited } from '../messages/messageSendRateLimit.js';
 import { flushLastSeenToMongo } from '../presence/flushLastSeenToMongo.js';
 import { setLastSeen } from '../presence/lastSeen.js';
 import { resolveLastSeenForUser } from '../presence/resolveLastSeen.js';
+import { formatZodError } from '../validation/formatZodError.js';
+import { sendMessageRequestSchema } from '../validation/schemas.js';
 import { parseGetLastSeenPayload } from './presenceSocketPayload.js';
+import { resolveSocketAuth } from './socketAuth.js';
 
 /** Minimum ms between Redis writes per socket (~5s client heartbeat, allow clock drift). */
 const HEARTBEAT_MIN_INTERVAL_MS = 4500;
@@ -30,6 +38,14 @@ function readUserIdFromHandshake(auth: unknown): string | undefined {
 /**
  * Socket.IO on the same HTTP server as Express (PROJECT_PLAN.md §3.2).
  * Optional Redis adapter for horizontal scale.
+ *
+ * **Auth:** JWT / dev user id is validated **once** in the **`connection`** handler (`resolveSocketAuth` →
+ * **`socket.data.authAtConnect`**). Inbound events such as **`message:send`** only read that snapshot — they do
+ * not re-verify tokens or reload the user from the database.
+ *
+ * **Rate limits:** **`message:send`** shares Redis fixed-window caps with **`POST /messages`** (**`MESSAGE_SEND_RATE_LIMIT_*`**)
+ * — per **user**, per **client IP**, and per **socket id** (socket path only).
+ *
  * Last seen: client emits **`presence:heartbeat` every ~5s** while connected → Redis; on **disconnect** → flush to MongoDB (`users.lastSeenAt`) and clear Redis key.
  * Read path: **`presence:getLastSeen`** with `{ targetUserId }` + ack — Redis → Mongo → **`not_available`**.
  */
@@ -55,8 +71,15 @@ export async function attachSocketIo(
     logger.info('Socket.IO Redis adapter enabled');
   }
 
-  io.on('connection', (socket) => {
-    const userId = readUserIdFromHandshake(socket.handshake.auth);
+  io.on('connection', async (socket) => {
+    // Authentication is resolved once here; `message:send` and other handlers use `authAtConnect` only.
+    socket.data.authAtConnect = await resolveSocketAuth(socket, env);
+
+    const userId =
+      socket.data.authAtConnect.kind === 'ok'
+        ? socket.data.authAtConnect.user.id
+        : readUserIdFromHandshake(socket.handshake.auth);
+
     let lastHeartbeatWriteMs = 0;
 
     const onHeartbeat = (): void => {
@@ -109,8 +132,86 @@ export async function attachSocketIo(
       },
     );
 
+    socket.on(
+      'message:send',
+      async (raw: unknown, ack?: (r: unknown) => void) => {
+        if (typeof ack !== 'function') {
+          logger.warn(
+            { socketId: socket.id },
+            'message:send missing acknowledgement callback',
+          );
+          return;
+        }
+
+        // Handshake auth only — see `connection` handler; no JWT / DB lookup per message.
+        const auth = socket.data.authAtConnect;
+        if (auth.kind === 'email_not_verified') {
+          ack({
+            code: 'EMAIL_NOT_VERIFIED',
+            message: 'Verify your email before using this resource',
+          });
+          return;
+        }
+        if (auth.kind !== 'ok') {
+          ack({
+            code: 'UNAUTHORIZED',
+            message: env.JWT_SECRET?.trim()
+              ? 'Missing or invalid bearer token'
+              : 'Authentication required',
+          });
+          return;
+        }
+
+        const ip = getSocketClientIp(socket);
+        if (
+          await isMessageSendRateLimited(env, {
+            userId: auth.user.id,
+            ip,
+            socketId: socket.id,
+          })
+        ) {
+          ack({
+            code: 'RATE_LIMIT_EXCEEDED',
+            message: 'Too many message send requests; try again later',
+          });
+          return;
+        }
+
+        const parsed = sendMessageRequestSchema.safeParse(raw);
+        if (!parsed.success) {
+          ack({
+            code: 'INVALID_REQUEST',
+            message: formatZodError(parsed.error),
+          });
+          return;
+        }
+
+        try {
+          const msg = await sendMessageForUser(auth.user.id, parsed.data);
+          ack(messageDocumentToApi(msg));
+        } catch (err: unknown) {
+          if (err instanceof AppError) {
+            ack({
+              code: err.code,
+              message: err.message,
+            });
+            return;
+          }
+          logger.error({ err, socketId: socket.id }, 'message:send failed');
+          ack({
+            code: 'INTERNAL_ERROR',
+            message: 'Internal server error',
+          });
+        }
+      },
+    );
+
     logger.info(
-      { socketId: socket.id, hasUserId: Boolean(userId) },
+      {
+        socketId: socket.id,
+        hasUserId: Boolean(userId),
+        authKind: socket.data.authAtConnect.kind,
+      },
       'socket.io connected',
     );
 

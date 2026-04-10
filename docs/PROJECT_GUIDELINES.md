@@ -116,6 +116,7 @@ These patterns apply to **MongoDB** as the primary store for users, conversation
 ### 2.5 Redis (presence, rate limits, optional Socket.IO adapter)
 
 - Use **Redis** for hot, ephemeral, or rate-limit data (e.g. last seen) with explicit **TTL** or update strategy to avoid unbounded growth.
+- **Global per-IP REST cap** (fixed-window counter, configurable **500/min** default): **`docs/GLOBAL_RATE_LIMIT.md`** — bursts, clock skew, stacking with route limits.
 - **In-tab notifications** (calls, messages) are delivered via **Socket.IO** on **messaging-service** (`PROJECT_PLAN.md` §3.3), not Redis Streams. For **horizontal scaling** of Socket.IO nodes, use a **Redis adapter** for Socket.IO when needed.
 
 ---

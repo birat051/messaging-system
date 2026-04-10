@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Messaging API
-  version: 0.1.7
+  version: 0.1.13
   description: |
     **Source of truth** for REST contracts between **web-client** and **messaging-service**
     (single HTTP API; there is no separate notification REST service).
@@ -12,6 +12,14 @@ info:
     see **`docs/PROJECT_PLAN.md`** §8 (and §3.3). The web-client runs
     **`socket.io-client` in a Web Worker** and forwards events to the UI; that is a client
     concern and is not described by this OpenAPI document.
+
+    **Sending chat messages (transport):** the **primary** path is the Socket.IO inbound event
+    **`message:send`** with a JSON payload matching **`SendMessageRequest`**; the server ack returns
+    **`Message`** or an **`ErrorResponse`**-shaped object (`code`, `message`). This contract is implemented
+    in **`messaging-service`** (`src/realtime/socket.ts`) and is **not** expressed as an OpenAPI path
+    (WebSocket/Socket.IO framing is out of scope for this file). **`POST /messages`** below is
+    **deprecated** — kept for integration tests, scripts, and tooling; interactive clients should use
+    **`message:send`** instead.
 
     All paths below are served under the **`/v1`** prefix (see `servers`). Implementations in
     **messaging-service** must stay aligned; regenerate **`apps/web-client`** types with
@@ -25,13 +33,19 @@ info:
     **`displayName`** parts.
     **Search** is by **email** (query), not by internal user id — see `GET /users/search`.
 
-    **Send message:** `POST /messages` — **`conversationId` is optional**. If omitted when starting a
-    direct 1:1 thread, the server **creates** the conversation then the message; the client must
-    send **`recipientUserId`**. For subsequent messages in that thread, the client passes
+    **Send message (schema only):** the **`SendMessageRequest`** body shape applies to **`message:send`**
+    (Socket.IO) as well as the deprecated **`POST /messages`** route. **`conversationId` is optional**.
+    If omitted when starting a direct 1:1 thread, the server **creates** the conversation then the message;
+    the client must send **`recipientUserId`**. For subsequent messages in that thread, the client passes
     **`conversationId`** (and omits `recipientUserId`).
 
     **Pagination:** every list endpoint that supports **`limit`** documents it as **optional** with a
     **server default** (see `LimitQuery`).
+
+    **E2EE public keys (user-level):** **`PUT /users/me/public-key`** registers or replaces the caller's
+    **public** key material; **`POST /users/me/public-key/rotate`** increments **`keyVersion`** with a new key.
+    **`GET /users/{userId}/public-key`** fetches a peer's key for **ECIES** (see **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`**).
+    **Private keys** never appear in this API.
 
     **Email verification (env-gated, no `GET /config`):** **`User.emailVerified`** is always returned on **`User`**.
     Whether registration leaves users unverified, whether **`POST /auth/verify-email`** and **`POST /auth/resend-verification`**
@@ -364,7 +378,7 @@ paths:
   /users/me:
     get:
       operationId: getCurrentUser
-      summary: Current authenticated user (planned)
+      summary: Current authenticated user
       tags:
         - Users
       security:
@@ -381,7 +395,7 @@ paths:
 
     patch:
       operationId: updateCurrentUserProfile
-      summary: Update current user profile (planned)
+      summary: Update current user profile
       description: |
         **Multipart** profile update: optional **profile image** (`file` part), optional **status**
         text, optional **displayName**. At least one part should be supplied; omitted fields are left
@@ -409,6 +423,120 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /users/me/public-key:
+    put:
+      operationId: putMyPublicKey
+      summary: Register or replace the current user's E2EE public key
+      description: |
+        **Upsert** the authenticated user's **long-term** public key (one document per user in MongoDB;
+        no per-device rows). Encoding of **`publicKey`** is fixed server-side (e.g. SPKI Base64 per
+        **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`**). **Never** send a private key.
+        On first registration, **`keyVersion`** may be omitted and assigned by the server (typically **`1`**).
+      tags:
+        - Users
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PutPublicKeyRequest'
+      responses:
+        '200':
+          description: Public key stored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPublicKeyResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '413':
+          description: JSON body exceeds the smaller limit used for public-key routes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Per-user rate limit on public key updates exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /users/me/public-key/rotate:
+    post:
+      operationId: rotateMyPublicKey
+      summary: Rotate the current user's E2EE public key
+      description: |
+        **New** public key material with a server-assigned **`keyVersion`** greater than the previous value.
+        Use when the user generates a new key pair client-side. If no key exists yet, the server may
+        treat this as **400** or as first registration — implementation choice.
+      tags:
+        - Users
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RotatePublicKeyRequest'
+      responses:
+        '200':
+          description: New public key active
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPublicKeyResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          description: JSON body exceeds the smaller limit used for public-key routes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Per-user rate limit on public key updates exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /users/{userId}/public-key:
+    get:
+      operationId: getUserPublicKeyById
+      summary: Get a user's registered E2EE public key by user id
+      description: |
+        Fetch **public** key material for **ECIES** to this user. **Authorization:** the server may return
+        **403** or **404** when the caller must not learn this key (e.g. not an allowed messaging peer).
+      tags:
+        - Users
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserIdPath'
+      responses:
+        '200':
+          description: Public key for encryption to this user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPublicKeyResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /users/{userId}:
     get:
       operationId: getUserById
@@ -434,11 +562,19 @@ paths:
   /users/search:
     get:
       operationId: searchUsersByEmail
-      summary: Search users by email (planned; not by opaque user id)
+      summary: Search users by email (exact match; not by opaque user id)
       description: |
-        Query is the **email** (exact or prefix per privacy policy). Returns display name,
-        profile picture, and the **direct conversation id** with the current user when a
-        conversation already exists (null when none).
+        **Privacy (MVP):** **Exact match** on the **normalized** full email address only.
+        There is **no** prefix or typeahead search — that would ease **email enumeration**
+        and needs an explicit product decision (**Feature 5** — discoverability rules).
+
+        **Rate limiting:** per **client IP** in Redis (`USER_SEARCH_RATE_LIMIT_*` in
+        **`docs/ENVIRONMENT.md`**). Exceeding the limit returns **429** with **`code`**
+        **`RATE_LIMIT_EXCEEDED`**.
+
+        Returns display name, profile picture, and the **direct conversation id** with the
+        current user when a conversation already exists (null when none). The caller never
+        receives their own row.
       tags:
         - Users
       security:
@@ -450,7 +586,9 @@ paths:
           schema:
             type: string
             format: email
-          description: Email address to search (not internal user id)
+          description: >
+            Full email address for **exact** lookup after normalization (not internal user id;
+            not a prefix).
         - $ref: '#/components/parameters/LimitQuery'
       responses:
         '200':
@@ -465,6 +603,12 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          description: Too many search requests from this client IP (Redis per-IP limit)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /conversations:
     get:
@@ -516,12 +660,19 @@ paths:
   /messages:
     post:
       operationId: sendMessage
-      summary: Send a message (planned)
+      deprecated: true
+      summary: Send a message (direct 1:1; group not supported yet) — deprecated
       description: |
+        **Deprecated.** Prefer the Socket.IO event **`message:send`** (same **`SendMessageRequest`**
+        payload; ack returns **`Message`** or `{ code, message }`). This REST route remains supported
+        for **integration tests**, **automation**, and **debugging**; production interactive clients
+        should not rely on it long term.
+
         **`conversationId` is optional.** If omitted for a **new direct 1:1** thread, the server
         creates the conversation, then persists the message — provide **`recipientUserId`** (the
         other participant). For an existing thread, send **`conversationId`** and omit
-        **`recipientUserId`**. Group chats always require **`conversationId`**.
+        **`recipientUserId`**. **Group** threads return **403** until group messaging is implemented.
+        Request body must include **`body`** text and/or **`mediaKey`** (validated by Zod).
       tags:
         - Messages
       security:
@@ -545,6 +696,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /groups:
     post:
@@ -940,6 +1093,59 @@ components:
           type: string
           nullable: true
           maxLength: 280
+
+    PutPublicKeyRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - publicKey
+      description: Register or replace the caller's public key — **never** include a private key; unknown properties are rejected
+      properties:
+        publicKey:
+          type: string
+          maxLength: 2048
+          description: >
+            Base64 or Base64url **SPKI** DER for **P-256** (`prime256v1`); server rejects non-P-256
+            curves and invalid DER (see **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`**).
+        keyVersion:
+          type: integer
+          minimum: 1
+          description: Optional on first put; server may assign **1** when omitted
+
+    RotatePublicKeyRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - publicKey
+      description: New public key after client-side keypair generation — **never** include a private key; unknown properties are rejected
+      properties:
+        publicKey:
+          type: string
+          maxLength: 2048
+          description: Same encoding rules as **`PutPublicKeyRequest.publicKey`** (P-256 SPKI).
+
+    UserPublicKeyResponse:
+      type: object
+      required:
+        - userId
+        - publicKey
+        - keyVersion
+        - updatedAt
+      description: User-level public key directory row — no device dimension
+      properties:
+        userId:
+          type: string
+          description: Same as **`User.id`**
+        publicKey:
+          type: string
+          description: Opaque to clients except as encryption input; encoding matches **`PutPublicKeyRequest`**
+        keyVersion:
+          type: integer
+          minimum: 1
+          description: Monotonic per user; increments on **rotate**
+        updatedAt:
+          type: string
+          format: date-time
 
     UserSearchResult:
       type: object

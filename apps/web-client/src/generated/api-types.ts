@@ -188,7 +188,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Current authenticated user (planned) */
+        /** Current authenticated user */
         get: operations["getCurrentUser"];
         put?: never;
         post?: never;
@@ -196,13 +196,79 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Update current user profile (planned)
+         * Update current user profile
          * @description **Multipart** profile update: optional **profile image** (`file` part), optional **status**
          *     text, optional **displayName**. At least one part should be supplied; omitted fields are left
          *     unchanged. Server stores the image via the same pipeline as **`POST /media/upload`** (S3 key
          *     on user document + public URL in **`profilePicture`**).
          */
         patch: operations["updateCurrentUserProfile"];
+        trace?: never;
+    };
+    "/users/me/public-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Register or replace the current user's E2EE public key
+         * @description **Upsert** the authenticated user's **long-term** public key (one document per user in MongoDB;
+         *     no per-device rows). Encoding of **`publicKey`** is fixed server-side (e.g. SPKI Base64 per
+         *     **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`**). **Never** send a private key.
+         *     On first registration, **`keyVersion`** may be omitted and assigned by the server (typically **`1`**).
+         */
+        put: operations["putMyPublicKey"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/me/public-key/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rotate the current user's E2EE public key
+         * @description **New** public key material with a server-assigned **`keyVersion`** greater than the previous value.
+         *     Use when the user generates a new key pair client-side. If no key exists yet, the server may
+         *     treat this as **400** or as first registration — implementation choice.
+         */
+        post: operations["rotateMyPublicKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{userId}/public-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a user's registered E2EE public key by user id
+         * @description Fetch **public** key material for **ECIES** to this user. **Authorization:** the server may return
+         *     **403** or **404** when the caller must not learn this key (e.g. not an allowed messaging peer).
+         */
+        get: operations["getUserPublicKeyById"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/users/{userId}": {
@@ -230,10 +296,18 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Search users by email (planned; not by opaque user id)
-         * @description Query is the **email** (exact or prefix per privacy policy). Returns display name,
-         *     profile picture, and the **direct conversation id** with the current user when a
-         *     conversation already exists (null when none).
+         * Search users by email (exact match; not by opaque user id)
+         * @description **Privacy (MVP):** **Exact match** on the **normalized** full email address only.
+         *     There is **no** prefix or typeahead search — that would ease **email enumeration**
+         *     and needs an explicit product decision (**Feature 5** — discoverability rules).
+         *
+         *     **Rate limiting:** per **client IP** in Redis (`USER_SEARCH_RATE_LIMIT_*` in
+         *     **`docs/ENVIRONMENT.md`**). Exceeding the limit returns **429** with **`code`**
+         *     **`RATE_LIMIT_EXCEEDED`**.
+         *
+         *     Returns display name, profile picture, and the **direct conversation id** with the
+         *     current user when a conversation already exists (null when none). The caller never
+         *     receives their own row.
          */
         get: operations["searchUsersByEmail"];
         put?: never;
@@ -288,11 +362,18 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Send a message (planned)
-         * @description **`conversationId` is optional.** If omitted for a **new direct 1:1** thread, the server
+         * Send a message (direct 1:1; group not supported yet) — deprecated
+         * @deprecated
+         * @description **Deprecated.** Prefer the Socket.IO event **`message:send`** (same **`SendMessageRequest`**
+         *     payload; ack returns **`Message`** or `{ code, message }`). This REST route remains supported
+         *     for **integration tests**, **automation**, and **debugging**; production interactive clients
+         *     should not rely on it long term.
+         *
+         *     **`conversationId` is optional.** If omitted for a **new direct 1:1** thread, the server
          *     creates the conversation, then persists the message — provide **`recipientUserId`** (the
          *     other participant). For an existing thread, send **`conversationId`** and omit
-         *     **`recipientUserId`**. Group chats always require **`conversationId`**.
+         *     **`recipientUserId`**. **Group** threads return **403** until group messaging is implemented.
+         *     Request body must include **`body`** text and/or **`mediaKey`** (validated by Zod).
          */
         post: operations["sendMessage"];
         delete?: never;
@@ -460,6 +541,29 @@ export interface components {
             /** Format: uri */
             profilePicture?: string | null;
             status?: string | null;
+        };
+        /** @description Register or replace the caller's public key — **never** include a private key; unknown properties are rejected */
+        PutPublicKeyRequest: {
+            /** @description Base64 or Base64url **SPKI** DER for **P-256** (`prime256v1`); server rejects non-P-256 curves and invalid DER (see **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`**). */
+            publicKey: string;
+            /** @description Optional on first put; server may assign **1** when omitted */
+            keyVersion?: number;
+        };
+        /** @description New public key after client-side keypair generation — **never** include a private key; unknown properties are rejected */
+        RotatePublicKeyRequest: {
+            /** @description Same encoding rules as **`PutPublicKeyRequest.publicKey`** (P-256 SPKI). */
+            publicKey: string;
+        };
+        /** @description User-level public key directory row — no device dimension */
+        UserPublicKeyResponse: {
+            /** @description Same as **`User.id`** */
+            userId: string;
+            /** @description Opaque to clients except as encryption input; encoding matches **`PutPublicKeyRequest`** */
+            publicKey: string;
+            /** @description Monotonic per user; increments on **rotate** */
+            keyVersion: number;
+            /** Format: date-time */
+            updatedAt: string;
         };
         /** @description One row from email search — includes existing direct conversation when present */
         UserSearchResult: {
@@ -1007,6 +1111,121 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
         };
     };
+    putMyPublicKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutPublicKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Public key stored */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserPublicKeyResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description JSON body exceeds the smaller limit used for public-key routes */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Per-user rate limit on public key updates exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    rotateMyPublicKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RotatePublicKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description New public key active */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserPublicKeyResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description JSON body exceeds the smaller limit used for public-key routes */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Per-user rate limit on public key updates exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getUserPublicKeyById: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User identifier */
+                userId: components["parameters"]["UserIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public key for encryption to this user */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserPublicKeyResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     getUserById: {
         parameters: {
             query?: never;
@@ -1035,7 +1254,7 @@ export interface operations {
     searchUsersByEmail: {
         parameters: {
             query: {
-                /** @description Email address to search (not internal user id) */
+                /** @description Full email address for **exact** lookup after normalization (not internal user id; not a prefix). */
                 email: string;
                 /**
                  * @description Optional page size; **default `20`** when omitted on all paginated list endpoints that
@@ -1060,6 +1279,15 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            /** @description Too many search requests from this client IP (Redis per-IP limit) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     listConversations: {
@@ -1150,6 +1378,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     createGroup: {

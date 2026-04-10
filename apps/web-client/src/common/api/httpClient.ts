@@ -1,6 +1,8 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import type { Store } from '@reduxjs/toolkit';
+import { getToastBridge } from '../components/toast/toastBridge';
 import { getApiBaseUrl } from '../utils/apiConfig';
+import { parseApiError } from '../../modules/auth/utils/apiError';
 import type { components } from '../../generated/api-types';
 import { logout, setSession } from '../../modules/auth/stores/authSlice';
 import {
@@ -18,6 +20,9 @@ type AuthResponse = components['schemas']['AuthResponse'];
  * Single shared Axios instance for REST calls (`PROJECT_GUIDELINES.md` + task checklist).
  * **`baseURL`** includes **`/v1`** — use paths like **`/users/me`**, not **`/v1/users/me`**.
  * Call **`attachHttpAuth(store)`** once from **`main.tsx`** after the store exists.
+ *
+ * **429 (rate limits):** response interceptor rejects immediately — no **401** refresh path, no retries.
+ * When **`ToastProvider`** is mounted, a **`warning`** toast shows **`parseApiError`**’s message ( **`toastBridge`** ).
  */
 export const httpClient = axios.create({
   baseURL: getApiBaseUrl(),
@@ -65,7 +70,7 @@ async function performRefresh(
     } catch (e) {
       if (axios.isAxiosError(e)) {
         const st = e.response?.status;
-        if (st === 401 || st === 403) {
+        if (st === 401 || st === 403 || st === 429) {
           throw e;
         }
       }
@@ -113,6 +118,15 @@ export function attachHttpAuth(store: Store<RootState>): void {
     async (error: AxiosError) => {
       const original = error.config as InternalAxiosRequestConfig | undefined;
       const status = error.response?.status;
+
+      // 429 (global / route rate limits): reject immediately — never refresh or retry here.
+      if (status === 429) {
+        const toast = getToastBridge();
+        if (toast) {
+          toast.warning(parseApiError(error).message);
+        }
+        return Promise.reject(error);
+      }
 
       if (!original || status !== 401) {
         return Promise.reject(error);

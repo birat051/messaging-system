@@ -26,6 +26,10 @@ export type ParsedApiError = {
   httpStatus?: number;
 };
 
+/**
+ * Maps Axios failures (including **429** **`RATE_LIMIT_EXCEEDED`**) to UI-safe text. Prefer server **`message`** when present.
+ * **`httpClient`** rejects **429** without refresh/retry — use this (or **`getApiErrorMessage`**) for user-visible feedback.
+ */
 export function parseApiError(err: unknown): ParsedApiError {
   if (axios.isAxiosError(err)) {
     const status = err.response?.status;
@@ -84,6 +88,11 @@ export function parseApiError(err: unknown): ParsedApiError {
 /** Safe message for UI — prefers **`ErrorResponse.message`**. */
 export function getApiErrorMessage(err: unknown): string {
   return parseApiError(err).message;
+}
+
+/** **429** from **`httpClient`** — global **`warning`** toast may already be shown; avoid duplicate **`toast.error`** in **`catch`**. */
+export function isRateLimitedError(err: unknown): boolean {
+  return axios.isAxiosError(err) && err.response?.status === 429;
 }
 
 /** **`POST /auth/login`** — **401** invalid credentials vs **403** email not verified (`EMAIL_NOT_VERIFIED`). */

@@ -17,7 +17,11 @@ export const API_PATHS = {
   },
   users: {
     me: '/users/me',
+    mePublicKey: '/users/me/public-key',
+    mePublicKeyRotate: '/users/me/public-key/rotate',
     byId: (userId: string) => `/users/${encodeURIComponent(userId)}`,
+    publicKeyById: (userId: string) =>
+      `/users/${encodeURIComponent(userId)}/public-key`,
     search: '/users/search',
   },
   conversations: {

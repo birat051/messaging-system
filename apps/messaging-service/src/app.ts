@@ -1,25 +1,35 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import express from 'express';
-import { pinoHttp } from 'pino-http';
+import { pinoHttp, stdSerializers } from 'pino-http';
 import type { Env } from './config/env.js';
-import { logger } from './logger.js';
+import { logger, safeErrorSerializer } from './logger.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { createGlobalRestRateLimitMiddleware } from './middleware/globalRestRateLimit.js';
+import { createJsonBodyParserWithPublicKeyLimit } from './middleware/jsonBodyParserWithPublicKeyLimit.js';
 import { notFoundHandler } from './middleware/notFound.js';
 import { createAuthRouter } from './routes/auth.js';
+import { createMessagesRouter } from './routes/messages.js';
 import { createMediaRouter } from './routes/media.js';
 import { systemRouter } from './routes/system.js';
+import { createUsersRouter } from './routes/users.js';
 import { createSwaggerUiHandlers } from './swagger.js';
 
 export function createApp(env: Env): express.Application {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
-  app.use(express.json({ limit: '1mb' }));
+  app.use(createJsonBodyParserWithPublicKeyLimit(env));
 
   app.use(
     pinoHttp({
       logger,
+      wrapSerializers: false,
+      serializers: {
+        req: stdSerializers.req,
+        res: stdSerializers.res,
+        err: safeErrorSerializer,
+      },
       genReqId: (req: IncomingMessage, res: ServerResponse) => {
         const raw =
           req.headers['x-request-id'] ?? req.headers['x-correlation-id'];
@@ -36,7 +46,7 @@ export function createApp(env: Env): express.Application {
         correlationId: req.id,
       }),
       autoLogging: {
-        ignore: (req) => {
+        ignore: (req: IncomingMessage) => {
           const url = req.url ?? '';
           return (
             url.startsWith('/v1/health') ||
@@ -48,8 +58,11 @@ export function createApp(env: Env): express.Application {
     }),
   );
 
+  app.use('/v1', createGlobalRestRateLimitMiddleware(env));
   app.use('/v1', systemRouter);
   app.use('/v1', createAuthRouter(env));
+  app.use('/v1', createUsersRouter(env));
+  app.use('/v1', createMessagesRouter(env));
 
   if (env.S3_BUCKET) {
     app.use('/v1', createMediaRouter(env));

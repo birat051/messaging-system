@@ -6,8 +6,10 @@ import { SWRConfig } from 'swr';
 import './index.css';
 import { attachHttpAuth } from './common/api/httpClient';
 import { swrConfigValue } from './common/api/swrConfig';
+import { ToastProvider } from './common/components/toast/ToastProvider';
 import { ThemeProvider } from './common/theme/ThemeProvider';
 import App from './App';
+import { SocketWorkerProvider } from './common/realtime/SocketWorkerProvider';
 import { SessionRestore } from './modules/auth/components/SessionRestore';
 import { store } from './store';
 
@@ -24,9 +26,13 @@ createRoot(root).render(
       <Provider store={store}>
         <SWRConfig value={swrConfigValue}>
           <ThemeProvider>
-            <SessionRestore>
-              <App />
-            </SessionRestore>
+            <ToastProvider>
+              <SessionRestore>
+                <SocketWorkerProvider>
+                  <App />
+                </SocketWorkerProvider>
+              </SessionRestore>
+            </ToastProvider>
           </ThemeProvider>
         </SWRConfig>
       </Provider>
