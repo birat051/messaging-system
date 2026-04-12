@@ -41,4 +41,4 @@ Then use **`docs/PROJECT_PLAN.md`** (architecture, stack) and **`docs/TASK_CHECK
 
 ## Before merge (quick gate)
 
-Strict TS; env validated at startup; no secrets in repo; authz on mutating routes; MongoDB access patterns reasoned; list APIs paginated with server-enforced limits; OpenAPI in sync; ESLint clean; **`web-client`:** tests-first + coverage only for **`*.tsx`** UI (`PROJECT_GUIDELINES.md` §4.1.1); **responsive layouts (mobile, iPad/tablet, desktop)** per §4.2.1; Redux/hooks per guidelines for global client state.
+Strict TS; env validated at startup; no secrets in repo; authz on mutating routes; MongoDB access patterns reasoned; list APIs paginated with server-enforced limits; OpenAPI in sync; ESLint clean; **`web-client`:** tests-first + coverage only for **`*.tsx`** UI (`PROJECT_GUIDELINES.md` §4.1.1); **one component per file**, **`utils/`**, **`types/<ComponentName>-types.ts`** for new/refactored UI per §4.1.3; **responsive layouts (mobile, iPad/tablet, desktop)** per §4.2.1; Redux/hooks per guidelines for global client state.

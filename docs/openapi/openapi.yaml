@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Messaging API
-  version: 0.1.13
+  version: 0.1.20
   description: |
     **Source of truth** for REST contracts between **web-client** and **messaging-service**
     (single HTTP API; there is no separate notification REST service).
@@ -16,10 +16,15 @@ info:
     **Sending chat messages (transport):** the **primary** path is the Socket.IO inbound event
     **`message:send`** with a JSON payload matching **`SendMessageRequest`**; the server ack returns
     **`Message`** or an **`ErrorResponse`**-shaped object (`code`, `message`). This contract is implemented
-    in **`messaging-service`** (`src/realtime/socket.ts`) and is **not** expressed as an OpenAPI path
-    (WebSocket/Socket.IO framing is out of scope for this file). **`POST /messages`** below is
+    in **`messaging-service`** (`src/utils/realtime/socket.ts`) and is **not** expressed as an OpenAPI path
+    (WebSocket/Socket.IO framing is out of scope for this file).     **`POST /messages`** below is
     **deprecated** — kept for integration tests, scripts, and tooling; interactive clients should use
     **`message:send`** instead.
+
+    **Receiving new messages (Socket.IO):** after a message is persisted, the server may deliver it on the default
+    namespace by emitting **`message:new`** with a JSON body matching **`Message`** (same fields as **`POST /messages`**
+    **`201`** / **`message:send`** ack). Clients joined to the per-user room **`user:<userId>`** receive copies routed
+    via the broker (`PROJECT_PLAN.md` §3.2); this is not a REST operation and is described here for contract alignment only.
 
     All paths below are served under the **`/v1`** prefix (see `servers`). Implementations in
     **messaging-service** must stay aligned; regenerate **`apps/web-client`** types with
@@ -45,7 +50,10 @@ info:
     **E2EE public keys (user-level):** **`PUT /users/me/public-key`** registers or replaces the caller's
     **public** key material; **`POST /users/me/public-key/rotate`** increments **`keyVersion`** with a new key.
     **`GET /users/{userId}/public-key`** fetches a peer's key for **ECIES** (see **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`**).
-    **Private keys** never appear in this API.
+    **Private keys** never appear in this API. **Message `body` (E2EE):** when E2EE is enabled, **`SendMessageRequest.body`**
+    and **`Message.body`** may contain **opaque client ciphertext**; the server **never** decrypts. That path **depends on**
+    this public-key surface and on the **Prerequisite — User keypair** work in **`docs/TASK_CHECKLIST.md`**.
+
 
     **Email verification (env-gated, no `GET /config`):** **`User.emailVerified`** is always returned on **`User`**.
     Whether registration leaves users unverified, whether **`POST /auth/verify-email`** and **`POST /auth/resend-verification`**
@@ -613,7 +621,10 @@ paths:
   /conversations:
     get:
       operationId: listConversations
-      summary: List conversations for current user (planned; cursor pagination)
+      summary: List direct conversations for the current user (cursor pagination; newest activity first)
+      description: |
+        Returns **direct 1:1** threads where the caller is a **participant**, **newest `updatedAt` first**.
+        **`cursor`** is opaque (from **`nextCursor`**); malformed cursors return **400**.
       tags:
         - Conversations
       security:
@@ -628,13 +639,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ConversationPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
 
   /conversations/{conversationId}/messages:
     get:
       operationId: listMessages
-      summary: List messages in a conversation (planned; cursor pagination)
+      summary: List messages in a direct 1:1 conversation (cursor pagination; participants only)
+      description: |
+        **Direct 1:1** threads only — **group** conversations return **403** until group messaging is implemented.
+        The caller must be a **participant**; otherwise **403**. Messages are returned **newest first**.
+        **`cursor`** is opaque (from **`nextCursor`**); malformed cursors return **400**.
+        **Rate limiting:** the **global** REST per-IP limit (`GLOBAL_RATE_LIMIT_*` in **`docs/ENVIRONMENT.md`**) applies to this route; exceeding it returns **429** with **`ErrorResponse`** (**`code`** typically **`RATE_LIMIT_EXCEEDED`**).
       tags:
         - Messages
       security:
@@ -650,12 +668,65 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MessagePage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          description: Global REST per-IP rate limit exceeded (`GLOBAL_RATE_LIMIT_*`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /conversations/{conversationId}/message-receipts:
+    get:
+      operationId: listMessageReceipts
+      summary: List message receipt summaries for a direct 1:1 conversation (cursor pagination; participants only)
+      description: |
+        **Narrow receipt sync:** returns **`messageId`**, **`createdAt`**, and optional **`receiptsByUserId`** per row —
+        **no** message body, **`mediaKey`**, or **`senderId`**. Use this to refresh delivery/read state without
+        re-downloading full **`Message`** bodies from **`GET /conversations/{id}/messages`**.
+
+        **`Message`** objects from **`GET /messages`** and Socket.IO **`message:new`** **do not** include receipt fields;
+        combine this route with real-time **`message:delivered`** / **`message:read`** / **`conversation:read`** events.
+
+        **Direct 1:1** only — **group** returns **403**. Same opaque **`cursor`** / **`nextCursor`** as the message list
+        (**newest first**). **`readCursor`** is the authenticated user’s durable read cursor (**`conversation_reads`**),
+        or **`null`** if none.
+      tags:
+        - Messages
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ConversationIdPath'
+        - $ref: '#/components/parameters/CursorQuery'
+        - $ref: '#/components/parameters/LimitQuery'
+      responses:
+        '200':
+          description: Paginated receipt summaries and optional read cursor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageReceiptPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          description: Global REST per-IP rate limit exceeded (`GLOBAL_RATE_LIMIT_*`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /messages:
     post:
@@ -673,6 +744,10 @@ paths:
         other participant). For an existing thread, send **`conversationId`** and omit
         **`recipientUserId`**. **Group** threads return **403** until group messaging is implemented.
         Request body must include **`body`** text and/or **`mediaKey`** (validated by Zod).
+
+        **Rate limiting:** this route uses the **message-send** limits (**`MESSAGE_SEND_RATE_LIMIT_*`**, per user + IP)
+        in addition to the **global** REST per-IP limit — see **`docs/ENVIRONMENT.md`** (*Global vs per-route*). Either
+        can return **429** with **`ErrorResponse`** (**`code`** **`RATE_LIMIT_EXCEEDED`**).
       tags:
         - Messages
       security:
@@ -698,6 +773,12 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          description: Message-send and/or global REST rate limit exceeded (`MESSAGE_SEND_RATE_LIMIT_*`, `GLOBAL_RATE_LIMIT_*`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /groups:
     post:
@@ -1181,6 +1262,19 @@ components:
           nullable: true
         isGroup:
           type: boolean
+        peerUserId:
+          type: string
+          nullable: true
+          description: |
+            **Direct 1:1** — the other participant's user id (not the authenticated user). **Null** for group
+            threads when group messaging exists; list responses currently return **direct** rows only.
+        memberIds:
+          type: array
+          items:
+            type: string
+          description: |
+            **Group** threads — **participant user ids** (including the caller) when the group is materialized;
+            omit for **direct** 1:1. Clients use this for **aggregate receipt** UI (all delivered / all seen).
         updatedAt:
           type: string
           format: date-time
@@ -1200,6 +1294,22 @@ components:
         hasMore:
           type: boolean
 
+    MessageReceiptEntry:
+      type: object
+      description: |
+        Per-recipient **delivered** / **seen** timestamps (**Feature 12**). Map keys are **`userId`** strings.
+        Exposed on **`MessageReceiptSummary.receiptsByUserId`** and via Socket.IO receipt events — **not** on **`Message`**.
+        Group **read-up-to** may also use **`conversation_reads`** — see **`docs/MESSAGE_RECEIPTS_AND_READ_STATE_DESIGN.md`**.
+      properties:
+        deliveredAt:
+          type: string
+          format: date-time
+          description: When the recipient client positively acknowledged delivery (in-app).
+        seenAt:
+          type: string
+          format: date-time
+          description: When the recipient read the message (per-message materialization).
+
     Message:
       type: object
       required:
@@ -1217,6 +1327,11 @@ components:
         body:
           type: string
           nullable: true
+          description: |
+            **Text or opaque E2EE payload.** Plain UTF-8 text, or client-encrypted ciphertext (e.g. envelopes described in
+            **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`**) when end-to-end encryption is enabled. The server **stores and routes**
+            this value **without** decrypting. Requires user-level public-key APIs (`PUT /users/me/public-key`,
+            `GET /users/{userId}/public-key`) per **Prerequisite — User keypair** in **`docs/TASK_CHECKLIST.md`**.
         mediaKey:
           type: string
           nullable: true
@@ -1224,6 +1339,68 @@ components:
         createdAt:
           type: string
           format: date-time
+      description: |
+        Chat row without receipt fields. **Delivery/read state** — **`GET /conversations/{conversationId}/message-receipts`**
+        and Socket.IO **`message:delivered`** / **`message:read`** / **`conversation:read`**.
+
+    MessageReceiptSummary:
+      type: object
+      required:
+        - messageId
+        - conversationId
+        - createdAt
+      description: |
+        Receipt-related fields for one message — **no** **`body`**, **`mediaKey`**, or **`senderId`**.
+      properties:
+        messageId:
+          type: string
+        conversationId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        receiptsByUserId:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/MessageReceiptEntry'
+          description: Omitted when no receipt data is stored for this message.
+
+    ConversationReadCursor:
+      type: object
+      required:
+        - lastReadMessageId
+        - lastReadAt
+      description: |
+        Authenticated user’s **read-up-to** cursor for this conversation (**`conversation_reads`**).
+      properties:
+        lastReadMessageId:
+          type: string
+        lastReadAt:
+          type: string
+          format: date-time
+
+    MessageReceiptPage:
+      type: object
+      required:
+        - items
+        - hasMore
+        - readCursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessageReceiptSummary'
+        nextCursor:
+          type: string
+          nullable: true
+        hasMore:
+          type: boolean
+        readCursor:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/ConversationReadCursor'
+          description: >
+            JSON null when the user has no stored read cursor for this thread.
 
     MessagePage:
       type: object
@@ -1257,6 +1434,10 @@ components:
           description: Other user when starting a new direct thread; omit when `conversationId` is set
         body:
           type: string
+          description: |
+            **Message body text or opaque E2EE ciphertext** — same semantics as **`Message.body`** (server does not decrypt).
+            When sending E2EE payloads, clients **depend on** user public-key directory APIs and the **Prerequisite — User keypair**
+            implementation (`docs/TASK_CHECKLIST.md`, `docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`).
         mediaKey:
           type: string
           nullable: true

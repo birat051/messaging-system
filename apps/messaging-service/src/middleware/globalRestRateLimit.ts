@@ -1,8 +1,8 @@
 import type { NextFunction, Request, Response } from 'express';
-import { getClientIp } from '../auth/getClientIp.js';
+import { getClientIp } from '../utils/auth/getClientIp.js';
 import type { Env } from '../config/env.js';
-import { AppError } from '../errors/AppError.js';
-import { isGlobalRestRateLimitExceeded } from '../rateLimit/globalRestRateLimit.js';
+import { AppError } from '../utils/errors/AppError.js';
+import { isGlobalRestRateLimitExceeded } from '../utils/rateLimit/globalRestRateLimit.js';
 
 /**
  * Paths under **`/v1`** that skip the global per-IP counter (liveness/readiness).

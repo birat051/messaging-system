@@ -52,8 +52,8 @@ const envSchema = z.object({
     .max(31536000)
     .default(604800),
   /**
-   * When true, enable `@socket.io/redis-adapter` so multiple messaging-service instances share rooms/events.
-   * Uses separate Redis pub/sub connections from the main client.
+   * When true, enable `@socket.io/redis-adapter` (separate Redis pub/sub from the main client).
+   * **Discouraged** for room fan-out: rooms are in-memory per process; cross-node delivery uses RabbitMQ + local `io.to(room).emit` (`PROJECT_PLAN.md` §3.2.2). Prefer leaving this off.
    */
   SOCKET_IO_REDIS_ADAPTER: z.preprocess((val) => {
     if (val === undefined || val === '') {
@@ -279,6 +279,29 @@ const envSchema = z.object({
     .positive()
     .default(120),
   /**
+   * Fixed window for Socket.IO receipt events (**`message:delivered`**, **`message:read`**, **`conversation:read`**).
+   */
+  MESSAGE_RECEIPT_RATE_LIMIT_WINDOW_SEC: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60),
+  MESSAGE_RECEIPT_RATE_LIMIT_MAX_PER_USER: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(600),
+  MESSAGE_RECEIPT_RATE_LIMIT_MAX_PER_IP: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(2000),
+  MESSAGE_RECEIPT_RATE_LIMIT_MAX_PER_SOCKET: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(600),
+  /**
    * Global per-client-IP cap for REST **`/v1/*`** (middleware — **`docs/GLOBAL_RATE_LIMIT.md`**).
    * Default **500** requests per **60** seconds ≈ **500/min** average; not calendar-aligned.
    * **Stacks** with route-specific limits (**`REGISTER_*`**, **`USER_SEARCH_*`**, **`MESSAGE_SEND_*`**, …) — **`docs/ENVIRONMENT.md`**.
@@ -317,6 +340,11 @@ const envSchemaRefined = envSchema.superRefine((data, ctx) => {
 export type Env = z.infer<typeof envSchema>;
 
 let cached: Env | null = null;
+
+/** Clears the env cache so the next `loadEnv()` re-reads `process.env` (integration tests only). */
+export function resetEnvCacheForTests(): void {
+  cached = null;
+}
 
 /**
  * Validates `process.env` once at startup. Exits the process on failure (PROJECT_GUIDELINES.md).

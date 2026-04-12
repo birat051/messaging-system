@@ -1,0 +1,279 @@
+/**
+ * Requires MongoDB, Redis, and RabbitMQ (e.g. `docker compose -f infra/docker-compose.yml up -d mongo redis rabbitmq`).
+ *
+ * Run: `MESSAGING_INTEGRATION=1 npm run test:integration`
+ *
+ * Dynamic imports keep `loadEnv()` from caching defaults before `process.env` is set below.
+ *
+ * **`publishMessage` must be spied before `socket.ts` / `sendMessage.ts` load** so the live export
+ * used for sends is the spy (otherwise publishes may not reach RabbitMQ).
+ */
+import { createServer } from 'node:http';
+import type { Server as HttpServer } from 'node:http';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+  type MockInstance,
+} from 'vitest';
+import { io as clientIo, type Socket as ClientSocket } from 'socket.io-client';
+import type { Server as SocketIoServer } from 'socket.io';
+
+const enabled = process.env.MESSAGING_INTEGRATION === '1';
+
+describe.skipIf(!enabled)('integration: A→B Socket.IO + RabbitMQ', () => {
+  let httpServer: HttpServer | undefined;
+  let io: SocketIoServer | undefined;
+  let baseUrl: string;
+  let userA: { id: string };
+  let userB: { id: string };
+  let publishSpy: MockInstance<
+    (routingKey: string, payload: unknown) => Promise<boolean>
+  >;
+  let disconnectRabbit: (() => Promise<void>) | undefined;
+  let disconnectRedis: (() => Promise<void>) | undefined;
+  let disconnectMongo: (() => Promise<void>) | undefined;
+  let closeSocketIo: ((s: SocketIoServer) => Promise<void>) | undefined;
+  let setMessagingSocketIoServer: ((s: SocketIoServer | null) => void) | undefined;
+
+  beforeAll(async () => {
+    process.env.NODE_ENV ??= 'test';
+    process.env.MONGODB_URI ??= 'mongodb://127.0.0.1:27017/messaging_integration';
+    process.env.MONGODB_DB_NAME ??= 'messaging_integration';
+    process.env.REDIS_URL ??= 'redis://127.0.0.1:6379';
+    process.env.RABBITMQ_URL ??= 'amqp://messaging:messaging@127.0.0.1:5672';
+    const integrationDir = dirname(fileURLToPath(import.meta.url));
+    process.env.OPENAPI_SPEC_PATH = join(
+      integrationDir,
+      '../../../../docs/openapi/openapi.yaml',
+    );
+
+    const { resetEnvCacheForTests } = await import('../config/env.js');
+    resetEnvCacheForTests();
+
+    const { loadEnv } = await import('../config/env.js');
+    const rabbitmq = await import('../data/messaging/rabbitmq.js');
+    publishSpy = vi.spyOn(rabbitmq, 'publishMessage');
+    const { createApp } = await import('../app.js');
+    const { connectMongo, disconnectMongo: dm, getDb } = await import(
+      '../data/db/mongo.js'
+    );
+    const { ensureConversationIndexes } = await import(
+      '../data/conversations/conversations.collection.js'
+    );
+    const { ensureMessageIndexes } = await import(
+      '../data/messages/messages.collection.js'
+    );
+    const { ensureConversationReadsIndexes } = await import(
+      '../data/conversationReads/conversation_reads.collection.js'
+    );
+    const { connectRedis, disconnectRedis: dr } = await import(
+      '../data/redis/redis.js'
+    );
+    const { createUser } = await import('../data/users/repo.js');
+    const { attachSocketIo, closeSocketIo: cs } = await import(
+      '../utils/realtime/socket.js'
+    );
+
+    disconnectRabbit = rabbitmq.disconnectRabbit;
+    disconnectMongo = dm;
+    disconnectRedis = dr;
+    closeSocketIo = cs;
+    setMessagingSocketIoServer = rabbitmq.setMessagingSocketIoServer;
+
+    const env = loadEnv();
+    await connectMongo();
+    const db = getDb();
+    await ensureConversationIndexes(db);
+    await ensureMessageIndexes(db);
+    await ensureConversationReadsIndexes(db);
+    await connectRedis();
+    await rabbitmq.connectRabbit();
+
+    const app = createApp(env);
+    const srv = createServer(app);
+    httpServer = srv;
+    io = await attachSocketIo(srv);
+    setMessagingSocketIoServer(io);
+
+    await new Promise<void>((resolve, reject) => {
+      srv.listen(0, () => {
+        resolve();
+      });
+      srv.once('error', reject);
+    });
+
+    const addr = srv.address();
+    if (addr === null || typeof addr === 'string') {
+      throw new Error('expected bound port');
+    }
+    baseUrl = `http://127.0.0.1:${addr.port}`;
+
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    userA = await createUser({
+      email: `a-${suffix}@example.com`,
+      password: 'test-password-1',
+      emailVerified: true,
+    });
+    userB = await createUser({
+      email: `b-${suffix}@example.com`,
+      password: 'test-password-2',
+      emailVerified: true,
+    });
+  }, 60_000);
+
+  afterAll(async () => {
+    publishSpy?.mockRestore();
+    setMessagingSocketIoServer?.(null);
+    if (io !== undefined && closeSocketIo !== undefined) {
+      try {
+        await closeSocketIo(io);
+      } catch {
+        /* ignore */
+      }
+    }
+    if (httpServer !== undefined && httpServer.listening) {
+      await new Promise<void>((resolve, reject) => {
+        httpServer!.close((err) => (err ? reject(err) : resolve()));
+      });
+    }
+    if (disconnectRabbit !== undefined) {
+      await disconnectRabbit();
+    }
+    if (disconnectRedis !== undefined) {
+      await disconnectRedis();
+    }
+    if (disconnectMongo !== undefined) {
+      await disconnectMongo();
+    }
+  }, 60_000);
+
+  function connectClient(userId: string): Promise<ClientSocket> {
+    return new Promise((resolve, reject) => {
+      const s = clientIo(baseUrl, {
+        path: '/socket.io',
+        transports: ['websocket'],
+        auth: { userId },
+        reconnection: false,
+        forceNew: true,
+      });
+      s.once('connect', () => resolve(s));
+      s.once('connect_error', reject);
+    });
+  }
+
+  it(
+    'B receives message:new; exactly one broker publish to message.user.<B> (plus one sender echo to A)',
+    async () => {
+      publishSpy.mockClear();
+
+      const socketB = await connectClient(userB.id);
+      const received = new Promise<unknown>((resolve, reject) => {
+        const t = setTimeout(
+          () => reject(new Error('timeout waiting for message:new')),
+          25_000,
+        );
+        socketB.once('message:new', (payload: unknown) => {
+          clearTimeout(t);
+          resolve(payload);
+        });
+      });
+
+      /** Same process as REST `POST /messages` — exercises persist + Rabbit + consumer `io.to` emit. */
+      const { sendMessageForUser } = await import(
+        '../data/messages/sendMessage.js'
+      );
+      await sendMessageForUser(userA.id, {
+        recipientUserId: userB.id,
+        body: 'hello-integration',
+      });
+
+      const payload = await received;
+      expect(payload).toMatchObject({
+        senderId: userA.id,
+        body: 'hello-integration',
+      });
+
+      const toRecipient = publishSpy.mock.calls.filter(
+        (c) => c[0] === `message.user.${userB.id}`,
+      );
+      const toSenderEcho = publishSpy.mock.calls.filter(
+        (c) => c[0] === `message.user.${userA.id}`,
+      );
+      expect(toRecipient).toHaveLength(1);
+      expect(toSenderEcho).toHaveLength(1);
+
+      socketB.disconnect();
+    },
+    35_000,
+  );
+
+  it(
+    'B emits message:delivered; A receives message:delivered via Rabbit fan-out',
+    async () => {
+      publishSpy.mockClear();
+
+      const socketA = await connectClient(userA.id);
+      const socketB = await connectClient(userB.id);
+
+      const { sendMessageForUser } = await import(
+        '../data/messages/sendMessage.js'
+      );
+      const msg = await sendMessageForUser(userA.id, {
+        recipientUserId: userB.id,
+        body: 'receipt-test',
+      });
+
+      const received = new Promise<unknown>((resolve, reject) => {
+        const t = setTimeout(
+          () => reject(new Error('timeout waiting for message:delivered')),
+          25_000,
+        );
+        socketA.once('message:delivered', (payload: unknown) => {
+          clearTimeout(t);
+          resolve(payload);
+        });
+      });
+
+      const ackResult = new Promise<unknown>((resolve, reject) => {
+        socketB.emit(
+          'message:delivered',
+          { messageId: msg.id, conversationId: msg.conversationId },
+          (r: unknown) => {
+            if (r === undefined) {
+              reject(new Error('missing ack'));
+              return;
+            }
+            resolve(r);
+          },
+        );
+      });
+
+      const [payload, ack] = await Promise.all([received, ackResult]);
+
+      expect(ack).toMatchObject({ ok: true });
+      expect(payload).toMatchObject({
+        messageId: msg.id,
+        conversationId: msg.conversationId,
+        userId: userB.id,
+      });
+      expect(typeof (payload as { at?: unknown }).at).toBe('string');
+
+      const receiptPublishes = publishSpy.mock.calls.filter(
+        (c) =>
+          typeof c[0] === 'string' &&
+          c[0].startsWith('message.receipt.'),
+      );
+      expect(receiptPublishes.length).toBe(2);
+
+      socketA.disconnect();
+      socketB.disconnect();
+    },
+    35_000,
+  );
+});

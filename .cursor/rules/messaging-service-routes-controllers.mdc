@@ -1,0 +1,13 @@
+---
+description: messaging-service — routes wire only; controllers hold HTTP handlers (one file per route file)
+globs: apps/messaging-service/src/routes/**/*.ts,apps/messaging-service/src/controllers/**/*.ts,apps/messaging-service/src/data/**/*.ts,apps/messaging-service/src/utils/**/*.ts
+alwaysApply: false
+---
+
+# messaging-service — layout (routes, controllers, data, utils)
+
+- **`src/routes/*.ts`:** **`Router`** wiring only — **paths**, **middleware order**, delegation to **`controllers/`**.
+- **`src/controllers/*.ts`:** **One file per route file** (`routes/auth.ts` ↔ `controllers/auth.ts`). **`RequestHandler`** factories **`(env) => …`** when **`Env`** is required.
+- **`src/data/`:** MongoDB repos, Redis/RabbitMQ/S3 adapters, aggregates (**`conversations/`**, **`messages/`**, **`users/`**, …).
+- **`src/utils/`:** Auth helpers, email, logger, readiness, Swagger, Socket.IO (**`realtime/`**), shared rate-limit helpers, **`types/`** (e.g. Express augmentation).
+- See **`docs/PROJECT_GUIDELINES.md`** section 1.3 (Express / HTTP services).

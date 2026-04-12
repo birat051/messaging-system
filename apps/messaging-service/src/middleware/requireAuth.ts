@@ -1,10 +1,10 @@
 import type { NextFunction, Request, Response } from 'express';
 import type { Env } from '../config/env.js';
 import { getEffectiveRuntimeConfig } from '../config/runtimeConfig.js';
-import { AppError } from '../errors/AppError.js';
-import { findUserById } from '../users/repo.js';
-import type { UserDocument } from '../users/types.js';
-import { resolveUploadUserId } from '../auth/resolveBearer.js';
+import { AppError } from '../utils/errors/AppError.js';
+import { findUserById } from '../data/users/repo.js';
+import type { UserDocument } from '../data/users/users.collection.js';
+import { resolveUploadUserId } from '../utils/auth/resolveBearer.js';
 
 /**
  * Resolves the caller from **`Authorization: Bearer`** (or dev **`X-User-Id`**), loads **`users`**, and

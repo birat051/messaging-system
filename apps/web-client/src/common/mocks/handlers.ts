@@ -1,4 +1,5 @@
 import { http, HttpResponse } from 'msw';
+import { API_PATHS } from '../api/paths';
 import type { components } from '../../generated/api-types';
 
 type User = components['schemas']['User'];
@@ -20,6 +21,28 @@ export const defaultMockUser: User = {
  * Path patterns use a host wildcard so tests work regardless of **`window.location.origin`** (Vitest jsdom).
  */
 export const handlers = [
+  http.get(`*/v1${API_PATHS.conversations.list}`, () =>
+    HttpResponse.json({
+      items: [],
+      nextCursor: null,
+      hasMore: false,
+    }),
+  ),
+  http.get('*/v1/conversations/:conversationId/messages', () =>
+    HttpResponse.json({
+      items: [],
+      nextCursor: null,
+      hasMore: false,
+    }),
+  ),
+  http.get('*/v1/conversations/:conversationId/message-receipts', () =>
+    HttpResponse.json({
+      items: [],
+      nextCursor: null,
+      hasMore: false,
+      readCursor: null,
+    }),
+  ),
   http.get('*/v1/users/search', ({ request }) => {
     const url = new URL(request.url);
     const email = url.searchParams.get('email')?.trim() ?? '';

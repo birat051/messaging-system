@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import type { ParsedQs } from 'qs';
 import type { z } from 'zod';
-import { AppError } from '../errors/AppError.js';
+import { AppError } from '../utils/errors/AppError.js';
 import { formatZodError } from './formatZodError.js';
 import { normalizeQueryForZod } from './normalizeQuery.js';
 

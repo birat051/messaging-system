@@ -2,7 +2,7 @@
 
 ## 1. Vision and scope
 
-Build a **scalable messaging web application** with a **React** client and **one Node.js (Express) microservice** (**messaging-service**) written in **TypeScript**. The system supports direct and group chat, presence (last seen), user discovery, **in-tab** notifications for **new messages** and **incoming calls**, and real-time **audio/video** and **group calls**, with **MongoDB** as the primary data store, **Redis** for presence (last seen, rate limits, optional **Socket.IO Redis adapter**), **RabbitMQ** for reliable message delivery to online recipients, and **AWS S3** for media.
+Build a **scalable messaging web application** with a **React** client and **one Node.js (Express) microservice** (**messaging-service**) written in **TypeScript**. The system supports direct and group chat, presence (last seen), user discovery, **in-tab** notifications for **new messages** and **incoming calls**, and real-time **audio/video** and **group calls**, with **MongoDB** as the primary data store, **Redis** for presence (last seen, rate limits, runtime config cache—not for Socket.IO room state), **RabbitMQ** for reliable message delivery to online recipients, and **AWS S3** for media.
 
 **Notifications:** There is **no separate notification-service** and **no Redis Streams** for notification fan-out. **Typed notification events** (e.g. new message, incoming call) are **emitted over the same Socket.IO connection** as chat and signaling, targeting the appropriate **user** / **group** rooms on **messaging-service**. On the **web-client**, the **Socket.IO client runs in a dedicated Web Worker** so the connection stays responsive without blocking the UI thread; the worker forwards events to the main thread (e.g. `postMessage`) for Redux/UI.
 
@@ -78,7 +78,7 @@ Real-time messaging uses **Socket.IO** on **messaging-service** together with **
 | **Role**         | Bidirectional transport to browsers (rooms, acknowledgements, reconnection) | Durable routing with **user-scoped** and **group-scoped** keys (§3.2.1); **cross-instance** delivery when multiple messaging-service replicas run                                                         |
 | **Typical flow** | Client emits/receives chat events over Socket.IO                            | After **MongoDB persist**, publish to RabbitMQ; service workers (or the same process) **consume** and **emit to the correct Socket.IO room(s)** so recipients get messages even if handled on another node |
 
-Design the **exchange / queue topology** so bindings align with **§3.2.1** (separate routing for **direct** vs **group** messages). RabbitMQ remains the **durable routing** layer after persistence; Socket.IO remains the **last-mile** to connected clients. Use a **Redis adapter** for Socket.IO if horizontal scaling of Socket.IO nodes is required (optional; document in infra).
+Design the **exchange / queue topology** so bindings align with **§3.2.1** (separate routing for **direct** vs **group** messages). RabbitMQ remains the **durable routing** layer after persistence; Socket.IO remains the **last-mile** to connected clients. **Do not** use Redis to store or synchronize Socket.IO **room** membership—that model is **§3.2.2**.
 
 ### 3.2.1 Routing keys: direct vs group (scaling)
 
@@ -90,6 +90,16 @@ Design the **exchange / queue topology** so bindings align with **§3.2.1** (sep
 | **Group** | **Single** publish per message with a routing key scoped to the **group id** (e.g. `message.group.<groupId>`). **Do not** publish one broker message per group member for the same chat event. | Each client is joined to a room per **group id** they belong to (e.g. `group:<groupId>`), **in addition** to their **user id** room. **Membership changes** (join/leave group) must **add or remove** the corresponding group room subscription on the server (and client state must stay in sync). |
 
 **Client UI:** Clients may receive a **group** message on the **group** channel even when the **sender** is the current user (e.g. authoritative echo from the server). **Deduplicate and update the UI** using **`messageId`** as the source of truth; use **`sender_id` vs current user id** (and optimistic send state) to **avoid duplicate bubbles** or conflicting optimistic vs server-rendered rows.
+
+### 3.2.2 Socket.IO rooms are in-memory per server (not Redis)
+
+**Rooms** (`socket.join('user:…')`, `socket.join('group:…')`, `io.to(room).emit(…)`) are **in-process, in-memory** data structures inside each **Socket.IO server** (each **messaging-service** Node process). They record which **local** socket connections belong to which logical channel. **Redis is not used** to replicate or share room membership across nodes.
+
+**Why this is enough for horizontal scale:** After a message is persisted, **RabbitMQ** delivers the event to **each** replica’s consumer (per-instance queues or equivalent). Each replica runs **`io.to('user:<recipientId>').emit(…)`** (or the group room) **on its own process**. Only replicas that actually have **connected clients** joined to that room in **local memory** will send to anyone; other replicas issue an emit to an **empty** room (no harm). So **cross-node fan-out is carried by the broker**, not by synchronizing rooms through Redis.
+
+**What Redis is still for:** last-seen presence, rate-limit counters, optional runtime-config cache, refresh-token storage—**not** Socket.IO room state.
+
+**`@socket.io/redis-adapter`:** Not part of the intended architecture for room delivery (it would duplicate routing already solved by RabbitMQ and can **double-deliver** if combined with per-instance broker consumers). Keep **`SOCKET_IO_REDIS_ADAPTER`** **off** unless a separate, explicitly justified use case appears; see **`docs/ENVIRONMENT.md`** and **`TASK_CHECKLIST.md`**.
 
 ### 3.3 In-tab notifications (no separate service)
 
@@ -106,7 +116,7 @@ _Optional later split:_ extract a dedicated **Socket.IO gateway** if traffic gro
 | ------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | Runtime                               | Node.js + **Express** + **TypeScript** | **messaging-service** only (backend)                                                                  |
 | Real-time messaging transport         | **Socket.IO**                          | Server on **messaging-service**; client in **web-client** **Web Worker**; pairs with RabbitMQ per §3.2 |
-| Cache / presence                      | **Redis**                              | Last seen, session hints, rate limits; optional **Socket.IO Redis adapter** for multi-node              |
+| Cache / presence                      | **Redis**                              | Last seen, session hints, rate limits, runtime config cache — **not** Socket.IO rooms (rooms are in-memory per process; **§3.2.2**) |
 | Message fan-out & cross-instance sync | **RabbitMQ**                           | After persist, route deliveries; **messaging-service** aligns broker consumers with **Socket.IO** emits |
 | Primary DB                            | **MongoDB**                            | Users, conversations, messages, groups, contacts                                                        |
 | Media                                 | **AWS S3**                             | Uploads via AWS SDK in **messaging-service**; keys in MongoDB                                           |
@@ -416,7 +426,7 @@ messaging-system/
 | Topic                                     | Decision needed                                                                                                         |
 | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | **Socket.IO** + **RabbitMQ** alignment    | Exact exchange/queue naming, consumer ownership (same process vs worker pool), and ordering guarantees per conversation |
-| Horizontal scale of **messaging-service** | **Socket.IO Redis adapter** vs sticky load balancing; how RabbitMQ consumers map to Socket.IO rooms across nodes        |
+| Horizontal scale of **messaging-service** | **RabbitMQ** to every replica + **local in-memory** `io.to(room).emit` (§3.2.2); **no** Redis-backed Socket.IO room sync; optional **sticky** load balancer only if needed for long-lived WebSocket affinity—not for room replication        |
 | **Web Worker** + Socket.IO                  | Bundling (`vite-plugin-web-worker` or equivalent), passing JWT/cookies to worker, reconnection UX from UI               |
 | Group calls                               | Mesh (simple, poor scale) vs SFU (ops cost)                                                                             |
 | Search                                    | Exact email only vs full-text (Atlas Search) later                                                                      |

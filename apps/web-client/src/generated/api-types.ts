@@ -325,7 +325,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List conversations for current user (planned; cursor pagination) */
+        /**
+         * List direct conversations for the current user (cursor pagination; newest activity first)
+         * @description Returns **direct 1:1** threads where the caller is a **participant**, **newest `updatedAt` first**.
+         *     **`cursor`** is opaque (from **`nextCursor`**); malformed cursors return **400**.
+         */
         get: operations["listConversations"];
         put?: never;
         post?: never;
@@ -342,8 +346,43 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List messages in a conversation (planned; cursor pagination) */
+        /**
+         * List messages in a direct 1:1 conversation (cursor pagination; participants only)
+         * @description **Direct 1:1** threads only — **group** conversations return **403** until group messaging is implemented.
+         *     The caller must be a **participant**; otherwise **403**. Messages are returned **newest first**.
+         *     **`cursor`** is opaque (from **`nextCursor`**); malformed cursors return **400**.
+         *     **Rate limiting:** the **global** REST per-IP limit (`GLOBAL_RATE_LIMIT_*` in **`docs/ENVIRONMENT.md`**) applies to this route; exceeding it returns **429** with **`ErrorResponse`** (**`code`** typically **`RATE_LIMIT_EXCEEDED`**).
+         */
         get: operations["listMessages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversations/{conversationId}/message-receipts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List message receipt summaries for a direct 1:1 conversation (cursor pagination; participants only)
+         * @description **Narrow receipt sync:** returns **`messageId`**, **`createdAt`**, and optional **`receiptsByUserId`** per row —
+         *     **no** message body, **`mediaKey`**, or **`senderId`**. Use this to refresh delivery/read state without
+         *     re-downloading full **`Message`** bodies from **`GET /conversations/{id}/messages`**.
+         *
+         *     **`Message`** objects from **`GET /messages`** and Socket.IO **`message:new`** **do not** include receipt fields;
+         *     combine this route with real-time **`message:delivered`** / **`message:read`** / **`conversation:read`** events.
+         *
+         *     **Direct 1:1** only — **group** returns **403**. Same opaque **`cursor`** / **`nextCursor`** as the message list
+         *     (**newest first**). **`readCursor`** is the authenticated user’s durable read cursor (**`conversation_reads`**),
+         *     or **`null`** if none.
+         */
+        get: operations["listMessageReceipts"];
         put?: never;
         post?: never;
         delete?: never;
@@ -374,6 +413,10 @@ export interface paths {
          *     other participant). For an existing thread, send **`conversationId`** and omit
          *     **`recipientUserId`**. **Group** threads return **403** until group messaging is implemented.
          *     Request body must include **`body`** text and/or **`mediaKey`** (validated by Zod).
+         *
+         *     **Rate limiting:** this route uses the **message-send** limits (**`MESSAGE_SEND_RATE_LIMIT_*`**, per user + IP)
+         *     in addition to the **global** REST per-IP limit — see **`docs/ENVIRONMENT.md`** (*Global vs per-route*). Either
+         *     can return **429** with **`ErrorResponse`** (**`code`** **`RATE_LIMIT_EXCEEDED`**).
          */
         post: operations["sendMessage"];
         delete?: never;
@@ -579,6 +622,16 @@ export interface components {
             id: string;
             title?: string | null;
             isGroup?: boolean;
+            /**
+             * @description **Direct 1:1** — the other participant's user id (not the authenticated user). **Null** for group
+             *     threads when group messaging exists; list responses currently return **direct** rows only.
+             */
+            peerUserId?: string | null;
+            /**
+             * @description **Group** threads — **participant user ids** (including the caller) when the group is materialized;
+             *     omit for **direct** 1:1. Clients use this for **aggregate receipt** UI (all delivered / all seen).
+             */
+            memberIds?: string[];
             /** Format: date-time */
             updatedAt: string;
         };
@@ -587,15 +640,66 @@ export interface components {
             nextCursor?: string | null;
             hasMore?: boolean;
         };
+        /**
+         * @description Per-recipient **delivered** / **seen** timestamps (**Feature 12**). Map keys are **`userId`** strings.
+         *     Exposed on **`MessageReceiptSummary.receiptsByUserId`** and via Socket.IO receipt events — **not** on **`Message`**.
+         *     Group **read-up-to** may also use **`conversation_reads`** — see **`docs/MESSAGE_RECEIPTS_AND_READ_STATE_DESIGN.md`**.
+         */
+        MessageReceiptEntry: {
+            /**
+             * Format: date-time
+             * @description When the recipient client positively acknowledged delivery (in-app).
+             */
+            deliveredAt?: string;
+            /**
+             * Format: date-time
+             * @description When the recipient read the message (per-message materialization).
+             */
+            seenAt?: string;
+        };
+        /**
+         * @description Chat row without receipt fields. **Delivery/read state** — **`GET /conversations/{conversationId}/message-receipts`**
+         *     and Socket.IO **`message:delivered`** / **`message:read`** / **`conversation:read`**.
+         */
         Message: {
             id: string;
             conversationId: string;
             senderId: string;
+            /**
+             * @description **Text or opaque E2EE payload.** Plain UTF-8 text, or client-encrypted ciphertext (e.g. envelopes described in
+             *     **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`**) when end-to-end encryption is enabled. The server **stores and routes**
+             *     this value **without** decrypting. Requires user-level public-key APIs (`PUT /users/me/public-key`,
+             *     `GET /users/{userId}/public-key`) per **Prerequisite — User keypair** in **`docs/TASK_CHECKLIST.md`**.
+             */
             body?: string | null;
             /** @description S3 object key when message has an attachment */
             mediaKey?: string | null;
             /** Format: date-time */
             createdAt: string;
+        };
+        /** @description Receipt-related fields for one message — **no** **`body`**, **`mediaKey`**, or **`senderId`**. */
+        MessageReceiptSummary: {
+            messageId: string;
+            conversationId: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** @description Omitted when no receipt data is stored for this message. */
+            receiptsByUserId?: {
+                [key: string]: components["schemas"]["MessageReceiptEntry"];
+            };
+        };
+        /** @description Authenticated user’s **read-up-to** cursor for this conversation (**`conversation_reads`**). */
+        ConversationReadCursor: {
+            lastReadMessageId: string;
+            /** Format: date-time */
+            lastReadAt: string;
+        };
+        MessageReceiptPage: {
+            items: components["schemas"]["MessageReceiptSummary"][];
+            nextCursor?: string | null;
+            hasMore: boolean;
+            /** @description JSON null when the user has no stored read cursor for this thread. */
+            readCursor: components["schemas"]["ConversationReadCursor"] | null;
         };
         MessagePage: {
             items: components["schemas"]["Message"][];
@@ -612,6 +716,11 @@ export interface components {
             conversationId?: string | null;
             /** @description Other user when starting a new direct thread; omit when `conversationId` is set */
             recipientUserId?: string | null;
+            /**
+             * @description **Message body text or opaque E2EE ciphertext** — same semantics as **`Message.body`** (server does not decrypt).
+             *     When sending E2EE payloads, clients **depend on** user public-key directory APIs and the **Prerequisite — User keypair**
+             *     implementation (`docs/TASK_CHECKLIST.md`, `docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`).
+             */
             body?: string;
             /** @description From prior upload response */
             mediaKey?: string | null;
@@ -1316,6 +1425,7 @@ export interface operations {
                     "application/json": components["schemas"]["ConversationPage"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
         };
     };
@@ -1348,9 +1458,63 @@ export interface operations {
                     "application/json": components["schemas"]["MessagePage"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            /** @description Global REST per-IP rate limit exceeded (`GLOBAL_RATE_LIMIT_*`) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listMessageReceipts: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor from a previous list response */
+                cursor?: components["parameters"]["CursorQuery"];
+                /**
+                 * @description Optional page size; **default `20`** when omitted on all paginated list endpoints that
+                 *     support this parameter. Server may enforce a lower cap.
+                 */
+                limit?: components["parameters"]["LimitQuery"];
+            };
+            header?: never;
+            path: {
+                /** @description Conversation identifier */
+                conversationId: components["parameters"]["ConversationIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated receipt summaries and optional read cursor */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageReceiptPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Global REST per-IP rate limit exceeded (`GLOBAL_RATE_LIMIT_*`) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     sendMessage: {
@@ -1379,6 +1543,15 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            /** @description Message-send and/or global REST rate limit exceeded (`MESSAGE_SEND_RATE_LIMIT_*`, `GLOBAL_RATE_LIMIT_*`) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     createGroup: {

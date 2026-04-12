@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import type { Env } from '../config/env.js';
-import { resolveUploadUserId } from '../auth/resolveBearer.js';
+import { resolveUploadUserId } from '../utils/auth/resolveBearer.js';
 import { requireAuthenticatedUser } from './requireAuth.js';
 
 export { resolveUploadUserId };

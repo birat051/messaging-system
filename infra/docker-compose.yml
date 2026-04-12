@@ -92,7 +92,7 @@ services:
       REFRESH_TOKEN_TTL_SECONDS: ${REFRESH_TOKEN_TTL_SECONDS:-604800}
       PASSWORD_RESET_TOKEN_TTL_HOURS: ${PASSWORD_RESET_TOKEN_TTL_HOURS:-1}
       PASSWORD_RESET_WEB_PATH: ${PASSWORD_RESET_WEB_PATH:-/reset-password}
-      # SOCKET_IO_REDIS_ADAPTER: "true"   # enable when running multiple messaging-service replicas behind LB
+      # SOCKET_IO_REDIS_ADAPTER: "true"   # discouraged — rooms are in-memory; use RabbitMQ per replica (PROJECT_PLAN §3.2.2)
     depends_on:
       mongo:
         condition: service_healthy

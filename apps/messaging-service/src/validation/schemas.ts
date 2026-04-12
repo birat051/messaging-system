@@ -202,6 +202,15 @@ export const getLastSeenPayloadSchema = z.object({
     .pipe(z.string().min(1)),
 });
 
+/**
+ * Socket.IO **`message:delivered`**, **`message:read`**, **`conversation:read`** — **`userId`** is set
+ * server-side from auth; clients send **`messageId`** + **`conversationId`** only.
+ */
+export const messageReceiptPayloadSchema = z.object({
+  messageId: z.string().min(1),
+  conversationId: z.string().min(1),
+});
+
 export function createMulterFileSchema(maxBytes: number) {
   return z
     .object({

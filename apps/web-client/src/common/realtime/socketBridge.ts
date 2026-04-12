@@ -1,12 +1,18 @@
 import type {
   MainToWorkerMessage,
   Message,
+  ReceiptEmitPayload,
+  ReceiptEmitSocketEvent,
   SendMessageRequest,
   WorkerToMainMessage,
 } from './socketWorkerProtocol';
 import { parseMessageSendAck } from './socketMessageAck';
+import { parseReceiptEmitAck } from './socketReceiptEmitAck';
 
-type PublicWorkerMessage = Exclude<WorkerToMainMessage, { type: 'message_send_ack' }>;
+type PublicWorkerMessage = Exclude<
+  WorkerToMainMessage,
+  { type: 'message_send_ack' } | { type: 'receipt_emit_ack' }
+>;
 
 /**
  * Creates a dedicated **Web Worker** running **`socket.io-client`** (PROJECT_PLAN.md §3.3).
@@ -17,6 +23,7 @@ export function createSocketWorkerBridge(
 ): {
   connect: (url: string, userId: string, accessToken: string | null) => void;
   sendMessage: (payload: SendMessageRequest) => Promise<Message>;
+  emitReceipt: (event: ReceiptEmitSocketEvent, payload: ReceiptEmitPayload) => Promise<void>;
   disconnect: () => void;
   terminate: () => void;
 } {
@@ -30,8 +37,27 @@ export function createSocketWorkerBridge(
     { resolve: (m: Message) => void; reject: (e: Error) => void }
   >();
 
+  const pendingReceipt = new Map<
+    string,
+    { resolve: () => void; reject: (e: Error) => void }
+  >();
+
   worker.onmessage = (ev: MessageEvent<WorkerToMainMessage>) => {
     const msg = ev.data;
+    if (msg.type === 'receipt_emit_ack') {
+      const entry = pendingReceipt.get(msg.requestId);
+      if (!entry) {
+        return;
+      }
+      pendingReceipt.delete(msg.requestId);
+      const parsed = parseReceiptEmitAck(msg.ack);
+      if (parsed.ok) {
+        entry.resolve();
+      } else {
+        entry.reject(parsed.error);
+      }
+      return;
+    }
     if (msg.type === 'message_send_ack') {
       const entry = pending.get(msg.requestId);
       if (!entry) {
@@ -70,11 +96,24 @@ export function createSocketWorkerBridge(
         } satisfies MainToWorkerMessage);
       });
     },
+    emitReceipt(event: ReceiptEmitSocketEvent, payload: ReceiptEmitPayload) {
+      return new Promise<void>((resolve, reject) => {
+        const requestId = crypto.randomUUID();
+        pendingReceipt.set(requestId, { resolve, reject });
+        worker.postMessage({
+          type: 'receipt_emit',
+          requestId,
+          event,
+          payload,
+        } satisfies MainToWorkerMessage);
+      });
+    },
     disconnect() {
       worker.postMessage({ type: 'disconnect' } satisfies MainToWorkerMessage);
     },
     terminate() {
       pending.clear();
+      pendingReceipt.clear();
       worker.terminate();
     },
   };

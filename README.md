@@ -23,7 +23,7 @@ Documentation in **`docs/`** is the source of truth for behavior; this README su
 
 ## Product scope
 
-Target capabilities include **direct and group messaging**, **last-seen presence**, **user discovery**, **in-tab notifications** (new messages and incoming calls), and **audio/video** (1:1 and group) with a **TURN** path for restrictive networks. Horizontal scaling leans on **RabbitMQ routing keys** (one publish per message for groups—not per member), and optionally a **Socket.IO Redis adapter** when multiple Socket.IO nodes are in play. Full narrative: **`docs/PROJECT_PLAN.md` §1–§3**.
+Target capabilities include **direct and group messaging**, **last-seen presence**, **user discovery**, **in-tab notifications** (new messages and incoming calls), and **audio/video** (1:1 and group) with a **TURN** path for restrictive networks. Horizontal scaling leans on **RabbitMQ** (each replica consumes and runs **local in-memory** Socket.IO **`io.to(room).emit`** — **`docs/PROJECT_PLAN.md` §3.2.2**). Full narrative: **`docs/PROJECT_PLAN.md` §1–§3**.
 
 ---
 
@@ -78,7 +78,7 @@ sequenceDiagram
 
 ## Real-time messaging pipeline
 
-After a message is **persisted** in MongoDB, **messaging-service** **publishes** to **RabbitMQ**. Consumers forward to **Socket.IO** rooms so connected clients receive updates. On the client, the Socket.IO connection runs in a **Web Worker** and communicates with the UI via **`postMessage`**. **Direct** traffic uses **user-scoped** routing; **group** traffic uses **group-scoped** keys with **one broker publish per message** (see **`docs/PROJECT_PLAN.md` §3.2–§3.2.1**). Adding service replicas requires RabbitMQ consumers and Socket.IO emits to stay aligned; a **Socket.IO Redis adapter** is the documented option for multi-node room state (**§3.2**, §11).
+After a message is **persisted** in MongoDB, **messaging-service** **publishes** to **RabbitMQ**. Consumers forward to **Socket.IO** rooms so connected clients receive updates. On the client, the Socket.IO connection runs in a **Web Worker** and communicates with the UI via **`postMessage`**. **Direct** traffic uses **user-scoped** routing; **group** traffic uses **group-scoped** keys with **one broker publish per message** (see **`docs/PROJECT_PLAN.md` §3.2–§3.2.1**). Adding service replicas uses **RabbitMQ** so each node can **`io.to(room).emit`** locally; **room membership is not stored in Redis** (**§3.2.2**).
 
 ```mermaid
 flowchart LR

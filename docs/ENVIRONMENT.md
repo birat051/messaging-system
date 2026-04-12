@@ -19,14 +19,14 @@ Single reference for variables passed into each deployable (Docker Compose, loca
 | `PORT` | no | `3000` | HTTP listen port |
 | `LOG_LEVEL` | no | `info` in production, else `debug` | Pino level: `fatal` \| `error` \| `warn` \| `info` \| `debug` \| `trace` \| `silent` |
 | `MONGODB_URI` | no | `mongodb://127.0.0.1:27017/messaging` | MongoDB connection string (driver uses a pooled client; tune with `MONGODB_MAX_POOL_SIZE`) |
-| `MONGODB_DB_NAME` | no | `messaging` | Default database name for application data (`getDb()` in `apps/messaging-service/src/db/mongo.ts`) |
+| `MONGODB_DB_NAME` | no | `messaging` | Default database name for application data (`getDb()` in `apps/messaging-service/src/data/db/mongo.ts`) |
 | `MONGODB_MAX_POOL_SIZE` | no | `10` | Max connections in the MongoDB driver pool |
 | `RABBITMQ_URL` | no | `amqp://guest:guest@127.0.0.1:5672` | RabbitMQ connection URL (`amqplib`) |
 | `MESSAGING_INSTANCE_ID` | no | host name | Unique per process/replica; used in RabbitMQ queue name (`messaging.node.<id>`) |
 | `SOCKET_IO_CORS_ORIGIN` | no | — | Optional Socket.IO CORS origin string; omit for permissive defaults in dev; use `*` for any |
-| `REDIS_URL` | no | `redis://127.0.0.1:6379` | Redis connection URL (last seen, rate limits, optional **Socket.IO Redis adapter** for multi-node) |
+| `REDIS_URL` | no | `redis://127.0.0.1:6379` | Redis connection URL (last seen, rate limits, runtime config cache — **not** Socket.IO room state; see **`PROJECT_PLAN.md` §3.2.2**) |
 | `LAST_SEEN_TTL_SECONDS` | no | `604800` | TTL (seconds) for Redis keys `presence:lastSeen:{userId}`; refreshed on each presence write |
-| `SOCKET_IO_REDIS_ADAPTER` | no | `false` | Set `true` / `1` to enable **`@socket.io/redis-adapter`** (separate Redis pub/sub connections) for multiple **messaging-service** replicas |
+| `SOCKET_IO_REDIS_ADAPTER` | no | `false` | **Discouraged.** Intended scaling uses **in-memory** Socket.IO rooms + **RabbitMQ** per replica (**`PROJECT_PLAN.md` §3.2.2**). Enabling **`@socket.io/redis-adapter`** can **duplicate** broker-driven delivery. Leave **`false`** unless a separate ops need is documented. |
 | `OPENAPI_SPEC_PATH` | no | — | Absolute path to **`openapi.yaml`** when the default resolution fails (e.g. minimal Docker image without monorepo `docs/`). Default: resolve `docs/openapi/openapi.yaml` three levels above `dist/` / `src/` (see `apps/messaging-service/src/swagger.ts`). |
 | `S3_BUCKET` | no | — | When set, enables **`POST /v1/media/upload`**, S3 readiness, and startup **`ensureBucketExists`**. Omit to run without object storage. |
 | `S3_REGION` | no | `us-east-1` | AWS region (also used for MinIO client config). |
@@ -63,6 +63,10 @@ Single reference for variables passed into each deployable (Docker Compose, loca
 | `MESSAGE_SEND_RATE_LIMIT_MAX_PER_USER` | no | `120` | Max message sends per **authenticated user** per window (REST + socket). |
 | `MESSAGE_SEND_RATE_LIMIT_MAX_PER_IP` | no | `360` | Max message sends per **client IP** per window (shared with socket path). |
 | `MESSAGE_SEND_RATE_LIMIT_MAX_PER_SOCKET` | no | `120` | Max **`message:send`** per **Socket.IO connection id** per window (not used for REST). |
+| `MESSAGE_RECEIPT_RATE_LIMIT_WINDOW_SEC` | no | `60` | Fixed window for Socket.IO receipt events (**`message:delivered`**, **`message:read`**, **`conversation:read`**). |
+| `MESSAGE_RECEIPT_RATE_LIMIT_MAX_PER_USER` | no | `600` | Max receipt events per **authenticated user** per window. |
+| `MESSAGE_RECEIPT_RATE_LIMIT_MAX_PER_IP` | no | `2000` | Max receipt events per **client IP** per window. |
+| `MESSAGE_RECEIPT_RATE_LIMIT_MAX_PER_SOCKET` | no | `600` | Max receipt events per **Socket.IO connection id** per window. |
 | `GLOBAL_RATE_LIMIT_WINDOW_SEC` | no | `60` | Global per-client-IP REST cap — fixed-window length (Redis TTL). See **[Global REST rate limit](./GLOBAL_RATE_LIMIT.md)**. |
 | `GLOBAL_RATE_LIMIT_MAX` | no | `500` | Max REST requests per IP per window (default ≈ **500/min** with **`WINDOW_SEC=60`**). Enforced by **`middleware/globalRestRateLimit.ts`** on **`/v1`** (see table below). |
 | `SENDGRID_API_KEY` | no | — | When **`EMAIL_VERIFICATION_REQUIRED`** is **`true`**, used to send verification mail. If unset, **`sendVerificationEmail`** logs a warning and skips send (registration still succeeds). |
@@ -74,7 +78,7 @@ Single reference for variables passed into each deployable (Docker Compose, loca
 | Layer | Scope | Purpose |
 |-------|--------|---------|
 | **`GLOBAL_RATE_LIMIT_*`** | Per client IP, almost all **`/v1`** HTTP requests | Broad abuse cap (default **500/min**). |
-| **Route limits** (`REGISTER_*`, `FORGOT_PASSWORD_*`, `VERIFY_EMAIL_*`, `USER_SEARCH_*`, `PUBLIC_KEY_UPDATE_*`, `MESSAGE_SEND_*`, `RESEND_*`) | Per IP and/or per email hash / user / socket as implemented | Tighter caps on sensitive or costly actions (e.g. **5** registrations per hour per IP vs **500** generic calls per minute). |
+| **Route limits** (`REGISTER_*`, `FORGOT_PASSWORD_*`, `VERIFY_EMAIL_*`, `USER_SEARCH_*`, `PUBLIC_KEY_UPDATE_*`, `MESSAGE_SEND_*`, `MESSAGE_RECEIPT_*`, `RESEND_*`) | Per IP and/or per email hash / user / socket as implemented | Tighter caps on sensitive or costly actions (e.g. **5** registrations per hour per IP vs **500** generic calls per minute). |
 
 **Request path:** one **`INCR`** on **`ratelimit:global:ip:{ip}`** in middleware; if the handler runs, it may **`INCR`** a **different** key (e.g. **`ratelimit:register:ip:{ip}`**). A client can be blocked by **global** before the route runs, or pass global and then fail a **stricter** route limit. Tuning: lower **`GLOBAL_RATE_LIMIT_MAX`** to tighten everything; lower **`REGISTER_RATE_LIMIT_MAX`** (etc.) to tighten one surface without changing the global budget.
 

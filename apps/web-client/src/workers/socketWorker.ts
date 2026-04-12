@@ -63,6 +63,22 @@ function connectSocket(msg: Extract<MainToWorkerMessage, { type: 'connect' }>): 
   socket.on('notification', (payload: unknown) => {
     post({ type: 'notification', payload });
   });
+
+  socket.on('message:new', (payload: unknown) => {
+    post({ type: 'message_new', payload });
+  });
+
+  socket.on('message:delivered', (payload: unknown) => {
+    post({ type: 'message_delivered', payload });
+  });
+
+  socket.on('message:read', (payload: unknown) => {
+    post({ type: 'message_read', payload });
+  });
+
+  socket.on('conversation:read', (payload: unknown) => {
+    post({ type: 'conversation_read', payload });
+  });
 }
 
 self.onmessage = (ev: MessageEvent<MainToWorkerMessage>) => {
@@ -90,6 +106,24 @@ self.onmessage = (ev: MessageEvent<MainToWorkerMessage>) => {
     }
     socket.emit('message:send', msg.payload, (ack: unknown) => {
       post({ type: 'message_send_ack', requestId: msg.requestId, ack });
+    });
+    return;
+  }
+
+  if (msg.type === 'receipt_emit') {
+    if (!socket?.connected) {
+      post({
+        type: 'receipt_emit_ack',
+        requestId: msg.requestId,
+        ack: {
+          code: 'UNAVAILABLE',
+          message: 'Socket not connected',
+        },
+      });
+      return;
+    }
+    socket.emit(msg.event, msg.payload, (ack: unknown) => {
+      post({ type: 'receipt_emit_ack', requestId: msg.requestId, ack });
     });
     return;
   }

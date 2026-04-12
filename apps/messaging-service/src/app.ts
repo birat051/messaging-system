@@ -3,17 +3,18 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import express from 'express';
 import { pinoHttp, stdSerializers } from 'pino-http';
 import type { Env } from './config/env.js';
-import { logger, safeErrorSerializer } from './logger.js';
+import { logger, safeErrorSerializer } from './utils/logger.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { createGlobalRestRateLimitMiddleware } from './middleware/globalRestRateLimit.js';
 import { createJsonBodyParserWithPublicKeyLimit } from './middleware/jsonBodyParserWithPublicKeyLimit.js';
 import { notFoundHandler } from './middleware/notFound.js';
 import { createAuthRouter } from './routes/auth.js';
+import { createConversationsRouter } from './routes/conversations.js';
 import { createMessagesRouter } from './routes/messages.js';
 import { createMediaRouter } from './routes/media.js';
 import { systemRouter } from './routes/system.js';
 import { createUsersRouter } from './routes/users.js';
-import { createSwaggerUiHandlers } from './swagger.js';
+import { createSwaggerUiHandlers } from './utils/swagger.js';
 
 export function createApp(env: Env): express.Application {
   const app = express();
@@ -62,6 +63,7 @@ export function createApp(env: Env): express.Application {
   app.use('/v1', systemRouter);
   app.use('/v1', createAuthRouter(env));
   app.use('/v1', createUsersRouter(env));
+  app.use('/v1', createConversationsRouter(env));
   app.use('/v1', createMessagesRouter(env));
 
   if (env.S3_BUCKET) {

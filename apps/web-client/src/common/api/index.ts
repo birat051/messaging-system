@@ -10,6 +10,7 @@ export {
 } from './authApi';
 export {
   listConversations,
+  listMessageReceipts,
   listMessages,
 } from './conversationsApi';
 export { createGroup } from './groupsApi';

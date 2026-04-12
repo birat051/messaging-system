@@ -30,7 +30,7 @@ If something here conflicts with a one-off prompt, **these guidelines win** unle
 ### 1.2 Project layout and boundaries
 
 - Organize by **feature** or by **layer** consistently within each app (e.g. `routes` → `services` → `repositories`). Do not mix unrelated concerns in one giant file.
-- **web-client (`apps/web-client`):** follow **`PROJECT_PLAN.md` §10.1** — shared code under **`src/common/`** (`api`, `components`, `constants`, `types`, `utils`; optional **`hooks/`**), feature- or page-scoped code under **`src/modules/<module-id>/`** (each module may include `components`, `stores`, `api`, `constants`, `utils`, `types`, `pages/`). App shell pieces stay at **`src/`** root (`main.tsx`, `App.tsx`, `store/`, `routes/`, `generated/`, `workers/`). **Concrete import and testing path rules** are in **§4.0** below.
+- **web-client (`apps/web-client`):** follow **`PROJECT_PLAN.md` §10.1** — shared code under **`src/common/`** (`api`, `components`, `constants`, `types`, `utils`; optional **`hooks/`**), feature- or page-scoped code under **`src/modules/<module-id>/`** (each module may include `components`, `stores`, `api`, `constants`, `utils`, `types`, `pages/`). App shell pieces stay at **`src/`** root (`main.tsx`, `App.tsx`, `store/`, `routes/`, `generated/`, `workers/`). **Concrete import, testing path, one-component-per-file, `utils/`, and `types/<ComponentName>-types.ts` rules** are in **§4.0** and **§4.1.3** below.
 - **HTTP contract:** the **OpenAPI 3** document in `docs/openapi/` is the source of truth for REST. **web-client** generates TypeScript types with **`openapi-typescript`** (`npm run generate:api` in `apps/web-client`)—**no** `packages/shared` package for DTOs. **messaging-service** validates with **Zod** (or equivalent) at the boundary; keep schemas aligned with the OpenAPI spec in the same PR when routes change.
 - **Configuration**: validate all required environment variables **at startup** (e.g. with Zod or a small env schema). Fail fast with clear errors if misconfigured.
 - **Secrets**: never commit secrets or tokens. Use environment variables or a secrets manager; document required vars in **`docs/ENVIRONMENT.md`** (per microservice) and keep them aligned with Docker Compose / deployment.
@@ -41,6 +41,7 @@ If something here conflicts with a one-off prompt, **these guidelines win** unle
 - Apply **security middleware** appropriate to the app: e.g. `helmet`, sensible CORS policy, body size limits, and **rate limiting** on auth and abuse-prone routes.
 - Implement **graceful shutdown**: on `SIGTERM`/`SIGINT`, stop accepting new connections, drain in-flight work, close DB/Redis/RabbitMQ connections, then exit.
 - Keep **route handlers thin**: parse/validate input, call a service, map result or error to HTTP. Avoid SQL/ODM calls directly inside route files when the same logic is reused.
+- **`messaging-service` layout (`apps/messaging-service/src/`):** Top-level folders are **`config/`**, **`controllers/`**, **`routes/`**, **`data/`**, **`middleware/`**, **`validation/`**, and **`utils/`**. **`data/`** holds persistence and domain stores (MongoDB **`data/db/`**, **`data/redis/`**, **`data/messaging/`** (RabbitMQ), **`data/conversations/`**, **`data/messages/`**, **`data/users/`**, **`data/userPublicKeys/`**, **`data/presence/`**, **`data/storage/`**). **`utils/`** holds cross-cutting helpers (**`utils/auth/`**, **`utils/email/`**, **`utils/errors/`**, **`utils/logger.ts`**, **`utils/readiness.ts`**, **`utils/swagger.ts`**, **`utils/realtime/`** (Socket.IO), **`utils/rateLimit/`**, **`utils/types/`**). **`app.ts`** and **`index.ts`** stay at **`src/`** as the HTTP app factory and process entrypoint. **Routes** wire **`Router`** only (one **`controllers/`** file per **`routes/`** file); controllers call **validation**, **data**, and **utils** as needed.
 
 ### 1.4 Async and reliability
 
@@ -59,7 +60,7 @@ Apply **named patterns only when they reduce coupling, clarify boundaries, or en
 
 | Pattern / technique | When to use |
 |---------------------|-------------|
-| **Layered architecture** | Keep HTTP, domain rules, and persistence separate: routes/controllers → **services** (use cases) → **repositories** (data access). Routes do not embed query logic. |
+| **Layered architecture** | Keep HTTP, domain rules, and persistence separate: **routes** (wire only) → **controllers** (HTTP handlers in `messaging-service`) → **services** (use cases) → **repositories** (data access). Route files do not embed request body/query logic — that lives in **`controllers/`** per **`PROJECT_GUIDELINES.md` §1.3**. |
 | **Repository** | Abstract MongoDB (or Redis) access per aggregate/collection so services stay persistence-agnostic and unit tests can mock storage. |
 | **Service / use-case layer** | One place for business rules (who may message whom, group membership, idempotency). |
 | **Strategy** | Swappable implementations (e.g. email provider, push provider, storage backend) selected by config. |
@@ -79,6 +80,8 @@ These patterns apply to **MongoDB** as the primary store for users, conversation
 ### 2.0 Access-pattern-first design (required)
 
 **Schema, indexes, and queries follow from documented access patterns—not the reverse.**
+
+- **`messaging-service`:** For each MongoDB collection, keep **one** **`*.collection.ts`** module under **`apps/messaging-service/src/data/<logical-name>/`** (e.g. **`conversations.collection.ts`**, **`users.collection.ts`**, **`system_config/system_config.collection.ts`**) containing the **collection name constant**, the **document type(s)** for that store, a short **field-level schema** description in JSDoc, and **`ensure…Indexes`** (plus any idempotent **backfill** helpers) in the **same file**. Use a separate **`users.types.ts`**-style module only for **API-facing** shapes that are not the persisted document (e.g. **`UserApiShape`**). **`repo.ts`** remains the place for queries and mutations.
 
 - Before locking a collection shape, list **concrete read/write paths**: e.g. “list messages for conversation X newest-first, page size 50,” “find user by email for login,” “list groups for user U.”
 - For each pattern, note **frequency**, **latency expectation**, and **cardinality** (one vs many documents).
@@ -113,11 +116,11 @@ These patterns apply to **MongoDB** as the primary store for users, conversation
 - Define policy for **soft delete** vs hard delete and how it interacts with indexes and unique constraints.
 - **Migrations** (index creation, backfills) should be **scripted**, **reviewed**, and **tested** on a copy of production-like data when possible; avoid one-off manual edits in production as the norm.
 
-### 2.5 Redis (presence, rate limits, optional Socket.IO adapter)
+### 2.5 Redis (presence, rate limits — not Socket.IO rooms)
 
 - Use **Redis** for hot, ephemeral, or rate-limit data (e.g. last seen) with explicit **TTL** or update strategy to avoid unbounded growth.
 - **Global per-IP REST cap** (fixed-window counter, configurable **500/min** default): **`docs/GLOBAL_RATE_LIMIT.md`** — bursts, clock skew, stacking with route limits.
-- **In-tab notifications** (calls, messages) are delivered via **Socket.IO** on **messaging-service** (`PROJECT_PLAN.md` §3.3), not Redis Streams. For **horizontal scaling** of Socket.IO nodes, use a **Redis adapter** for Socket.IO when needed.
+- **In-tab notifications** (calls, messages) are delivered via **Socket.IO** on **messaging-service** (`PROJECT_PLAN.md` §3.3), not Redis Streams. **Socket.IO rooms** stay **in-memory per process**; **cross-node** fan-out uses **RabbitMQ**, not Redis-backed Socket.IO clustering (**`PROJECT_PLAN.md` §3.2.2**).
 
 ---
 
@@ -144,6 +147,8 @@ These patterns apply to **MongoDB** as the primary store for users, conversation
 | **Feature / page** | **`modules/<module-id>/`** | Each folder is one product area or route group. Subfolders: **`components/`**, **`stores/`** (Redux slices owned by the module), **`api/`** (thin wrappers when calls are module-specific), **`constants/`**, **`utils/`**, **`types/`**, **`pages/`** (route entry components such as `HomePage.tsx`) — or a single **`Page.tsx`** at module root if the team standardizes on that. |
 | **App shell** | **`store/`**, **`routes/`**, **`generated/`**, **`workers/`**, **`main.tsx`**, **`App.tsx`** | Global Redux wiring, router definitions, codegen output, Web Workers — unchanged role; see §10.1. |
 | **Tests & mocks (cross-cutting)** | **`common/integration/`**, **`common/mocks/`**, **`common/test-utils/`**, **`setupTests.ts`** (at **`src/`** root) | Shared MSW + RTL harness under **`common/`**; **`setupTests.ts`** stays beside **`main.tsx`** (not inside each module’s tree unless you colocate a test with a file — see §4.1.2). |
+
+**Component files and `utils/` / `types/`:** For **one component per file**, where to put **non-component functions**, and **`types/<ComponentName>-types.ts`** naming, see **§4.1.3** (applies to **`common/`** and each **`modules/<module-id>/`**).
 
 **Route path constants (decided):** **SPA pathname strings** (e.g. **`/login`**, **`/home`**) and exported objects like **`ROUTES`** live **only** under **`src/routes/`** — typically **`paths.ts`** (or **`routePaths.ts`**) colocated with **`navigation.ts`**, **`ProtectedRoute`**, and **`App.tsx`** route definitions. **Do not** maintain a second copy under **`common/constants/routes`**. Modules, **`common/`**, and tests **import** path constants from **`routes/`** (e.g. `import { ROUTES } from '../../routes/paths'` or an alias to **`src/routes/paths`**). *Rationale:* route segments are part of the **router shell**, not generic reusable constants; keeping one source avoids drift and matches **`react-router`** configuration.
 
@@ -178,6 +183,19 @@ These patterns apply to **MongoDB** as the primary store for users, conversation
 - **Cross-cutting or multi-route tests** (e.g. MSW integration across APIs, **`src/common/integration/*.test.tsx`**) are **additive** — they do not replace per-component **`*.test.tsx`** files when those components ship user-facing UI.
 - **Exceptions (no paired file required, or optional):** **`main.tsx`** (bootstrap only); type-only **`*.tsx`**; generated sources under **`src/generated/`**; files that export **only** non-component utilities; existing **`*.test.tsx`** / **`*.spec.tsx`**. When adding a **new** UI file, add its **`*.test.tsx`** in the **same PR** (test-first per §4.1).
 
+### 4.1.3 Web-client: one component per file, `utils/`, and `types/<ComponentName>-types.ts`
+
+These rules apply to **new** work and **refactors** in **`apps/web-client`**. Legacy files may still bundle helpers until touched; prefer aligning with this structure when editing.
+
+| Rule | Requirement |
+|------|-------------|
+| **One component per file** | A **`*.tsx`** file that exports a React **component** (under **`common/components/`**, **`modules/<module-id>/components/`**, **`modules/<module-id>/pages/`**, etc.) should contain **at most one** primary UI component. Do **not** define multiple top-level components in the same file. Small private subcomponents used only by that file are discouraged—extract to their own file or to a clearly named child file if they grow. |
+| **Non-component functions** | Pure helpers, formatters, predicates, and other **non-component** exports belong in **`utils/`** for that scope: **`src/common/utils/`** for helpers shared across modules, **`src/modules/<module-id>/utils/`** for module-only helpers. One concern per file (e.g. **`formatMessageStatusTime.ts`**, **`describeOutboundReceiptStatus.ts`**). The component file **imports** from **`utils/`**; do not grow component files with large free-function blocks. |
+| **Types (except component props)** | Types **other than** the component’s **props** (and trivial local UI state) live in a **`-types`** file named after the component: **`types/<ComponentName>-types.ts`**, under the same scope as the component — **`src/common/types/`** for shared types, **`src/modules/<module-id>/types/`** for module-specific types. Example: **`ReceiptTicks.tsx`** pairs with **`types/ReceiptTicks-types.ts`**. **Props** for that component (`FooProps`, etc.) may stay **in** **`Foo.tsx`**. Do **not** duplicate **OpenAPI / `generated/`** DTOs in `*-types.ts` unless you need a thin UI-only alias or branded type. |
+| **Where to put files** | **`common/`** and each **`modules/<module-id>/`** may each have its own **`utils/`** and **`types/`** directories; use **`common/`** when two or more modules need the same helper or type. |
+
+**Exceptions:** **`main.tsx`**, **`App.tsx`**, route files that only wire children, **`index.ts`** barrels (re-exports only), tests, and **`src/generated/`**.
+
 ### 4.2 UI quality (existing standards)
 
 - **Pixel-perfect**, **soothing** theme: intentional colour, contrast, spacing, and typography.
@@ -185,8 +203,7 @@ These patterns apply to **MongoDB** as the primary store for users, conversation
 - **Accessibility**: keyboard support, visible focus, no keyboard traps, semantic HTML, ARIA when needed, screen-reader-friendly structure.
 - **Strong UI/UX**: clarity and hierarchy first; avoid flashy effects that hurt usability.
 - **No unnecessary duplication**: small reusable components or data-driven UIs where it reduces repeat markup without over-abstracting.
-- **One component per file**: at most one primary exported component per file (helpers/types may coexist per existing rules). Pair with **§4.1.2** — one **`ComponentName.test.tsx`** per **`ComponentName.tsx`** in **web-client**.
-- **Types**: non-prop domain/helper types live in **`types.ts`** in the **module** (`modules/<module-id>/types/`) or next to the file; shared shapes live under **`common/types/`**. Component **props** types may stay with the component file.
+- **One component per file; `utils/`; `types/<ComponentName>-types.ts`:** follow **§4.1.3** for **web-client** (single primary component per file, helpers under **`utils/`**, non-prop types under **`types/<ComponentName>-types.ts`**). Pair with **§4.1.2** — one **`ComponentName.test.tsx`** per **`ComponentName.tsx`**.
 
 ### 4.2.1 Responsive layouts (mobile and tablet / iPad)
 
@@ -243,7 +260,7 @@ These patterns apply to **MongoDB** as the primary store for users, conversation
 - [ ] MongoDB queries bounded (pagination, projections); indexes match those access patterns
 - [ ] New list APIs paginated; limits enforced server-side
 - [ ] **OpenAPI** spec updated in the same PR as any REST route change; **Swagger UI** still accurate for dev
-- [ ] **web-client UI (`*.tsx`):** **tests written first** for new/changed components, then implementation; **coverage** only for **`*.tsx`** (see §4.1.1); **colocated** **`ComponentName.test.tsx`** per **`ComponentName.tsx`** (see §4.1.2); **paths** under **`common/`** and **`modules/`** per §4.0 / **`PROJECT_PLAN.md` §10.1**
+- [ ] **web-client UI (`*.tsx`):** **tests written first** for new/changed components, then implementation; **coverage** only for **`*.tsx`** (see §4.1.1); **colocated** **`ComponentName.test.tsx`** per **`ComponentName.tsx`** (see §4.1.2); **one component per file**, **`utils/`**, and **`types/<ComponentName>-types.ts`** per §4.1.3; **paths** under **`common/`** and **`modules/`** per §4.0 / **`PROJECT_PLAN.md` §10.1**
 - [ ] **Responsive:** new/changed UI works on **mobile and tablet (iPad)** as well as desktop (§4.2.1)
 - [ ] Frontend: **Redux (RTK)** used for appropriate global state; **reusable hooks** for shared client logic; middleware used for cross-cutting dispatch-side concerns where applicable
 - [ ] ESLint passes; accessibility considered for interactive UI

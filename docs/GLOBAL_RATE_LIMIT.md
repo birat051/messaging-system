@@ -13,7 +13,7 @@ Together, defaults are **500** increments per **60** seconds per IP — often de
 
 ## Implementation
 
-- **Algorithm:** Redis **fixed-window counter** — `INCR` on a per-IP key; on first increment in a cycle, `EXPIRE` the key for `GLOBAL_RATE_LIMIT_WINDOW_SEC`. Same primitives as other limits: `fixedWindowIncrement` / `rateLimitExceeded` in `apps/messaging-service/src/auth/rateLimitRedis.ts`.
+- **Algorithm:** Redis **fixed-window counter** — `INCR` on a per-IP key; on first increment in a cycle, `EXPIRE` the key for `GLOBAL_RATE_LIMIT_WINDOW_SEC`. Same primitives as other limits: `fixedWindowIncrement` / `rateLimitExceeded` in `apps/messaging-service/src/utils/auth/rateLimitRedis.ts`.
 - **Key:** `ratelimit:global:ip:{clientIp}` — see `globalRestRateLimitKey` in `apps/messaging-service/src/rateLimit/globalRestRateLimit.ts`. `{clientIp}` is the string from **`getClientIp(req)`** (honest when **`trust proxy`** is configured and upstream sets **`X-Forwarded-For`** correctly).
 - **Express:** `createGlobalRestRateLimitMiddleware` in `apps/messaging-service/src/middleware/globalRestRateLimit.ts` is mounted **early** as `app.use('/v1', …)` in `app.ts` (after JSON + request logging). **`GET /v1/health`** and **`GET /v1/ready`** are **excluded** (inside the mount, **`req.path`** is **`/health`** / **`/ready`**, not **`/v1/…`**). **`/api-docs`** is not under `/v1` and is not counted.
 - **Scope:** **HTTP** under **`/v1`** only. **Socket.IO** (upgrade, long-poll) does not pass this Express stack for normal socket traffic; use route/socket limits (**`MESSAGE_SEND_RATE_LIMIT_*`**, etc.).
@@ -26,7 +26,7 @@ Together, defaults are **500** increments per **60** seconds per IP — often de
 - **`X-Forwarded-Proto`** — `$scheme` (http/https).
 - **`X-Real-IP`** — `$remote_addr` (direct peer of nginx, often the browser in dev).
 
-**messaging-service** sets **`app.set('trust proxy', 1)`** (`apps/messaging-service/src/app.ts`) so Express treats **one** reverse-proxy hop as trusted for **`req.ip`** / forwarded headers. **`getClientIp(req)`** (`apps/messaging-service/src/auth/getClientIp.ts`) prefers the **first** comma-separated address in **`X-Forwarded-For`**, which is the original client when nginx is the only trusted proxy in front of the app.
+**messaging-service** sets **`app.set('trust proxy', 1)`** (`apps/messaging-service/src/app.ts`) so Express treats **one** reverse-proxy hop as trusted for **`req.ip`** / forwarded headers. **`getClientIp(req)`** (`apps/messaging-service/src/utils/auth/getClientIp.ts`) prefers the **first** comma-separated address in **`X-Forwarded-For`**, which is the original client when nginx is the only trusted proxy in front of the app.
 
 **If `X-Forwarded-For` is missing or wrong** (e.g. app exposed directly without nginx, or an extra proxy not appending headers), rate limits key **`ratelimit:*:ip:{ip}`** on **`req.socket.remoteAddress`** — often every user shares **one** IP (bad) or the wrong IP. Fix the proxy chain before tuning **`GLOBAL_RATE_LIMIT_MAX`**.
 

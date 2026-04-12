@@ -1,28 +1,25 @@
 import type { Db } from 'mongodb';
 import type { Env } from './env.js';
-import { getDb } from '../db/mongo.js';
-import { getRedisClient } from '../redis/redis.js';
-import { logger } from '../logger.js';
+import {
+  SYSTEM_CONFIG_COLLECTION,
+  SYSTEM_CONFIG_DOCUMENT_ID,
+  type SystemConfigDocument,
+} from '../data/system_config/system_config.collection.js';
+import { getDb } from '../data/db/mongo.js';
+import { getRedisClient } from '../data/redis/redis.js';
+import { logger } from '../utils/logger.js';
 
-/** Singleton document in **`system_config`** — product toggles (ops can change without redeploy). */
-export const SYSTEM_CONFIG_COLLECTION = 'system_config';
-
-export const SYSTEM_CONFIG_DOCUMENT_ID = 'singleton' as const;
+export {
+  SYSTEM_CONFIG_COLLECTION,
+  SYSTEM_CONFIG_DOCUMENT_ID,
+  type SystemConfigDocument,
+};
 
 /** Redis cache key for merged effective runtime config (JSON). */
 export const RUNTIME_CONFIG_REDIS_KEY = 'messaging:runtime_config:effective';
 
 /** TTL for Redis cache — **5 minutes**; after expiry the next read refetches MongoDB + env merge. */
 export const RUNTIME_CONFIG_REDIS_TTL_SECONDS = 300;
-
-export type SystemConfigDocument = {
-  _id: typeof SYSTEM_CONFIG_DOCUMENT_ID;
-  /** When set, overrides **`EMAIL_VERIFICATION_REQUIRED`** env for runtime decisions. */
-  emailVerificationRequired?: boolean;
-  /** When set, overrides **`GUEST_SESSIONS_ENABLED`** env. Reserved for **`POST /auth/guest`**. */
-  guestSessionsEnabled?: boolean;
-  updatedAt?: Date;
-};
 
 export type EffectiveRuntimeConfig = {
   emailVerificationRequired: boolean;

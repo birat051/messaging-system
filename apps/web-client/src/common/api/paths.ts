@@ -28,6 +28,8 @@ export const API_PATHS = {
     list: '/conversations',
     messages: (conversationId: string) =>
       `/conversations/${encodeURIComponent(conversationId)}/messages`,
+    messageReceipts: (conversationId: string) =>
+      `/conversations/${encodeURIComponent(conversationId)}/message-receipts`,
   },
   messages: {
     send: '/messages',

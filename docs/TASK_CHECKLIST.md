@@ -26,9 +26,9 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
   - [x] MongoDB connection pooling and graceful shutdown
   - [x] **Socket.IO** on HTTP server; **RabbitMQ** client and exchange/queue bindings per `PROJECT_PLAN.md` §3.2
 
-- [x] **messaging-service (Redis + presence)** — `PROJECT_PLAN.md` §3.1: **hot** last-seen in Redis only while Socket.IO is up — client **`presence:heartbeat` ~every 5s** → **`setLastSeen`**; on **disconnect** → **`flushLastSeenToMongo`** (`users.lastSeenAt`) + Redis **`DEL`**. **`handshake.auth.userId`** required. Optional **`SOCKET_IO_REDIS_ADAPTER`**. **In-tab notifications** remain **Socket.IO** only (`PROJECT_PLAN.md` §3.3).
+- [x] **messaging-service (Redis + presence)** — `PROJECT_PLAN.md` §3.1: **hot** last-seen in Redis only while Socket.IO is up — client **`presence:heartbeat` ~every 5s** → **`setLastSeen`**; on **disconnect** → **`flushLastSeenToMongo`** (`users.lastSeenAt`) + Redis **`DEL`**. **`handshake.auth.userId`** required. **Socket.IO rooms** are **in-memory per process** only (**`PROJECT_PLAN.md` §3.2.2**); **do not** use **`@socket.io/redis-adapter`** for room sync — cross-node delivery uses **RabbitMQ** + local **`io.to(room).emit`**. **In-tab notifications** remain **Socket.IO** only (`PROJECT_PLAN.md` §3.3).
   - [x] **Redis client** (`REDIS_URL` + `LAST_SEEN_TTL_SECONDS`); connect at startup; **graceful shutdown**; **`/v1/ready`** includes Redis ping
-  - [x] **Presence pipeline** — **`src/presence/lastSeen.ts`**, **`src/presence/flushLastSeenToMongo.ts`**, **`src/realtime/socket.ts`** (heartbeat throttle ~4.5s)
+  - [x] **Presence pipeline** — **`src/data/presence/lastSeen.ts`**, **`src/data/presence/flushLastSeenToMongo.ts`**, **`src/utils/realtime/socket.ts`** (heartbeat throttle ~4.5s)
   - [ ] **Feature 7 (notifications):** after a message is persisted (in `sendMessageForUser` or the RabbitMQ consumer), emit a **`notification`** Socket.IO event to the recipient's **`user:<recipientUserId>`** room with the **`§8`** envelope (`kind: "message"`, `notificationId`, `occurredAt`, `conversationId`, `messageId`, `senderUserId`, `preview`); for group messages emit to **`group:<groupId>`** — **no** Redis Streams; apply mute/DND before emitting (`PROJECT_PLAN.md` §3.3, §8)
   - [x] **Feature 6 (read — WebSocket):** **`presence:getLastSeen`** + ack — **`resolveLastSeenForUser`** (`src/presence/resolveLastSeen.ts`): Redis → Mongo → **`{ status: 'not_available' }`**
 
@@ -191,8 +191,8 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 ### (A) Infra, backend & deployment
 
-- [x] **User document (`users`):** schema fields **`profilePicture`**, **`status`** per **`User`** / **`UserPublic`** — **`UserDocument`**, **`UserApiShape`**, **`UserPublicApiShape`** + **`toUserPublicShape`** (**`src/users/types.ts`**, **`publicUser.ts`**); reads normalized via **`normalizeUserDocument`**
-  - [x] **MongoDB:** migrations / backfill if collections already exist — **`ensureUserProfileFieldsBackfill`** (**`ensureIndexes.ts`**, startup after indexes)
+- [x] **User document (`users`):** schema fields **`profilePicture`**, **`status`** per **`User`** / **`UserPublic`** — **`UserDocument`**, **`UserApiShape`**, **`UserPublicApiShape`** + **`toUserPublicShape`** (**`src/data/users/users.collection.ts`**, **`users.types.ts`**, **`publicUser.ts`**); reads normalized via **`normalizeUserDocument`**
+  - [x] **MongoDB:** migrations / backfill if collections already exist — **`ensureUserProfileFieldsBackfill`** (**`users.collection.ts`**, startup after indexes)
 - [x] **Signup (`POST /auth/register`):** optional **`profilePicture`** + **`status`** in handler; **`emailVerified`** vs **`getEffectiveRuntimeConfig(env).emailVerificationRequired`** (env **`EMAIL_VERIFICATION_REQUIRED`** + MongoDB **`system_config`**) — **Feature 2** — verified: **`registerRequestSchema`**, **`createUser`**, **`routes/auth.ts`**
 - [x] **Update profile (`PATCH /users/me`):** **`multer`** + **`multipart/form-data`**; optional **`file`**, **`status`**, **`displayName`** (at least one part); image → S3 same as **`POST /media/upload`**; response **`User`** — **`src/routes/users.ts`**, **`storage/userMediaUpload.ts`**, **`updateUserProfile`** (**`repo.ts`**)
 - [x] **Search by email:** route **`GET /users/search`** + **`validateQuery`**; service resolves **`conversationId`** for direct 1:1 with caller
@@ -218,7 +218,7 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 #### (A) Infra, backend & deployment
 
-- [x] **Socket.IO inbound event** — e.g. **`message:send`** or aligned name in **`src/realtime/`** — payload matches **`SendMessageRequest`**; validate with **`sendMessageRequestSchema`** (shared with REST until removed); call **`sendMessageForUser`**; respond via **ack** with **`Message`** or **`ErrorResponse`**-shaped error; enforce **auth** (handshake **`userId`** / JWT parity with REST)
+- [x] **Socket.IO inbound event** — e.g. **`message:send`** or aligned name in **`src/utils/realtime/`** — payload matches **`SendMessageRequest`**; validate with **`sendMessageRequestSchema`** (shared with REST until removed); call **`sendMessageForUser`**; respond via **ack** with **`Message`** or **`ErrorResponse`**-shaped error; enforce **auth** (handshake **`userId`** / JWT parity with REST)
 - [x] **`POST /v1/messages`:** **deprecate** (OpenAPI **`deprecated: true`**), **remove** for default clients, or keep **only** for integration tests / tooling — pick one and document in **OpenAPI** + code comments
 - [x] **Rate limits / abuse:** align **Socket.IO** send path with REST-era limits where applicable (per **user** / **IP** / connection)
 
@@ -243,7 +243,7 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
   - [x] **Design:** map **500/min** to implementation (fixed-window counter in Redis — e.g. **`GLOBAL_RATE_LIMIT_WINDOW_SEC=60`**, **`GLOBAL_RATE_LIMIT_MAX=500`**) and document semantics (bursts, clock skew) — **`docs/GLOBAL_RATE_LIMIT.md`**, **`globalRestRateLimit.ts`**, **`env.ts`**
   - [x] **Express middleware:** single early **`app.use`** on **`/v1`** (or appropriate prefix) so most REST traffic is covered; respect **`trust proxy`** for client IP (**`getClientIp`**) — **`middleware/globalRestRateLimit.ts`**, **`app.ts`**
   - [x] **Path exclusions:** do **not** count (or bypass) **`GET /v1/health`**, **`GET /v1/ready`**, and public **`/api-docs`** (and any other liveness/readiness routes); decide how **Socket.IO** on the same HTTP server interacts with the limit (upgrade / long-poll — typically **exclude** from REST global counter) — health/ready skipped in middleware; **`/api-docs`** off **`/v1`**; Socket.IO documented in **`GLOBAL_RATE_LIMIT.md`**
-  - [x] **Redis:** reuse **`apps/messaging-service/src/auth/rateLimitRedis.ts`** primitives; stable key pattern (e.g. **`ratelimit:global:ip:{ip}`**)
+  - [x] **Redis:** reuse **`apps/messaging-service/src/utils/auth/rateLimitRedis.ts`** primitives; stable key pattern (e.g. **`ratelimit:global:ip:{ip}`**)
   - [x] **Relationship to existing per-route limits:** **`POST /auth/register`**, **`/auth/forgot-password`**, **`/auth/verify-email`**, **`GET /users/search`**, etc. — decide **stack** (global **and** stricter route limit), **replace** redundant route limits, or **tier** (document in code + **`ENVIRONMENT.md`**) — **stack** (separate Redis keys; global first); documented in **`ENVIRONMENT.md`**, **`GLOBAL_RATE_LIMIT.md`**, route **`auth`/`users`/`messages`** comments
   - [x] **429 responses:** stable JSON (**`AppError`** / **`RATE_LIMIT_EXCEEDED`** or dedicated code); optional **`Retry-After`** header if product wants it — **`AppError`** + **`errorHandler`**; **`Retry-After`** not set (optional follow-up)
   - [x] **Configuration:** extend **`apps/messaging-service/src/config/env.ts`**; document in **`docs/ENVIRONMENT.md`** and **`infra/.env.example`**
@@ -299,34 +299,35 @@ The **default product** does **not** expose a **Settings** (or similar) screen f
 
 ### (A) Infra, backend & deployment
 
-- [ ] Depends on **Prerequisite — User keypair** for ciphertext fields and public-key APIs when E2EE is enabled
-- [ ] **MongoDB:** **`conversations`** + **`messages`** collections; indexes per **`PROJECT_GUIDELINES.md` §2.0**
+- [x] Depends on **Prerequisite — User keypair** for ciphertext fields and public-key APIs when E2EE is enabled — **`Message.body`** / **`SendMessageRequest.body`** documented as opaque (plaintext or E2EE ciphertext); **`info`** + schema **`description`** in **`docs/openapi/openapi.yaml`** **`0.1.18`**; **`sendMessageForUser`** JSDoc; **`npm run generate:api`** → **`apps/web-client/src/generated/api-types.ts`**
+- [x] **MongoDB:** **`conversations`** + **`messages`** collections; indexes per **`PROJECT_GUIDELINES.md` §2.0** — **`CONVERSATIONS_COLLECTION`** / **`MESSAGES_COLLECTION`**; **`ensureConversationIndexes`** (`id`, partial **`directPairKey`**, **`participantIds` + `updatedAt` + `id`** for list-by-participant); **`ensureMessageIndexes`** (compound **`conversationId` + `createdAt` + `id`**, unique **`id`**); access-pattern table comments in **`conversations.collection.ts`** / **`messages.collection.ts`**; startup in **`index.ts`**
 - [x] **`POST /messages`:** **`validateBody`** + service — **lazy-create** direct conversation when **`conversationId`** omitted + **`recipientUserId`** set (**Cross-cutting** — interim REST; **Socket.IO** send — **Send path — Socket.IO (target)**)
-- [ ] **Socket.IO send:** client-originated **send** via **Socket.IO** (reuse **`sendMessageForUser`**) — **Cross-cutting — Send path — Socket.IO (target)**
-- [ ] **`GET` conversation messages:** **`listMessages`** — cursor + **`limit`**; authz (**participant** only)
-- [ ] **Socket.IO — user room join:** on connection auth success call **`socket.join('user:' + userId)`** in the **`connection`** handler (`src/realtime/socket.ts`); without this every `io.to('user:<userId>').emit(…)` is a silent no-op (`PROJECT_PLAN.md` §3.2.1)
-- [ ] **RabbitMQ — publish API:** export a **`publishMessage(routingKey, payload)`** function from **`src/messaging/rabbitmq.ts`** so callers can publish without accessing the private `channel` singleton; guard against calling before `connectRabbit` resolves
-- [ ] **RabbitMQ (1:1) — publish after persist:** in `sendMessageForUser` (`src/messages/sendMessage.ts`), after `insertMessage` resolves, call the publish API with routing key **`message.user.<recipientUserId>`** — **one publish per persisted message** (`PROJECT_PLAN.md` §3.2.1)
-  - [ ] **Sender multi-device echo:** also publish to **`message.user.<senderId>`** (or emit directly to the sender's `user:<senderId>` room) so the sender's other connected sessions receive an authoritative copy; the sending socket already has the ack so it can be skipped via `socket.to(room)` rather than `io.to(room)`
-- [ ] **RabbitMQ consumer — wire `io`:** pass or inject the **`SocketIoServer`** instance into `src/messaging/rabbitmq.ts` (e.g. a `setSocketIo(io)` call in `index.ts` after both `connectRabbit` and `attachSocketIo` resolve) — currently `io` is created in `index.ts` but never reaches the consumer
-- [ ] **RabbitMQ consumer — implement emit:** replace the stub ack-only callback with real logic: parse routing key → resolve target room name (`user:<userId>` for direct, `group:<groupId>` for group); call **`io.to(room).emit('message:new', payload)`**; `ack` only after the emit attempt so the message is not lost on process restart (`PROJECT_PLAN.md` §3.2)
-- [ ] **Redis adapter + per-instance queue conflict guard:** enabling **`SOCKET_IO_REDIS_ADAPTER=true`** alongside per-instance RabbitMQ queues causes each message to be delivered twice to every connected socket (once via the instance's own queue, once via the adapter cross-broadcast); add a **startup warning or assertion** when both are active and document the mutual exclusion in `docs/ENVIRONMENT.md` (`PROJECT_PLAN.md` §3.2)
-- [ ] **Integration test / manual checklist:** send A→B; verify B receives on correct Socket.IO room with exactly **one** broker publish; two replicas — A on node-1, B on node-2 — B still receives
-- [ ] **OpenAPI** for messaging: covered in **`0.1.0`** — implement + **Swagger** stay aligned
-- [ ] If shipping **Feature 12** in the same release as Feature 1, add **receipt-related** fields to the message schema early; otherwise **Feature 12** may introduce a migration
+- [x] **1:1 messaging — send (Socket.IO) + list (REST):**
+  - [x] **Socket.IO send:** client-originated **send** via **Socket.IO** (reuse **`sendMessageForUser`**) — **`src/utils/realtime/socket.ts`** **`message:send`** — **`sendMessageRequestSchema.safeParse`**, **`isMessageSendRateLimited`**, **`sendMessageForUser`**, ack **`messageDocumentToApi`** / **`AppError`** (same contract as **`POST /v1/messages`**)
+  - [x] **`GET` conversation messages:** **`listMessages`** — cursor + **`limit`**; authz (**participant** only)
+- [x] **Socket.IO — user room join:** on connection auth success call **`socket.join('user:' + userId)`** in the **`connection`** handler (`src/utils/realtime/socket.ts`) — **in-memory on this process only** (**`PROJECT_PLAN.md` §3.2.2**); without this every `io.to('user:<userId>').emit(…)` on this node is a silent no-op (`PROJECT_PLAN.md` §3.2.1)
+- [x] **RabbitMQ — publish API:** export a **`publishMessage(routingKey, payload)`** function from **`src/data/messaging/rabbitmq.ts`** so callers can publish without accessing the private `channel` singleton; guard against calling before `connectRabbit` resolves (shared **`connectPromise`** + throws if never connecting)
+- [x] **RabbitMQ (1:1) — publish after persist:** in `sendMessageForUser` (`src/data/messages/sendMessage.ts`), after `insertMessage` resolves, call the publish API with routing key **`message.user.<recipientUserId>`** — **one publish per persisted message** (`PROJECT_PLAN.md` §3.2.1)
+  - [x] **Sender multi-device echo:** also publish to **`message.user.<senderId>`** (envelope **`{ message, skipSocketId? }`**) so the sender's other sessions get **`message:new`**; **`message:send`** passes **`originSocketId`** → consumer uses **`io.to('user:…').except(skipSocketId).emit`** (same idea as **`socket.to(room)`**)
+- [x] **RabbitMQ consumer — wire `io`:** **`setMessagingSocketIoServer(io)`** in **`index.ts`** after **`attachSocketIo`**; cleared on shutdown — **`src/data/messaging/rabbitmq.ts`**
+- [x] **RabbitMQ consumer — implement emit:** parse **`message.user.<userId>`** → **`io.to('user:<userId>').emit('message:new', payload)`**; envelope with **`skipSocketId`** uses **`.except(skipSocketId)`**; flat JSON (recipient publish) unchanged; **`ack`** after delivery attempt (`PROJECT_PLAN.md` §3.2)
+- [x] **Socket.IO Redis adapter — deprecate / guard:** intended architecture uses **in-memory rooms** + **RabbitMQ** per replica (**`PROJECT_PLAN.md` §3.2.2**), not **`@socket.io/redis-adapter`**. Wiring remains for edge cases; default **`SOCKET_IO_REDIS_ADAPTER=false`** with **startup `warn`** if enabled (**`socket.ts`**), **`docs/ENVIRONMENT.md`** + **docker-compose** comments discourage enabling it
+- [x] **Integration test / manual checklist:** automated **`npm run test:integration`** (`src/integration/messagingSocket.integration.test.ts`) — A→B **`message:new`**; **one** `publishMessage` to **`message.user.<B>`** plus **one** sender echo to **`message.user.<A>`**; manual two-replica steps in **`docs/INTEGRATION_MESSAGING.md`**
+- [x] **OpenAPI** for messaging: **`docs/openapi/openapi.yaml`** **`0.1.18`** — **`Message`**, **`SendMessageRequest`**, **`GET/POST` messaging**, **`GET /conversations/{id}/message-receipts`** + **`message:new`** / Socket.IO narrative; **`429`** for rate limits; **`npm run generate:api`** in **`apps/web-client`**
+- [x] If shipping **Feature 12** in the same release as Feature 1, add **receipt-related** fields to the message schema early; otherwise **Feature 12** may introduce a migration — **done:** **`MessageDocument.receiptsByUserId`** + **`MessageReceiptEntry`** in **`messages.collection.ts`** (optional on insert; receipt updates use **`$set`** on nested paths — **no** backfill migration for existing rows); **`conversation_reads`** + indexes at Feature 12 — see **Feature 12 (A)** MongoDB line
 
 ### (B) Web-client, UI, tests & state management
 
-- [ ] **Tests first (`*.tsx`):** conversation **list** row; **thread** message list; **composer** — RTL per **`PROJECT_GUIDELINES.md` §4.1.1**
-- [ ] **UI — shell:** conversation list layout + active selection state
-- [ ] **UI — thread:** scroll container, message bubbles, timestamps
-- [ ] **UI — composer:** text input, send button, disabled/loading
-- [ ] **Redux:** active **`conversationId`**, normalized **`messagesByConversationId`**, send **pending/error** flags
-- [ ] **`useConversation` / `useSendMessage`:** call **`listMessages`** (REST or future read path); **send** via **Socket.IO** (**not** HTTP **`POST /messages`** for primary UX — **Send path — Socket.IO (target)**) + optimistic updates
-- [ ] **Socket.IO — receive:** listen for **`message:new`** events (emitted by the RabbitMQ consumer via `io.to('user:<userId>')`) in the **`socketWorker`** / **`socketBridge`**; dispatch to Redux; **dedupe** by **`messageId`** before rendering (`PROJECT_PLAN.md` §3.2.1)
-- [ ] **Optimistic vs server:** reconcile temp ids with server **`Message.id`**
-- [ ] **Loading / empty / error** states; **chat** **`role="log"`** / **`aria-live`** where appropriate
-- [ ] **E2EE messaging indicator (product):** small, non-blocking component in the **chat / thread** area (e.g. near composer or thread header) that states messages are **end-to-end encrypted**, consistent with **`docs/PROJECT_PLAN.md`** (opaque payloads on real-time path; server routing without content visibility) and **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`** (hybrid / ECIES, user-level keys). **No** reliance on a **Settings → encryption** screen. **Tests first** (`*.tsx`) per **`PROJECT_GUIDELINES.md` §4.1.1**
+- [x] **Tests first (`*.tsx`):** conversation **list** row; **thread** message list; **composer** — RTL per **`PROJECT_GUIDELINES.md` §4.1.1** — **`ConversationListRow.test.tsx`**, **`ConversationList.test.tsx`** (empty / loading / error), **`ThreadMessageList.test.tsx`** (empty / loading / error + log), **`ThreadComposer.test.tsx`** (send + errors); **no** demo preview on **`HomePage`**
+- [x] **UI — shell:** conversation list layout + active selection state
+- [x] **UI — thread:** scroll container, message bubbles, timestamps
+- [x] **UI — composer:** text input, send button, disabled/loading
+- [x] **Redux:** active **`conversationId`**, normalized **`messagesByConversationId`**, send **pending/error** flags
+- [x] **`useConversation` / `useSendMessage`:** call **`listMessages`** (REST or future read path); **send** via **Socket.IO** (**not** HTTP **`POST /messages`** for primary UX — **Send path — Socket.IO (target)**) + optimistic updates
+- [x] **Socket.IO — receive:** listen for **`message:new`** events (emitted by the RabbitMQ consumer via `io.to('user:<userId>')`) in the **`socketWorker`** / **`socketBridge`**; dispatch to Redux; **dedupe** by **`messageId`** before rendering (`PROJECT_PLAN.md` §3.2.1)
+- [x] **Optimistic vs server:** reconcile temp ids with server **`Message.id`**
+- [x] **Loading / empty / error** states; **chat** **`role="log"`** / **`aria-live`** where appropriate
+- [x] **E2EE messaging indicator (product):** small, non-blocking component in the **chat / thread** area (e.g. near composer or thread header) that states messages are **end-to-end encrypted**, consistent with **`docs/PROJECT_PLAN.md`** (opaque payloads on real-time path; server routing without content visibility) and **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`** (hybrid / ECIES, user-level keys). **No** reliance on a **Settings → encryption** screen. **Tests first** (`*.tsx`) per **`PROJECT_GUIDELINES.md` §4.1.1**
 - [ ] **Sent tick** (stub) or full **Feature 12** receipts when ready
 
 ---
@@ -340,7 +341,7 @@ The **default product** does **not** expose a **Settings** (or similar) screen f
 ### (A) Infra, backend & deployment
 
 - [ ] **Email verification toggle (DB):** implement **`emailVerificationRequired`** from **MongoDB** config document; **deprecate** env-only **`EMAIL_VERIFICATION_REQUIRED`** for runtime decisions once migration exists (keep env as **default seed** / **fallback**) — ties to **Cross-cutting — Runtime configuration (MongoDB)**
-- [x] User schema: **`users`** collection — unique indexes on **`email`** + **`id`**; **`passwordHash`** (**Argon2id** via **`argon2`**); **`profilePicture`**, **`status`**, **`displayName`**, **`emailVerified`**, **`lastSeenAt`** — see **`src/users/`** + **OpenAPI** `User` — **keep `emailVerified`** (do not remove)
+- [x] User schema: **`users`** collection — unique indexes on **`email`** + **`id`**; **`passwordHash`** (**Argon2id** via **`argon2`**); **`profilePicture`**, **`status`**, **`displayName`**, **`emailVerified`**, **`lastSeenAt`** — see **`src/data/users/`** + **OpenAPI** `User` — **keep `emailVerified`** (do not remove)
 - [x] Registration + **`POST /auth/verify-email`** + **`POST /auth/resend-verification`** + verification JWTs — **`src/routes/auth.ts`**
 - [x] **`EMAIL_VERIFICATION_REQUIRED`** (boolean, default **`false`**) — **`apps/messaging-service/src/config/env.ts`**
 - [x] Document **`EMAIL_VERIFICATION_REQUIRED`** — **`docs/ENVIRONMENT.md`** + **`infra/.env.example`** (+ Compose)
@@ -349,7 +350,7 @@ The **default product** does **not** expose a **Settings** (or similar) screen f
 - [x] **SendGrid path:** **`SENDGRID_API_KEY`** + **`EMAIL_FROM`** + **`PUBLIC_APP_BASE_URL`** — **`src/email/sendVerificationEmail.ts`**; verification mail on register; **`resend`** returns **503** if SendGrid throws
 - [x] **`verify-email` / `resend-verification`:** JWT validation + **Redis** rate limits (per route)
 - [x] **Auth middleware / protected routes:** **`user.emailVerified === true`** only when **`EMAIL_VERIFICATION_REQUIRED`** is **`true`** — **`requireAuthenticatedUser`** / **`requireAuthMiddleware`** (`src/middleware/requireAuth.ts`); **`requireUploadAuth`** for **`POST /v1/media/upload`**
-- [x] JWT access + refresh; login/logout/revocation; optional password reset — **`issueAuthTokens`**, Redis refresh tokens + **`refreshTokenVersion`** (`src/auth/issueTokens.ts`, **`refreshTokenRedis.ts`**); **`POST /auth/refresh`**, **`/auth/logout`**; **`/auth/forgot-password`** + **`/auth/reset-password`** (signed JWT + **`setUserPasswordAndBumpVersion`**); OpenAPI **0.1.6**
+- [x] JWT access + refresh; login/logout/revocation; optional password reset — **`issueAuthTokens`**, Redis refresh tokens + **`refreshTokenVersion`** (`src/utils/auth/issueTokens.ts`, **`refreshTokenRedis.ts`**); **`POST /auth/refresh`**, **`/auth/logout`**; **`/auth/forgot-password`** + **`/auth/reset-password`** (signed JWT + **`setUserPasswordAndBumpVersion`**); OpenAPI **0.1.6**
 - [x] **OpenAPI `0.1.4`** — **`/auth/register`**, **`/auth/verify-email`**, **`/auth/resend-verification`**; **`RegisterRequest`** optional **`profilePicture`** + **`status`**; **`PATCH /users/me`** — **`UpdateProfileRequest`** (**`0.1.1`**); **Zod** on auth bodies; login/refresh middleware still **[ ]**
 
 ### (B) Web-client, UI, tests & state management
@@ -447,6 +448,8 @@ The **default product** does **not** expose a **Settings** (or similar) screen f
 ---
 
 ## Feature 6 — Last seen per user
+
+**Distinction from Feature 12:** **Last seen** is **user presence** (last app activity). **Message “seen” / read receipts** are **per-message** state — **independent** pipelines; see **`docs/SEEN_VS_LAST_SEEN_ORDERING.md`**.
 
 **Algorithm (locked):** While Socket.IO is connected, the **client** sends **`presence:heartbeat` every 5 seconds**; **messaging-service** stores the timestamp in **Redis** (`presence:lastSeen:{userId}`, TTL **`LAST_SEEN_TTL_SECONDS`**). When the **Socket.IO connection closes**, the service **writes that last-seen time to MongoDB** (`users.lastSeenAt` for `users.id === userId`) and **removes** the Redis key. _No_ Redis update on connect alone—only heartbeats.
 
@@ -573,25 +576,25 @@ The **default product** does **not** expose a **Settings** (or similar) screen f
 
 **Scope:** Per-message (or per-conversation cursor) **delivery** and **read** state so the UI can show **sent** → **delivered** → **seen** indicators (e.g. tick icons). **Build after Feature 1** (and **Feature 8** for groups) can create and list messages.
 
-**Semantics (define in `docs/`):** **Sent** — server accepted and stored the message. **Delivered** — recipient’s client acknowledged receipt (at-least-once to their device/session). **Seen** — recipient has read the message (e.g. conversation open / read cursor past that `messageId`). Group chats may use per-member delivery/read maps or a simplified “read up to” cursor per member.
+**Semantics (define in `docs/`):** **Sent** — server accepted and stored the message. **Delivered** — recipient’s client acknowledged receipt (at-least-once to their device/session). **Seen** — recipient has read the message (e.g. conversation open / read cursor past that `messageId`). Group chats may use per-member delivery/read maps or a simplified “read up to” cursor per member — see **`docs/MESSAGE_RECEIPTS_AND_READ_STATE_DESIGN.md`**.
 
 ### (A) Infra, backend & deployment
 
-- [ ] **Design doc**: 1:1 vs group representation (`deliveredAt` / `seenAt` fields vs per-recipient maps vs `lastReadMessageId` per user per conversation); privacy (e.g. disable read receipts setting — optional follow-up)
-- [ ] **MongoDB**: extend message or receipt sub-documents with timestamps or user→timestamp maps; indexes for querying latest receipt state; access patterns per `PROJECT_GUIDELINES.md` §2.0
-- [ ] **Socket.IO** (and **RabbitMQ** if cross-node): events such as `message:delivered`, `message:read` / `conversation:read` with `messageId`, `conversationId`, `userId`; idempotent handlers; fan-out to sender and relevant peers
-- [ ] **REST** (optional): fetch receipt summary for history sync; align with **OpenAPI**
-- [ ] **Ordering**: define how **seen** interacts with **last seen** (Feature 6) — related but distinct (message-level vs user presence)
-- [ ] **Rate limits** on receipt floods; no PII in logs
+- [x] **Design doc**: 1:1 vs group representation (`deliveredAt` / `seenAt` fields vs per-recipient maps vs `lastReadMessageId` per user per conversation); privacy (e.g. disable read receipts setting — optional follow-up) — **`docs/MESSAGE_RECEIPTS_AND_READ_STATE_DESIGN.md`**
+- [x] **MongoDB**: extend message or receipt sub-documents with timestamps or user→timestamp maps; indexes for querying latest receipt state; access patterns per `PROJECT_GUIDELINES.md` §2.0 — **`messages.receiptsByUserId`**, **`conversation_reads`** (`ensureConversationReadsIndexes`, **`conversation_reads.collection.ts`** + **`repo.ts`**)
+- [x] **Socket.IO** (and **RabbitMQ** if cross-node): events such as `message:delivered`, `message:read` / `conversation:read` with `messageId`, `conversationId`, `userId`; idempotent handlers; fan-out to sender and relevant peers — **`receiptSocketHandlers.ts`**, **`message.receipt.<userId>`** routing keys, **`messageReceiptOps`**, **`receiptPublish.ts`**, Redis **`MESSAGE_RECEIPT_RATE_LIMIT_*`**
+- [x] **REST** (optional): fetch receipt summary for history sync; align with **OpenAPI** — **`GET /v1/conversations/{conversationId}/message-receipts`** (`listMessageReceipts`), **`MessageReceiptPage`**, receipts **removed** from **`Message`**
+- [x] **Ordering**: define how **seen** interacts with **last seen** (Feature 6) — related but distinct (message-level vs user presence) — **`docs/SEEN_VS_LAST_SEEN_ORDERING.md`**
+- [x] **Rate limits** on receipt floods; no PII in logs — **`MESSAGE_RECEIPT_RATE_LIMIT_*`** + **`isMessageReceiptRateLimited`**
 
 ### (B) Web-client, UI, tests & state management
 
-- [ ] **Tests first** for **ReceiptTicks** (or similar) presentational component: states **sent**, **delivered**, **seen** (and loading/unknown)
-- [ ] **Outbound**: after send succeeds, show **sent**; on server/event confirmation, advance state as designed
-- [ ] **Inbound**: on message received, emit **delivered** ack to server; when user opens thread or message enters viewport (product choice), emit **seen** / read cursor
-- [ ] **Redux**: merge receipt updates into message entities or normalized `receiptsByMessageId`; selectors for tick state per bubble
-- [ ] **Group UI**: show aggregate or per-member policy (e.g. all delivered / all seen) per design doc
-- [ ] **Accessibility**: ticks not sole indicator — optional `aria-label` on status
+- [x] **Tests first** for **ReceiptTicks** (or similar) presentational component: states **sent**, **delivered**, **seen** (and loading/unknown)
+- [x] **Outbound**: after send succeeds, show **sent**; on server/event confirmation, advance state as designed
+- [x] **Inbound**: on message received, emit **delivered** ack to server; when user opens thread or message enters viewport (product choice), emit **seen** / read cursor
+- [x] **Redux**: merge receipt updates into message entities or normalized `receiptsByMessageId`; selectors for tick state per bubble
+- [x] **Group UI**: show aggregate or per-member policy (e.g. all delivered / all seen) per design doc
+- [x] **Accessibility**: ticks not sole indicator — optional `aria-label` on status
 - [ ] **Feature flags** (optional): hide seen/delivered if user setting disables receipts later
 
 ---

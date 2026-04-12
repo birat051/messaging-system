@@ -5,12 +5,12 @@ import type { Env } from '../config/env.js';
 import { errorHandler } from './errorHandler.js';
 import { createGlobalRestRateLimitMiddleware } from './globalRestRateLimit.js';
 
-vi.mock('../rateLimit/globalRestRateLimit.js', () => ({
+vi.mock('../utils/rateLimit/globalRestRateLimit.js', () => ({
   isGlobalRestRateLimitExceeded: vi.fn(),
   globalRestRateLimitKey: (ip: string) => `ratelimit:global:ip:${ip}`,
 }));
 
-import { isGlobalRestRateLimitExceeded } from '../rateLimit/globalRestRateLimit.js';
+import { isGlobalRestRateLimitExceeded } from '../utils/rateLimit/globalRestRateLimit.js';
 
 const mockExceeded = vi.mocked(isGlobalRestRateLimitExceeded);
 

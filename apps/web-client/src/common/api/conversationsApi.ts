@@ -27,3 +27,17 @@ export async function listMessages(
   );
   return res.data;
 }
+
+export async function listMessageReceipts(
+  conversationId: string,
+  params?: {
+    cursor?: components['parameters']['CursorQuery'];
+    limit?: components['parameters']['LimitQuery'];
+  },
+): Promise<S['MessageReceiptPage']> {
+  const res = await httpClient.get<S['MessageReceiptPage']>(
+    API_PATHS.conversations.messageReceipts(conversationId),
+    { params: params ?? {} },
+  );
+  return res.data;
+}

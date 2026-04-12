@@ -1,20 +1,26 @@
 import { createServer } from 'node:http';
 import { createApp } from './app.js';
 import { loadEnv } from './config/env.js';
-import { connectMongo, disconnectMongo, getDb } from './db/mongo.js';
-import { connectRabbit, disconnectRabbit } from './messaging/rabbitmq.js';
-import { connectRedis, disconnectRedis } from './redis/redis.js';
-import { logger } from './logger.js';
-import { attachSocketIo, closeSocketIo } from './realtime/socket.js';
-import { ensureBucketExists } from './storage/ensureBucket.js';
-import { getS3Client } from './storage/s3Client.js';
-import { ensureConversationIndexes } from './conversations/ensureIndexes.js';
-import { ensureMessageIndexes } from './messages/ensureIndexes.js';
-import { ensureUserPublicKeyIndexes } from './userPublicKeys/ensureIndexes.js';
+import { connectMongo, disconnectMongo, getDb } from './data/db/mongo.js';
+import {
+  connectRabbit,
+  disconnectRabbit,
+  setMessagingSocketIoServer,
+} from './data/messaging/rabbitmq.js';
+import { connectRedis, disconnectRedis } from './data/redis/redis.js';
+import { logger } from './utils/logger.js';
+import { attachSocketIo, closeSocketIo } from './utils/realtime/socket.js';
+import { ensureBucketExists } from './data/storage/ensureBucket.js';
+import { getS3Client } from './data/storage/s3Client.js';
+import { ensureConversationReadsIndexes } from './data/conversationReads/conversation_reads.collection.js';
+import { ensureConversationIndexes } from './data/conversations/conversations.collection.js';
+import { ensureMessageIndexes } from './data/messages/messages.collection.js';
+import { ensureSystemConfigIndexes } from './data/system_config/system_config.collection.js';
+import { ensureUserPublicKeyIndexes } from './data/userPublicKeys/user_public_keys.collection.js';
 import {
   ensureUserIndexes,
   ensureUserProfileFieldsBackfill,
-} from './users/ensureIndexes.js';
+} from './data/users/users.collection.js';
 
 async function main(): Promise<void> {
   const env = loadEnv();
@@ -23,7 +29,9 @@ async function main(): Promise<void> {
   await ensureUserIndexes(db);
   await ensureConversationIndexes(db);
   await ensureMessageIndexes(db);
+  await ensureConversationReadsIndexes(db);
   await ensureUserPublicKeyIndexes(db);
+  await ensureSystemConfigIndexes(db);
   await ensureUserProfileFieldsBackfill(db);
   await connectRedis();
   await connectRabbit();
@@ -52,6 +60,8 @@ async function main(): Promise<void> {
     }
     shuttingDown = true;
     logger.info({ signal }, 'shutdown started');
+
+    setMessagingSocketIoServer(null);
 
     try {
       await closeSocketIo(io);

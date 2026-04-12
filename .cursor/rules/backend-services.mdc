@@ -38,7 +38,7 @@ Repository, service layer, Strategy/Adapter for third parties, Express middlewar
 
 ## Redis
 
-- TTL/strategy for ephemeral data (last seen, rate limits). Optional **Socket.IO Redis adapter** for horizontal scale. **In-tab notifications** use **Socket.IO**, not Redis Streams (`PROJECT_PLAN.md` §3.3).
+- TTL/strategy for ephemeral data (last seen, rate limits). **Do not** use Redis for Socket.IO **room** membership — rooms are **in-memory per process**; scale with **RabbitMQ** + local **`io.to(room).emit`** (`PROJECT_PLAN.md` §3.2.2). **In-tab notifications** use **Socket.IO**, not Redis Streams (`PROJECT_PLAN.md` §3.3).
 
 ## APIs
 

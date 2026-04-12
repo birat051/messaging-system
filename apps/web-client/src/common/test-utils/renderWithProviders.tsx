@@ -7,6 +7,10 @@ import { SWRConfig } from 'swr';
 import { appReducer } from '../../modules/app/stores/appSlice';
 import { authReducer } from '../../modules/auth/stores/authSlice';
 import { cryptoReducer } from '../../modules/crypto/stores/cryptoSlice';
+import {
+  messagingInitialState,
+  messagingReducer,
+} from '../../modules/home/stores/messagingSlice';
 import type { RootState } from '../../store/store';
 import { ToastProvider } from '../components/toast/ToastProvider';
 import { ThemeProvider } from '../theme/ThemeProvider';
@@ -22,6 +26,7 @@ const defaultRootState: RootState = {
     status: 'idle',
     error: null,
   },
+  messaging: messagingInitialState,
 };
 
 function mergeRootState(partial?: Partial<RootState>): RootState {
@@ -41,12 +46,21 @@ function mergeRootState(partial?: Partial<RootState>): RootState {
           : defaultRootState.auth.accessToken,
     },
     crypto: { ...defaultRootState.crypto, ...partial.crypto },
+    messaging: {
+      ...defaultRootState.messaging,
+      ...partial.messaging,
+    },
   };
 }
 
 export function createTestStore(preloadedState?: Partial<RootState>) {
   return configureStore({
-    reducer: { app: appReducer, auth: authReducer, crypto: cryptoReducer },
+    reducer: {
+      app: appReducer,
+      auth: authReducer,
+      crypto: cryptoReducer,
+      messaging: messagingReducer,
+    },
     preloadedState: mergeRootState(preloadedState),
   });
 }

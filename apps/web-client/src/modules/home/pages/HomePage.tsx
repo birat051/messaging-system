@@ -5,6 +5,7 @@ import { useAuth } from '../../../common/hooks/useAuth';
 import { usePresenceConnection } from '@/common/hooks/usePresenceConnection';
 import { presenceLabel } from '../../../common/utils/presenceLabel';
 import { ROUTES } from '../../../routes/paths';
+import { HomeConversationShell } from '../components/HomeConversationShell';
 import { UserSearchPanel } from '../components/UserSearchPanel';
 
 export function HomePage() {
@@ -46,6 +47,7 @@ export function HomePage() {
           <ThemeToggle />
         </header>
         <main className="rounded-card border-border bg-surface shadow-card space-y-6 border p-6">
+          {user ? <HomeConversationShell /> : null}
           <UserSearchPanel />
           <p className="text-foreground">
             Semantic tokens: <code className="text-accent">background</code>,{' '}

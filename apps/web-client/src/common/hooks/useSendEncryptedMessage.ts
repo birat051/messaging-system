@@ -6,7 +6,7 @@ import { parseApiError } from '@/modules/auth/utils/apiError';
 import type { Message, SendMessageRequest } from '../realtime/socketWorkerProtocol';
 import { useAppDispatch } from '@/store/hooks';
 import { useAuth } from './useAuth';
-import { useSendMessage } from './useSendMessage';
+import { useSocketWorkerSendMessage } from './useSocketWorkerSendMessage';
 
 export type UseSendEncryptedMessageOptions = {
   /**
@@ -26,7 +26,7 @@ export function useSendEncryptedMessage(
 ): { sendMessage: (payload: SendMessageRequest) => Promise<Message> } {
   const { user } = useAuth();
   const dispatch = useAppDispatch();
-  const { sendMessage: socketSend } = useSendMessage();
+  const { sendMessage: socketSend } = useSocketWorkerSendMessage();
   const peerUserId = options.peerUserId?.trim() ?? '';
 
   const sendMessage = useCallback(
