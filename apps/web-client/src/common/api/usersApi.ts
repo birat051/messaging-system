@@ -22,6 +22,15 @@ export async function getUserById(userId: string): Promise<S['UserPublic']> {
   return res.data;
 }
 
+export async function getUserPublicKeyById(
+  userId: string,
+): Promise<S['UserPublicKeyResponse']> {
+  const res = await httpClient.get<S['UserPublicKeyResponse']>(
+    API_PATHS.users.publicKeyById(userId),
+  );
+  return res.data;
+}
+
 export async function searchUsersByEmail(params: {
   email: string;
   limit?: components['parameters']['LimitQuery'];
@@ -29,5 +38,25 @@ export async function searchUsersByEmail(params: {
   const res = await httpClient.get<S['UserSearchResult'][]>(API_PATHS.users.search, {
     params: { email: params.email, limit: params.limit },
   });
+  return res.data;
+}
+
+export async function putMyPublicKey(
+  body: S['PutPublicKeyRequest'],
+): Promise<S['UserPublicKeyResponse']> {
+  const res = await httpClient.put<S['UserPublicKeyResponse']>(
+    API_PATHS.users.mePublicKey,
+    body,
+  );
+  return res.data;
+}
+
+export async function rotateMyPublicKey(
+  body: S['RotatePublicKeyRequest'],
+): Promise<S['UserPublicKeyResponse']> {
+  const res = await httpClient.post<S['UserPublicKeyResponse']>(
+    API_PATHS.users.mePublicKeyRotate,
+    body,
+  );
   return res.data;
 }

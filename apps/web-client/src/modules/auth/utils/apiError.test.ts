@@ -1,6 +1,10 @@
 import axios from 'axios';
 import { describe, expect, it } from 'vitest';
-import { isRateLimitedError, parseApiError } from './apiError';
+import {
+  isRateLimitedError,
+  isTransientHttpRetryableError,
+  parseApiError,
+} from './apiError';
 
 describe('parseApiError — 429 / rate limits', () => {
   it('uses ErrorResponse body for RATE_LIMIT_EXCEEDED (global limit)', () => {
@@ -79,5 +83,60 @@ describe('isRateLimitedError', () => {
       },
     );
     expect(isRateLimitedError(err)).toBe(false);
+  });
+});
+
+describe('isTransientHttpRetryableError', () => {
+  it('returns true for network (no response)', () => {
+    const err = new axios.AxiosError(
+      'Network Error',
+      'ERR_NETWORK',
+      undefined,
+      undefined,
+      undefined,
+    );
+    expect(isTransientHttpRetryableError(err)).toBe(true);
+  });
+
+  it('returns true for 429, 502, 503', () => {
+    for (const status of [429, 502, 503]) {
+      const err = new axios.AxiosError(
+        'fail',
+        'ERR_BAD_REQUEST',
+        undefined,
+        undefined,
+        {
+          status,
+          statusText: '',
+          data: {},
+          headers: {},
+          config: {} as never,
+        },
+      );
+      expect(isTransientHttpRetryableError(err)).toBe(true);
+    }
+  });
+
+  it('returns false for 401 and 404', () => {
+    for (const status of [401, 404]) {
+      const err = new axios.AxiosError(
+        'fail',
+        'ERR_BAD_REQUEST',
+        undefined,
+        undefined,
+        {
+          status,
+          statusText: '',
+          data: {},
+          headers: {},
+          config: {} as never,
+        },
+      );
+      expect(isTransientHttpRetryableError(err)).toBe(false);
+    }
+  });
+
+  it('returns false for non-axios errors', () => {
+    expect(isTransientHttpRetryableError(new Error('x'))).toBe(false);
   });
 });

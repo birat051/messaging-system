@@ -16,7 +16,10 @@ describe('SettingsPage', () => {
       <Routes>
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>,
-      { route: '/settings', preloadedState: { auth: { user: null, accessToken: null } } },
+      {
+        route: '/settings',
+        preloadedState: { auth: { user: null, accessToken: null } },
+      },
     );
 
     expect(screen.getByText(/loading profile/i)).toBeInTheDocument();
@@ -38,9 +41,9 @@ describe('SettingsPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole('textbox', { name: /display name/i })).toHaveValue(
-        'Test User',
-      );
+      expect(
+        screen.getByRole('textbox', { name: /display name/i }),
+      ).toHaveValue('Test User');
     });
 
     await user.click(screen.getByRole('button', { name: /save changes/i }));

@@ -95,6 +95,27 @@ export function isRateLimitedError(err: unknown): boolean {
   return axios.isAxiosError(err) && err.response?.status === 429;
 }
 
+/**
+ * Whether **`httpClient`** should **retry** the request (e.g. backoff in **`retryAsync`**): network failure,
+ * **429**, or **5xx** (not other **4xx**).
+ */
+export function isTransientHttpRetryableError(err: unknown): boolean {
+  if (!axios.isAxiosError(err)) {
+    return false;
+  }
+  const status = err.response?.status;
+  if (status === undefined) {
+    return true;
+  }
+  if (status === 429) {
+    return true;
+  }
+  if (status >= 500 && status <= 504) {
+    return true;
+  }
+  return false;
+}
+
 /** **`POST /auth/login`** — **401** invalid credentials vs **403** email not verified (`EMAIL_NOT_VERIFIED`). */
 export type LoginFailureKind =
   | 'invalid_credentials'

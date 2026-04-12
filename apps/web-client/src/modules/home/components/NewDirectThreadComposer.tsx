@@ -1,6 +1,6 @@
 import { type FormEvent, useState } from 'react';
 import type { components } from '@/generated/api-types';
-import { useSendMessage } from '@/common/hooks/useSendMessage';
+import { useSendEncryptedMessage } from '@/common/hooks/useSendEncryptedMessage';
 import { parseApiError } from '@/modules/auth/utils/apiError';
 
 type UserSearchResult = components['schemas']['UserSearchResult'];
@@ -16,7 +16,7 @@ type Props = {
  * On success the parent unmounts this and shows **`FollowUpThreadComposer`**.
  */
 export function NewDirectThreadComposer({ recipient, onConversationIdStored }: Props) {
-  const { sendMessage } = useSendMessage();
+  const { sendMessage } = useSendEncryptedMessage();
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);

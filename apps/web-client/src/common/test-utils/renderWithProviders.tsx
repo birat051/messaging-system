@@ -6,6 +6,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { SWRConfig } from 'swr';
 import { appReducer } from '../../modules/app/stores/appSlice';
 import { authReducer } from '../../modules/auth/stores/authSlice';
+import { cryptoReducer } from '../../modules/crypto/stores/cryptoSlice';
 import type { RootState } from '../../store/store';
 import { ToastProvider } from '../components/toast/ToastProvider';
 import { ThemeProvider } from '../theme/ThemeProvider';
@@ -13,6 +14,14 @@ import { ThemeProvider } from '../theme/ThemeProvider';
 const defaultRootState: RootState = {
   app: { bootstrapped: true },
   auth: { user: null, accessToken: null },
+  crypto: {
+    keyRegistered: false,
+    keyVersion: null,
+    registeredPublicKeySpki: null,
+    lastUpdatedAt: null,
+    status: 'idle',
+    error: null,
+  },
 };
 
 function mergeRootState(partial?: Partial<RootState>): RootState {
@@ -31,12 +40,13 @@ function mergeRootState(partial?: Partial<RootState>): RootState {
           ? partial.auth.accessToken
           : defaultRootState.auth.accessToken,
     },
+    crypto: { ...defaultRootState.crypto, ...partial.crypto },
   };
 }
 
 export function createTestStore(preloadedState?: Partial<RootState>) {
   return configureStore({
-    reducer: { app: appReducer, auth: authReducer },
+    reducer: { app: appReducer, auth: authReducer, crypto: cryptoReducer },
     preloadedState: mergeRootState(preloadedState),
   });
 }

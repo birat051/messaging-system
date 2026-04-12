@@ -28,6 +28,9 @@ export { getHealth, getReady } from './systemApi';
 export {
   getCurrentUser,
   getUserById,
+  getUserPublicKeyById,
+  putMyPublicKey,
+  rotateMyPublicKey,
   searchUsersByEmail,
   updateCurrentUserProfile,
 } from './usersApi';

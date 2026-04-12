@@ -41,6 +41,17 @@ Thus **confidentiality** of the payload rests on **asymmetric** key agreement (o
 
 The **long-term private** key is generated in the browser (**Web Crypto API** or an audited WASM binding such as **libsodium** if X25519 is required). It is persisted only on the client (**IndexedDB**, optionally **wrapped** with a passphrase-derived key — see checklist §B).
 
+### 2.1 Local private key persistence (web-client)
+
+| Requirement | Detail |
+|-------------|--------|
+| **Never send private keys to the server** | PKCS#8 is exported only for **local** storage; REST/OpenAPI must never define private-key fields (see audit checklist). |
+| **Storage** | **IndexedDB** database `messaging-client-crypto`, object store `privateKeyMaterial`, keyed by **`userId`** so multiple accounts do not share rows. |
+| **Wrapping (default)** | **PBKDF2-HMAC-SHA256** with **310,000** iterations (OWASP-aligned default for PBKDF2-SHA256) + random **16-byte** salt per write; **AES-256-GCM** with a random **12-byte** IV; ciphertext + salt + IV + iteration count stored as Base64-safe fields. **Argon2** is not available in Web Crypto; a future WASM binding could replace the KDF while keeping a versioned payload shape. |
+| **Dev-only plaintext** | `storePrivateKeyPkcs8PlaintextDevOnly` / `loadPlaintextPrivateKeyPkcs8DevOnly` are **Vite `import.meta.env.DEV` only** — not for production. |
+| **Secure context** | **`SubtleCrypto`** and meaningful crypto require **`window.isSecureContext`** (HTTPS, or `http://localhost` / `http://127.0.0.1`). Plain **`http://`** on a LAN hostname **does not** qualify — key storage helpers call **`assertSecureContextForPrivateKeyOps`** (`apps/web-client/src/common/crypto/secureContext.ts`). Deploy production behind HTTPS. |
+| **Implementation** | `apps/web-client/src/common/crypto/privateKeyStorage.ts`, `privateKeyWrap.ts`, `encoding.ts`, `secureContext.ts`. |
+
 ---
 
 ## 3. Algorithms and parameters (MVP)
@@ -170,5 +181,6 @@ Maximum **public key** upload size should be capped in validation (e.g. **≤ 2 
 | Date | Note |
 |------|------|
 | 2026-04-02 | §6.3–6.4: **Option A** chosen as default for rotation; operational flow and old-message decrypt impact documented. |
+| 2026-04-12 | §2.1: IndexedDB + PBKDF2/AES-GCM client private key storage; secure-context requirement. |
 
 When algorithms or encodings change, bump a **doc revision** note here and regenerate **OpenAPI** / client types in the same PR as code changes.

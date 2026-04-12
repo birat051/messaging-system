@@ -1,9 +1,21 @@
 ---
-description: Authoritative project rules — read PROJECT_GUIDELINES before coding; docs hierarchy, process, merge checklist
+description: Session gate — open PROJECT_GUIDELINES before any code edit; this file is the checklist; docs hierarchy, merge gate
 alwaysApply: true
 ---
 
 # Project authority (holy grail)
+
+## Session gate (non-negotiable — enforce every time)
+
+**Before any code edit** in this repository (any file, any app):
+
+1. **Open** [`docs/PROJECT_GUIDELINES.md`](docs/PROJECT_GUIDELINES.md) **once** for the session — the full doc, or the **section(s)** that apply to the change (e.g. §1 TypeScript, §4 React/web-client, §2 MongoDB for backend work).
+2. **Treat this rule file (`.cursor/rules/project-authority.mdc`) as the checklist** that gates the session: if a step below conflicts with a casual shortcut, **this file + `PROJECT_GUIDELINES.md` win**.
+3. **Then** read or skim **`docs/PROJECT_PLAN.md`** / **`docs/TASK_CHECKLIST.md`** as needed for the task.
+
+Skipping the gate is not allowed for implementation work. (Purely conversational answers with no edits may omit it.)
+
+---
 
 ## Before writing or editing code
 

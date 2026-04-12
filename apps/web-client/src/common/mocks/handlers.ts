@@ -3,6 +3,7 @@ import type { components } from '../../generated/api-types';
 
 type User = components['schemas']['User'];
 type UserSearchResult = components['schemas']['UserSearchResult'];
+type UserPublicKeyResponse = components['schemas']['UserPublicKeyResponse'];
 
 /** Default profile used by **`PATCH /v1/users/me`** when tests do not override handlers. */
 export const defaultMockUser: User = {
@@ -49,6 +50,23 @@ export const handlers = [
             ]
           : [];
     return HttpResponse.json(results);
+  }),
+  http.get('*/v1/users/:userId/public-key', ({ params }) => {
+    const userId = params.userId as string;
+    if (userId !== defaultMockUser.id) {
+      return HttpResponse.json(
+        { code: 'NOT_FOUND', message: 'No public key registered' },
+        { status: 404 },
+      );
+    }
+    const body: UserPublicKeyResponse = {
+      userId: defaultMockUser.id,
+      publicKey:
+        'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEeWtZ0jiCzy6i7c1fhDNcct9WUer1FC9027TeJwYmimeYcCDeAauszT90CsuigDh12qwCJ3yFUDcZurT22BWJrJA',
+      keyVersion: 1,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    return HttpResponse.json(body);
   }),
   http.patch('*/v1/users/me', async ({ request }) => {
     let next: User = { ...defaultMockUser };

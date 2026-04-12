@@ -7,6 +7,8 @@ Single reference for variables passed into each deployable (Docker Compose, loca
 | **messaging-service** | `apps/messaging-service/src/config/env.ts` (extend schema as features land) |
 | **web-client** | Vite: `import.meta.env.VITE_*` (see `apps/web-client` when scaffolded) |
 
+**E2EE / private keys:** Client-side key generation and **IndexedDB** persistence require a **secure context** (HTTPS or localhost). See **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`** §2.1 — not controlled by env vars, but production must serve the SPA over HTTPS.
+
 ---
 
 ## messaging-service

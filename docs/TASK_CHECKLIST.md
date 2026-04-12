@@ -2,7 +2,7 @@
 
 Use this checklist to track implementation progress. Sections align with [PROJECT_PLAN.md](./PROJECT_PLAN.md).
 
-**Pattern:** For each feature or cross-cutting area below, work is split into **(A) Infra, backend & deployment** and **(B) Web-client, UI, tests & state management** (Redux, hooks, test-first components per `PROJECT_GUIDELINES.md`). **Prerequisite — User keypair** runs before encrypted **Feature 1** work when E2EE is required.
+**Pattern:** For each feature or cross-cutting area below, work is split into **(A) Infra, backend & deployment** and **(B) Web-client, UI, tests & state management** (Redux, hooks, test-first components per `PROJECT_GUIDELINES.md`). **Prerequisite — User keypair** runs before encrypted **Feature 1** work when E2EE is required. **Default E2EE UX:** no **Settings → encryption** for end users; **chat-thread** E2EE indicator instead—see **Prerequisite — Product direction** and **Feature 1 (B)**.
 
 **Granularity:** Where a single bullet used to imply many files or layers (e.g. **MSW** + **handlers** + **test utils**, or **MongoDB** + **RabbitMQ** + **Socket.IO**), it is broken into **nested subtasks** so one PR or one agent prompt can close a **small vertical slice** without rewriting half the app.
 
@@ -29,7 +29,7 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 - [x] **messaging-service (Redis + presence)** — `PROJECT_PLAN.md` §3.1: **hot** last-seen in Redis only while Socket.IO is up — client **`presence:heartbeat` ~every 5s** → **`setLastSeen`**; on **disconnect** → **`flushLastSeenToMongo`** (`users.lastSeenAt`) + Redis **`DEL`**. **`handshake.auth.userId`** required. Optional **`SOCKET_IO_REDIS_ADAPTER`**. **In-tab notifications** remain **Socket.IO** only (`PROJECT_PLAN.md` §3.3).
   - [x] **Redis client** (`REDIS_URL` + `LAST_SEEN_TTL_SECONDS`); connect at startup; **graceful shutdown**; **`/v1/ready`** includes Redis ping
   - [x] **Presence pipeline** — **`src/presence/lastSeen.ts`**, **`src/presence/flushLastSeenToMongo.ts`**, **`src/realtime/socket.ts`** (heartbeat throttle ~4.5s)
-  - [ ] **Feature 7 (notifications):** emit **Socket.IO** notification events from domain paths — **no** Redis Streams
+  - [ ] **Feature 7 (notifications):** after a message is persisted (in `sendMessageForUser` or the RabbitMQ consumer), emit a **`notification`** Socket.IO event to the recipient's **`user:<recipientUserId>`** room with the **`§8`** envelope (`kind: "message"`, `notificationId`, `occurredAt`, `conversationId`, `messageId`, `senderUserId`, `preview`); for group messages emit to **`group:<groupId>`** — **no** Redis Streams; apply mute/DND before emitting (`PROJECT_PLAN.md` §3.3, §8)
   - [x] **Feature 6 (read — WebSocket):** **`presence:getLastSeen`** + ack — **`resolveLastSeenForUser`** (`src/presence/resolveLastSeen.ts`): Redis → Mongo → **`{ status: 'not_available' }`**
 
 - [x] **messaging-service (S3 / static uploads)** — **`POST /v1/media/upload`** via **`@aws-sdk/client-s3`** + **`@aws-sdk/lib-storage`** (`Upload`); **MinIO** in Compose; object keys for messages still **Cross-cutting — Media** (MongoDB wire-up)
@@ -263,6 +263,10 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 **Key model:** **Private keys client-only**; **one public key per user** on the server (optional `keyVersion` for rotation). See terminology in **Feature 11**.
 
+### Prerequisite — Product direction (E2EE UX)
+
+The **default product** does **not** expose a **Settings** (or similar) screen for **encryption / key backup / rotate / key status**—end users should **not** have to “manage keys” in the UI. Satisfy **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`** (ECIES-style hybrid encryption, user-level public keys, client-only private keys) and **`docs/PROJECT_PLAN.md`** (opaque message payloads on **Socket.IO** / **RabbitMQ**, server never sees plaintext content) **without** that surface: e.g. **automatic** keypair generation + public-key registration after login, recovery/rotation only via **documented** or **support** paths—not a first-class settings flow. **Chat** UX instead carries a **small, persistent** indicator that **messages are end-to-end encrypted** (see **Feature 1 (B)** and **Feature 11 (B)**). Code that added a Settings encryption block may remain for **dev** or be removed; it is **not** part of the default user journey.
+
 ### (A) Infra, backend & deployment
 
 - [x] **Design doc** in `docs/`: algorithms (e.g. ECDH + AES-GCM hybrid, or chosen suite), key sizes, threat model, rotation rules; server never stores private keys — **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`**
@@ -275,12 +279,19 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 ### (B) Web-client, UI, tests & state management
 
-- [ ] **Generate**: after **authenticated** session exists, generate keypair in-browser via **Web Crypto API** (or audited lib—**libsodium** / WASM if using X25519); **unit tests** with known test vectors only (no real secrets in repo)
-- [ ] **Store private key securely**: never send to server; persist **wrapped** private key in **IndexedDB** (or equivalent), optionally encrypted with a key derived from a **user passphrase** (PBKDF2 / Argon2 with secure parameters); document secure-context (HTTPS) requirement
-- [ ] **Upload public key**: call API to register/update **user-level** public key; handle success/failure and retry; **Redux** slice or `crypto` slice for `keyRegistered`, `keyVersion`
-- [ ] **Maintain**: **backup** export (encrypted file or documented recovery path); **restore** flow for new browser; **rotate** key UI → new keypair → **`POST /v1/users/me/public-key/rotate`**; default product rule: **retain old private keys** in a local keyring (**Option A** — **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`** §6.3–6.4); clear UX when local key missing vs server key mismatch
-- [ ] **Hooks**: `useKeypairStatus`, `useRegisterPublicKey`, `useRestorePrivateKey` (names illustrative); **tests first** for setup wizard, backup prompt, and error states
-- [ ] **Integration checkpoint**: user can complete “encryption setup” end-to-end before **Feature 1** composer sends the first encrypted test payload (dev-only toggle acceptable)
+- [x] **Generate**: after **authenticated** session exists, generate keypair in-browser via **Web Crypto API** (or audited lib—**libsodium** / WASM if using X25519); **unit tests** with known test vectors only (no real secrets in repo) — **`src/common/crypto/keypair.ts`** (`generateP256EcdhKeyPair`, SPKI/PKCS8 export); **`useGenerateUserKeypair`** gates on **`useAuth().isAuthenticated`**; **`src/common/crypto/keypair.test.ts`** (OpenSSL fixture PKCS8/SPKI vectors + size checks); **`setupTests.ts`** polyfills **`crypto.subtle`** under jsdom
+- [x] **Store private key securely**: never send to server; persist **wrapped** private key in **IndexedDB** (or equivalent), optionally encrypted with a key derived from a **user passphrase** (PBKDF2 / Argon2 with secure parameters); document secure-context (HTTPS) requirement — **`src/common/crypto/privateKeyStorage.ts`** (IndexedDB `messaging-client-crypto`), **`privateKeyWrap.ts`** (PBKDF2-SHA256 default **310k** + AES-256-GCM), **`encoding.ts`**, **`secureContext.ts`**; dev-only plaintext store gated by **`import.meta.env.DEV`**; **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`** §2.1 + **`docs/ENVIRONMENT.md`** pointer; Vitest uses **`fake-indexeddb`** + Node **`webcrypto`** in **`setupTests.ts`**
+- [x] **Upload public key**: call API to register/update **user-level** public key; handle success/failure and retry; **Redux** slice or `crypto` slice for `keyRegistered`, `keyVersion` — **`usersApi.putMyPublicKey`** / **`rotateMyPublicKey`**; **`retryAsync`** in **`cryptoSlice`** thunks **`uploadPublicKey`** / **`rotatePublicKey`**; **`useRegisterPublicKey`**; store **`crypto`** reducer
+- [x] **Maintain** (technical building blocks): **backup** export (encrypted file or documented recovery path); **restore** flow for new browser; **rotate** path → new keypair → **`POST /v1/users/me/public-key/rotate`**; default product rule: **retain old private keys** in a local keyring (**Option A** — **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`** §6.3–6.4); **`privateKeyStorage`** keyring + **`keyringBackup.ts`**; hooks **`useKeypairStatus`**, **`useKeypairMaintenance`** (backup / restore / rotate), **`getUserPublicKeyById`**, **`registeredPublicKeySpki`** on **`crypto` slice** — no Settings UI (removed)
+- [x] **Hooks**: `useKeypairStatus`, `useRegisterPublicKey`, `useRestorePrivateKey` (names illustrative); **`common/hooks`** + unit tests where applicable
+- [x] **Remove encryption / key-management UI from Settings** (not part of **`docs/PROJECT_PLAN.md`** — **`settings/`** module is profile/account per **§10.1** layout; E2EE is **automatic / chat / programmatic**, not a Settings surface):
+  - [x] **Interim shipped:** production **`SettingsPage`** did not render **`EncryptionSettingsSection`** in non-**`DEV`** builds — previously gated by **`showEncryptionSettingsUi()`** (removed)
+  - [x] Remove **`showEncryptionSettingsUi.ts`** and **all** **`EncryptionSettingsSection`** wiring from **`SettingsPage.tsx`** (including **dev** — no encryption block on Settings at all)
+  - [x] Delete **`EncryptionSettingsSection.tsx`**, **`EncryptionBackupPrompt.tsx`**, **`EncryptionSetupWizard.tsx`** under **`modules/settings/components/`** (removed from repo — not moved to **`src/dev/`**; programmatic hooks remain in **`common/`**)
+  - [x] Remove colocated tests: **`EncryptionSettingsSection*.test.tsx`**, **`EncryptionSetupWizard.test.tsx`**, **`EncryptionBackupPrompt.test.tsx`**, **`SettingsPage.encryptionVisibility.test.tsx`** — **`useKeypairStatus`**, **`useKeypairMaintenance`**, **`useRestorePrivateKey`** remain testable via **`common/`** hooks
+  - [x] **Audit** copy and routes: **`grep`** / UI strings so **Settings** has **no** “encryption”, “key backup”, “rotate key”, or fingerprint flows; **`SettingsPage.test.tsx`** stays profile-only — **`modules/settings`** has no matches; **`ROUTES.settings`** → **`SettingsPage`** profile form only; regression test asserts no forbidden substrings in **`SettingsPage`** output
+  - [x] **Verify** programmatic E2EE unchanged: **`crypto` slice**, **`ensureUserKeypairReadyForMessaging`**, **`useSendEncryptedMessage`**, optional **`useDevEnsureMessagingKeys`** — **no** import from **`modules/settings`** for key lifecycle — **`grep`** clean; **`keyLifecycleImportPolicy.test.ts`** asserts source files contain no **`modules/settings`** import paths
+- [x] **Integration checkpoint:** first encrypted test payload can be sent from **Feature 1** composer with **automatic** key setup (no user “encryption setup” wizard); **dev-only** manual hooks acceptable for bring-up — **`useSendEncryptedMessage`** (`encryptUtf8ToE2eeBody` **E2EE_JSON_V1**, **`ensureUserKeypairReadyForMessaging`** + device-scoped passphrase); **`FollowUpThreadComposer`** requires **`peerUserId`**; optional **`useDevEnsureMessagingKeys`** for bring-up without sending
 
 ---
 
@@ -293,10 +304,14 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 - [x] **`POST /messages`:** **`validateBody`** + service — **lazy-create** direct conversation when **`conversationId`** omitted + **`recipientUserId`** set (**Cross-cutting** — interim REST; **Socket.IO** send — **Send path — Socket.IO (target)**)
 - [ ] **Socket.IO send:** client-originated **send** via **Socket.IO** (reuse **`sendMessageForUser`**) — **Cross-cutting — Send path — Socket.IO (target)**
 - [ ] **`GET` conversation messages:** **`listMessages`** — cursor + **`limit`**; authz (**participant** only)
-- [ ] **RabbitMQ (1:1):** after persist, **one publish** to **recipient user-scoped** routing key (`PROJECT_PLAN.md` §3.2.1)
-- [ ] **RabbitMQ consumer:** consume → **`io.to('user:<id>').emit`** (or equivalent) — **`src/realtime/`** wiring
-- [ ] **Socket.IO:** on connection auth, join **`user:<userId>`** room; validate multi-replica (optional **Redis adapter**)
-- [ ] **Integration test / manual checklist:** send A→B, B receives on correct room with one broker publish
+- [ ] **Socket.IO — user room join:** on connection auth success call **`socket.join('user:' + userId)`** in the **`connection`** handler (`src/realtime/socket.ts`); without this every `io.to('user:<userId>').emit(…)` is a silent no-op (`PROJECT_PLAN.md` §3.2.1)
+- [ ] **RabbitMQ — publish API:** export a **`publishMessage(routingKey, payload)`** function from **`src/messaging/rabbitmq.ts`** so callers can publish without accessing the private `channel` singleton; guard against calling before `connectRabbit` resolves
+- [ ] **RabbitMQ (1:1) — publish after persist:** in `sendMessageForUser` (`src/messages/sendMessage.ts`), after `insertMessage` resolves, call the publish API with routing key **`message.user.<recipientUserId>`** — **one publish per persisted message** (`PROJECT_PLAN.md` §3.2.1)
+  - [ ] **Sender multi-device echo:** also publish to **`message.user.<senderId>`** (or emit directly to the sender's `user:<senderId>` room) so the sender's other connected sessions receive an authoritative copy; the sending socket already has the ack so it can be skipped via `socket.to(room)` rather than `io.to(room)`
+- [ ] **RabbitMQ consumer — wire `io`:** pass or inject the **`SocketIoServer`** instance into `src/messaging/rabbitmq.ts` (e.g. a `setSocketIo(io)` call in `index.ts` after both `connectRabbit` and `attachSocketIo` resolve) — currently `io` is created in `index.ts` but never reaches the consumer
+- [ ] **RabbitMQ consumer — implement emit:** replace the stub ack-only callback with real logic: parse routing key → resolve target room name (`user:<userId>` for direct, `group:<groupId>` for group); call **`io.to(room).emit('message:new', payload)`**; `ack` only after the emit attempt so the message is not lost on process restart (`PROJECT_PLAN.md` §3.2)
+- [ ] **Redis adapter + per-instance queue conflict guard:** enabling **`SOCKET_IO_REDIS_ADAPTER=true`** alongside per-instance RabbitMQ queues causes each message to be delivered twice to every connected socket (once via the instance's own queue, once via the adapter cross-broadcast); add a **startup warning or assertion** when both are active and document the mutual exclusion in `docs/ENVIRONMENT.md` (`PROJECT_PLAN.md` §3.2)
+- [ ] **Integration test / manual checklist:** send A→B; verify B receives on correct Socket.IO room with exactly **one** broker publish; two replicas — A on node-1, B on node-2 — B still receives
 - [ ] **OpenAPI** for messaging: covered in **`0.1.0`** — implement + **Swagger** stay aligned
 - [ ] If shipping **Feature 12** in the same release as Feature 1, add **receipt-related** fields to the message schema early; otherwise **Feature 12** may introduce a migration
 
@@ -308,9 +323,10 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 - [ ] **UI — composer:** text input, send button, disabled/loading
 - [ ] **Redux:** active **`conversationId`**, normalized **`messagesByConversationId`**, send **pending/error** flags
 - [ ] **`useConversation` / `useSendMessage`:** call **`listMessages`** (REST or future read path); **send** via **Socket.IO** (**not** HTTP **`POST /messages`** for primary UX — **Send path — Socket.IO (target)**) + optimistic updates
-- [ ] **Socket.IO:** join **`user:<userId>`** room (server); listen for incoming direct messages → dispatch to Redux; **dedupe** by **`messageId`** (`PROJECT_PLAN.md` §3.2.1)
+- [ ] **Socket.IO — receive:** listen for **`message:new`** events (emitted by the RabbitMQ consumer via `io.to('user:<userId>')`) in the **`socketWorker`** / **`socketBridge`**; dispatch to Redux; **dedupe** by **`messageId`** before rendering (`PROJECT_PLAN.md` §3.2.1)
 - [ ] **Optimistic vs server:** reconcile temp ids with server **`Message.id`**
 - [ ] **Loading / empty / error** states; **chat** **`role="log"`** / **`aria-live`** where appropriate
+- [ ] **E2EE messaging indicator (product):** small, non-blocking component in the **chat / thread** area (e.g. near composer or thread header) that states messages are **end-to-end encrypted**, consistent with **`docs/PROJECT_PLAN.md`** (opaque payloads on real-time path; server routing without content visibility) and **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`** (hybrid / ECIES, user-level keys). **No** reliance on a **Settings → encryption** screen. **Tests first** (`*.tsx`) per **`PROJECT_GUIDELINES.md` §4.1.1**
 - [ ] **Sent tick** (stub) or full **Feature 12** receipts when ready
 
 ---
@@ -339,7 +355,7 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 ### (B) Web-client, UI, tests & state management
 
 - [x] **Register flow:** form + **`registerUser`** + **`applyAuthResponse`**; optional **`status`** + **`profilePicture`** (file → **`PATCH /users/me`** or advanced URL in **`RegisterRequest`**); errors from **`ErrorResponse`** — **`RegisterPage`**, **`routes/paths`**, **`modules/auth/utils/apiError`**
-- [x] **Register — profile picture (UX):** **file** input primary (**`accept`** image/*, **`REGISTER_AVATAR_MAX_BYTES`**); after **`registerUser`** when **`accessToken`** present, **`PATCH /users/me`** via **`updateCurrentUserProfile`** (same **`SettingsPage`** S3 path); optional **URL** in **advanced** **`details`**; toasts when photo cannot be applied until **Settings** — **`RegisterPage`**, **`formValidation`**
+- [x] **Register — profile picture (UX):** **file** input primary (**`accept`** image/\*, **`REGISTER_AVATAR_MAX_BYTES`**); after **`registerUser`** when **`accessToken`** present, **`PATCH /users/me`** via **`updateCurrentUserProfile`** (same **`SettingsPage`** S3 path); optional **URL** in **advanced** **`details`**; toasts when photo cannot be applied until **Settings** — **`RegisterPage`**, **`formValidation`**
 - [x] **Login flow:** form + **`login`** + **`applyAuthResponse`**; handle **403** “email not verified” vs **401** — **`LoginPage`**, **`parseLoginError`** in **`modules/auth/utils/apiError`**
 - [ ] **Forgot / reset password** _(deprioritized for now — backend routes exist; web-client screens later):_ **`forgotPassword`** + **`resetPassword`** (token from **email link** / query param)
 - [x] **Verification UX when `User.emailVerified` is `false`:** **`verifyEmail`** + **`resendVerificationEmail`** screens (state from register or **`getCurrentUser`**) — **`VerifyEmailPage`**, **`ROUTES.verifyEmail`**, **`applyVerifyEmailResponse`**
@@ -476,7 +492,9 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 ### (A) Infra, backend & deployment
 
 - [ ] Group + group-conversation models; membership ACL
-- [ ] Persist + **RabbitMQ** + **Socket.IO**: **one broker publish per group message** to **group id** routing key (not per-member RabbitMQ fan-out); consume → emit to **group** Socket.IO room; **server** joins sockets to `group:<groupId>` for each membership (join/leave on membership change); pagination; **delivery/read receipt** behaviour per **Feature 12** for groups (`PROJECT_PLAN.md` §3.2.1)
+- [ ] **Persist + RabbitMQ:** one broker publish per group message to routing key **`message.group.<groupId>`** (never one publish per member); RabbitMQ consumer resolves room **`group:<groupId>`** → `io.to(room).emit('message:new', payload)`; pagination for message list; **delivery/read receipt** behaviour per **Feature 12** (`PROJECT_PLAN.md` §3.2.1)
+- [ ] **Socket.IO — group room join on connect:** on authentication in the `connection` handler, look up all groups the user belongs to and call **`socket.join('group:' + groupId)`** for each — without this, group-scoped emits never reach the socket (`PROJECT_PLAN.md` §3.2.1)
+- [ ] **Socket.IO — membership sync (join/leave):** when a user is added to or removed from a group (via the groups API), find every active socket for that user and call **`socket.join`** / **`socket.leave`** on the `group:<groupId>` room so room membership stays in sync with group membership; do not rely on reconnection to fix stale rooms (`PROJECT_PLAN.md` §3.2.1)
 - [ ] Update **OpenAPI**
 
 ### (B) Web-client, UI, tests & state management
@@ -538,16 +556,16 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 - [ ] **Group messaging**: choose and implement a **group key strategy** using **each member’s user-level public key** only — e.g. per-message symmetric content key wrapped for each member; document tradeoffs (fan-out, rotation, joins/leaves)
 - [ ] **Socket.IO / RabbitMQ**: payloads remain opaque bytes to the broker; no plaintext logging; document encrypted message envelope in **OpenAPI** / `docs` as needed (no shared TS package)
 - [ ] **OpenAPI**: document encrypted message shapes (opaque base64/binary fields, headers for algo version)
-- [ ] **Operational**: user-level key rotation policy; UX/docs for **new browser / lost local storage** (restore private key from user backup — not a server “device” concept)
+- [ ] **Operational**: user-level key rotation policy; **documented** recovery for **new browser / lost local storage** (restore from backup — not a server “device” concept); **no** requirement for a user-facing **Settings** backup UI (see **Prerequisite — Product direction**)
 
 ### (B) Web-client, UI, tests & state management
 
 - [ ] **Crypto module** (`web-client`): use **Web Crypto API** and/or audited library (e.g. libsodium via WASM); **unit tests** for encrypt/decrypt/sign/verify helpers (vectors, no real private keys in repo); extend helpers built in **Prerequisite — User keypair** as needed for message payloads
-- [ ] **Key lifecycle UI**: ensure **Prerequisite** flows (generate, backup, restore, rotate) cover production needs; add any **message-specific** prompts (e.g. “cannot decrypt—rotate or restore”)
-- [ ] **1:1 flow**: before send, fetch recipient’s **user-level** public key (cached in Redux), encrypt (hybrid), send ciphertext; on receive, decrypt with local private key; handle missing/wrong keys with clear UX
+- [ ] **Key lifecycle (non-Settings):** production needs met **without** a **Settings → encryption** flow—automatic or silent key registration, backup/rotate only where **documented** or **support**, not as primary UI; **message-thread** inline states only when needed (e.g. “cannot decrypt”)—not rotation banners in **Settings**
+- [ ] **1:1 flow**: before send, fetch recipient’s **user-level** public key (cached in Redux), encrypt (hybrid per **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`**), send ciphertext; on receive, decrypt with local private key; handle missing/wrong keys with **inline** / thread-level UX if needed
 - [ ] **Group flow**: for each outgoing group message, build content key, encrypt message, wrap key for **each current member’s** public key (per design in (A)); on receive, unwrap and decrypt; handle member add/remove vs key rotation
 - [ ] **Redux / hooks**: `usePublicKey`, `useEncryptMessage`, `useDecryptMessage`; cache peers’ public keys with invalidation on rotation
-- [ ] **Tests first** for any UI that displays “encryption unavailable”, rotation banners, or plaintext preview rules
+- [ ] **Tests first** (`*.tsx`): **E2EE indicator** in chat (see **Feature 1 (B)**); any “encryption unavailable” or decrypt-failure UI in **thread** context—not **Settings**
 
 ---
 
@@ -648,9 +666,9 @@ When **Feature 1** messaging and later features land, also run the **Definition 
 - [ ] **Smoke — call:** 1:1 call happy path (or documented skip)
 - [ ] **Feature 2a (optional):** guest path → message per policy
 - [ ] **Socket.IO** status visible (**connecting** / **connected** / **disconnected**)
-- [ ] _(If E2EE in scope)_ **User keypair** prerequisite + **Feature 11** wire + ciphertext on wire/at rest
+- [ ] _(If E2EE in scope)_ **User keypair** prerequisite + **Feature 11** wire + ciphertext on wire/at rest; **Feature 1 (B)** **E2EE messaging indicator** in chat (not Settings)
 - [ ] _(If receipts in scope)_ **Feature 12** **sent** / **delivered** / **seen** end-to-end
 
 ---
 
-_Checklist version: 6.0 — **Profile — signup:** file-first avatar + **`PATCH /users/me`** after register._
+_Checklist version: 6.3 — **Settings removal** complete; **`keyLifecycleImportPolicy.test.ts`** guards E2EE vs **`modules/settings`**._

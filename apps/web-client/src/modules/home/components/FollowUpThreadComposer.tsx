@@ -1,6 +1,6 @@
 import { type FormEvent, useId, useState } from 'react';
 import type { components } from '@/generated/api-types';
-import { useSendMessage } from '@/common/hooks/useSendMessage';
+import { useSendEncryptedMessage } from '@/common/hooks/useSendEncryptedMessage';
 import { parseApiError } from '@/modules/auth/utils/apiError';
 
 type Message = components['schemas']['Message'];
@@ -8,6 +8,8 @@ type Message = components['schemas']['Message'];
 type Props = {
   /** Existing thread — required; `recipientUserId` must not be sent. */
   conversationId: string;
+  /** Other participant — used to load their directory public key for ECIES. */
+  peerUserId: string;
   /** Accessible name for the thread (e.g. counterparty display name). */
   threadLabel: string;
 };
@@ -16,8 +18,12 @@ type Props = {
  * Further messages in an existing 1:1 thread: **`message:send`** (socket) with **`conversationId`** only
  * (omit **`recipientUserId`**).
  */
-export function FollowUpThreadComposer({ conversationId, threadLabel }: Props) {
-  const { sendMessage } = useSendMessage();
+export function FollowUpThreadComposer({
+  conversationId,
+  peerUserId,
+  threadLabel,
+}: Props) {
+  const { sendMessage } = useSendEncryptedMessage({ peerUserId });
   const fieldId = useId();
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);

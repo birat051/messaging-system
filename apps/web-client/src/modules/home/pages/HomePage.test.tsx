@@ -10,12 +10,12 @@ import { HomePage } from './HomePage';
 
 const sendMessageSpy = vi.hoisted(() => vi.fn());
 
-vi.mock('@/common/hooks/useSendMessage', async () => {
+vi.mock('@/common/hooks/useSendEncryptedMessage', async () => {
   const { mockSendMessageSocketLike } = await import(
     '@/common/test-utils/mockSendMessageForVitest'
   );
   return {
-    useSendMessage: () => ({
+    useSendEncryptedMessage: () => ({
       sendMessage: async (payload: components['schemas']['SendMessageRequest']) => {
         sendMessageSpy(payload);
         return mockSendMessageSocketLike(payload);

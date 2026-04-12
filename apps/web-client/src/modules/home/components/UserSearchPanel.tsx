@@ -136,6 +136,7 @@ export function UserSearchPanel() {
             <FollowUpThreadComposer
               key={selectedRecipient.conversationId}
               conversationId={selectedRecipient.conversationId}
+              peerUserId={selectedRecipient.userId}
               threadLabel={threadLabelFor(selectedRecipient)}
             />
           </div>
@@ -156,6 +157,7 @@ export function UserSearchPanel() {
               <FollowUpThreadComposer
                 key={storedConversationId}
                 conversationId={storedConversationId}
+                peerUserId={selectedRecipient.userId}
                 threadLabel={threadLabelFor(selectedRecipient)}
               />
             )}
