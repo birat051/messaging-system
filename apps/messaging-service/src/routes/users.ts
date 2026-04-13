@@ -15,9 +15,9 @@ import { requireAuthMiddleware } from '../middleware/requireAuth.js';
 import { getS3Client } from '../data/storage/s3Client.js';
 import { validateBody, validateParams, validateQuery } from '../validation/middleware.js';
 import {
+  createSearchUsersQuerySchema,
   putPublicKeyRequestSchema,
   rotatePublicKeyRequestSchema,
-  searchUsersQuerySchema,
   userIdPathSchema,
 } from '../validation/schemas.js';
 
@@ -36,7 +36,7 @@ export function createUsersRouter(env: Env): Router {
   router.get(
     '/users/search',
     requireAuthMiddleware(env),
-    validateQuery(searchUsersQuerySchema),
+    validateQuery(createSearchUsersQuerySchema(env.USER_SEARCH_MIN_QUERY_LENGTH)),
     getSearchUsers(env),
   );
 

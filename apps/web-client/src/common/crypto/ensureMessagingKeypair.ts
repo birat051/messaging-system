@@ -1,7 +1,7 @@
 /**
  * **Automatic** sender keypair: generate, register on server, persist wrapped private key in the keyring.
  * No user-facing wizard — uses **`getOrCreateDeviceScopedPassphrase`** for local wrapping.
- * Concerns **only the signed-in user’s** key — recipient directory keys are handled by **`fetchRecipientPublicKeyForMessaging`** / **`prefetchRecipientPublicKey`**.
+ * Concerns **only the signed-in user’s** key — recipient directory keys are handled by **`fetchRecipientPublicKeyWithCache`** / **`prefetchRecipientPublicKey`**.
  */
 
 import { uploadPublicKey } from '@/modules/crypto/stores/cryptoSlice';

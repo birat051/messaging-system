@@ -32,17 +32,27 @@ export async function getUserPublicKeyById(
 }
 
 /**
- * `GET /users/search` — **substring** match on stored emails (case-insensitive; see OpenAPI).
- * Pass **`email`** trimmed and lowercased; length **2–254**; charset **`[a-z0-9@._+-]`**.
+ * `GET /users/search` — **substring** match on stored **email** and **username** (case-insensitive; see OpenAPI).
+ * Sends preferred **`q`** query param; pass **`query`** trimmed and lowercased; length **3–254**; charset **`[a-z0-9@._+_-]`**.
+ */
+export async function searchUsers(params: {
+  query: string;
+  limit?: components['parameters']['LimitQuery'];
+}): Promise<S['UserSearchResult'][]> {
+  const res = await httpClient.get<S['UserSearchResult'][]>(API_PATHS.users.search, {
+    params: { q: params.query, limit: params.limit },
+  });
+  return res.data;
+}
+
+/**
+ * @deprecated Use **`searchUsers`** with **`query`** (preferred **`q`** on the wire). Same behaviour as legacy **`email`** param.
  */
 export async function searchUsersByEmail(params: {
   email: string;
   limit?: components['parameters']['LimitQuery'];
 }): Promise<S['UserSearchResult'][]> {
-  const res = await httpClient.get<S['UserSearchResult'][]>(API_PATHS.users.search, {
-    params: { email: params.email, limit: params.limit },
-  });
-  return res.data;
+  return searchUsers({ query: params.email, limit: params.limit });
 }
 
 export async function putMyPublicKey(

@@ -2,6 +2,10 @@
 
 TypeScript **web client** and **Node.js microservice** for real-time **chat**, **presence**, **in-app notifications**, and **WebRTC-oriented** calling. The stack is **OpenAPI-first** (REST contract, codegen to the client, Zod validation on the server), with **Socket.IO** for browser transport and **RabbitMQ** for routing persisted work across processes and replicas. **Docker Compose** runs the full dependency set locally.
 
+## Documentation (three files only)
+
+This repository uses **exactly three** Markdown documents: **`README.md`** (this file — features, architecture summary, diagrams, deployment, **environment variables**), **[`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md)** (vision, algorithms, procedures, stack, **§14 engineering standards**), and **[`docs/TASK_CHECKLIST.md`](docs/TASK_CHECKLIST.md)** (delivery backlog). **OpenAPI** lives in **`docs/openapi/openapi.yaml`** (not Markdown). Do not add other `*.md` files; extend these three.
+
 | Layer | Technology |
 |-------|------------|
 | **Client** | React 18, Vite, TypeScript, Tailwind CSS, Redux Toolkit, React Router, Axios; Socket.IO client in a **Web Worker** so the UI thread stays responsive |
@@ -9,7 +13,7 @@ TypeScript **web client** and **Node.js microservice** for real-time **chat**, *
 | **Data** | MongoDB (primary store), Redis (presence / hot paths), RabbitMQ (post-persist routing), S3-compatible object storage (MinIO in development) |
 | **Real time** | Socket.IO server on **messaging-service** (chat, signaling channel, notification transport) |
 
-Detailed vision, scaling assumptions, and phased delivery: **[`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md)**. Task tracking: **[`docs/TASK_CHECKLIST.md`](docs/TASK_CHECKLIST.md)**. Engineering conventions: **[`docs/PROJECT_GUIDELINES.md`](docs/PROJECT_GUIDELINES.md)**. Guest / try-the-platform **product rules** (TTL, limits, blocked surfaces): **[`docs/GUEST_PRODUCT_RULES.md`](docs/GUEST_PRODUCT_RULES.md)**.
+Architecture, scaling, and algorithms: **[`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md)**. Task tracking: **[`docs/TASK_CHECKLIST.md`](docs/TASK_CHECKLIST.md)**. **How to build** (TypeScript, React, MongoDB, tests): **`docs/PROJECT_PLAN.md` §14**. **Direct-message E2EE** (public vs private keys, local durability vs wire ciphertext, `messageEcies` / **`E2EE_JSON_V1`**): **`docs/PROJECT_PLAN.md` §7.1**.
 
 ---
 
@@ -41,9 +45,38 @@ Target capabilities include **direct and group messaging**, **last-seen presence
 
 ---
 
+## Future scope
+
+Planned follow-ups: some **polish** the current **Option A** approach (local sender-plaintext in IndexedDB); **Option B** is a **larger protocol change** (new or extended **OpenAPI** / wire payload). **`docs/TASK_CHECKLIST.md`** tracks backlog items; here we summarize **what** each direction solves and **tradeoffs**.
+
+### Option B: dual envelope (protocol)
+
+Today **`E2EE_JSON_V1`** encrypts the message body for the **recipient**. The **sender** cannot decrypt that blob with their own private key, so after a full reload the UI relies on **Option A** (local persistence of “what I typed”) unless something else is added.
+
+**Dual envelope** (or an equivalent) would attach a **second ciphertext** the **sender** can decrypt using their **directory public key** material and **local private key**, so **GET `/conversations/.../messages`** can restore the sender’s readable copy **without** a prior local cache—useful for **new devices**, **cleared storage**, or products that want **server-mediated history** to be decryptable by the sender as well as the recipient. **Security posture:** still **no private keys on the server**; payloads stay **opaque** to the service (same review line as today).
+
+| Dimension | Summary |
+| --- | --- |
+| **Solves** | Sender-readable copy from **server-stored** blobs after reload; **multi-device / clean browser** without depending only on IndexedDB; aligns with a stricter story than “plaintext only ever in a local map.” |
+| **Tradeoffs** | **Large PR**: **OpenAPI**, **messaging-service** persistence, **web-client** encrypt/decrypt, **backward compatibility** with legacy single-envelope messages; **larger payloads** and more **crypto review**; product must accept that **decrypted plaintext still exists client-side** after decrypt. Option B changes **where** recoverability comes from, not whether humans see plain text in the app. |
+
+### Sender-plaintext persistence (web client)
+
+The client already keeps **own-message plaintext** in **IndexedDB** (scoped by signed-in user), merges it into Redux on session restore, and **write-through** on send ack so full reloads can still show what you typed when the server only stores **E2EE** ciphertext. The items below are **not** required for that baseline; they address **performance, hygiene, security posture, and test coverage** as the product hardens.
+
+| Follow-up | What problem it solves |
+|-----------|-------------------------|
+| **Optional `sessionStorage` mirror** | IndexedDB is async; a same-tab **JSON mirror** (e.g. key `messaging:senderPlaintext:${userId}`) can make the first paint after navigation **faster** inside one tab. **IndexedDB** remains the source of truth across **full reloads**; the mirror is optional and tab-scoped. |
+| **Optional encryption-at-rest** | Today values may appear as **literal strings** in DevTools. **AES-GCM** (or existing wrap patterns) with a key from **`getOrCreateDeviceScopedPassphrase(userId)`** raises the bar for **casual local inspection**; tradeoff is **CPU + complexity** vs easier debugging. |
+| **Cap + eviction** | Without limits, the local store grows with every sent message id. **Max entries per user** (e.g. LRU by `updatedAt`) and/or **TTL** (drop rows older than *N* days) caps **disk use** and **retention**; eviction on `put` or **`requestIdleCallback`** avoids jank. |
+| **Logout / account switch** | Call **`clearUser`** on the IndexedDB store (and remove any **`sessionStorage`** mirror) on **logout** or **reset messaging** so a **different user** on the same browser does not inherit the previous account’s **local plaintext** map. |
+| **Expanded Vitest** | As eviction and policies land, add tests for **put/get/clear/eviction** and **persist → Redux → `hydrateMessagesFromFetch`** with E2EE wire bodies so regressions in **local history** are caught in CI. |
+
+---
+
 ## Authentication — HTTP client (web)
 
-Access tokens are held **in memory** (Redux). Refresh tokens use **`localStorage`** (key **`messaging-refresh-token`**). The Axios instance attaches **`Authorization: Bearer`** on each request. On **401**, it calls **`POST /v1/auth/refresh`** (request path skips Bearer), uses a **mutex** so concurrent failures share one refresh, retries the refresh **up to three** times with **1 s** spacing between attempts when the error is not an immediate **401/403** from the refresh endpoint, updates the session and rotated refresh token on success, **retries the original request once**, and on hard failure clears storage and navigates to **`/login`**. Environment notes: [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md).
+Access tokens are held **in memory** (Redux). Refresh tokens use **`localStorage`** (key **`messaging-refresh-token`**). The Axios instance attaches **`Authorization: Bearer`** on each request. On **401**, it calls **`POST /v1/auth/refresh`** (request path skips Bearer), uses a **mutex** so concurrent failures share one refresh, retries the refresh **up to three** times with **1 s** spacing between attempts when the error is not an immediate **401/403** from the refresh endpoint, updates the session and rotated refresh token on success, **retries the original request once**, and on hard failure clears storage and navigates to **`/login`**. Environment variables for services: **[Configuration](#configuration-and-environment-variables)** below.
 
 ```mermaid
 sequenceDiagram
@@ -101,14 +134,53 @@ flowchart LR
 
 ---
 
-## WebRTC (calls)
+## WebRTC (video / audio calling)
 
 | Mode | Direction |
 |------|-----------|
 | **1:1** | Offer / answer / ICE over the same Socket.IO connection; **STUN** publicly; **TURN** via optional **coturn** (`docker compose --profile turn`, **`infra/docker-compose.yml`**) |
 | **Group** | Prefer an **SFU** for fan-out at scale; mesh only for small pilots — **`docs/PROJECT_PLAN.md` §6** |
 
-End-to-end calling product work is **not** complete; the table reflects **architecture intent** from the plan.
+Signaling rides on the **same Socket.IO** connection as chat; media is **peer-to-peer** (1:1) or via an **SFU** for groups at scale. Product completeness varies by milestone — see **`docs/TASK_CHECKLIST.md`**.
+
+```mermaid
+sequenceDiagram
+  participant A as Browser A
+  participant SIO as Socket.IO (messaging-service)
+  participant B as Browser B
+  A->>SIO: signaling (offer/answer/ICE candidates)
+  SIO->>B: forward to callee room
+  B->>SIO: signaling (answer/ICE)
+  SIO->>A: forward to caller
+  Note over A,B: DTLS-SRTP media may use STUN/TURN; server does not decode media
+```
+
+---
+
+## End-to-end encryption (messaging)
+
+Message **payloads** on the wire and at rest are **opaque to the server** when E2EE is enabled: clients encrypt with the recipient’s **registered public key** (P-256); **private keys** stay on the client (IndexedDB, secure context). The service stores ciphertext and routes delivery; it does **not** hold user private keys. Details of key lifecycle and wrapping live in **`docs/PROJECT_PLAN.md` §14** and **`apps/web-client/src/common/crypto/`**.
+
+```mermaid
+flowchart LR
+  subgraph clientA [Sender client]
+    SKa[Private key — local only]
+    PKb[Recipient public key — from API]
+  end
+  subgraph svc [messaging-service]
+    REST[REST / Socket.IO]
+    DB[(MongoDB ciphertext)]
+  end
+  subgraph clientB [Recipient client]
+    SKb[Private key — local only]
+    PT[Plaintext in UI]
+  end
+  SKa -->|ECIES encrypt| REST
+  PKb -->|fetch| REST
+  REST --> DB
+  DB -->|deliver| clientB
+  SKb -->|decrypt| PT
+```
 
 ---
 
@@ -139,7 +211,7 @@ flowchart TB
 
 ## Local development
 
-**Layout:** **`apps/web-client`** and **`apps/messaging-service`** each have their own **`package.json`**, lockfile, and **`node_modules`** (no workspace hoisting). See [`docs/TOOLING.md`](docs/TOOLING.md).
+**Layout:** **`apps/web-client`** and **`apps/messaging-service`** each have their own **`package.json`**, lockfile, and **`node_modules`** (no workspace hoisting). Monorepo layout and tooling rules: **`docs/PROJECT_PLAN.md` §10**; root **`package.json`** may expose **`install:all`**, **`lint:all`**, **`typecheck:all`**.
 
 **Requirements:** Node.js **≥ 20**, **npm** (10.x recommended).
 
@@ -176,7 +248,18 @@ Root convenience scripts: `npm run lint:all`, `npm run typecheck:all`, `npm run 
 
 **OpenAPI:** After changing **`docs/openapi/openapi.yaml`**, run `npm run generate:api` in **`apps/web-client`**; use `npm run generate:api:check` in CI.
 
-**Swagger:** With **messaging-service** running, open **`http://localhost:<PORT>/api-docs`** (default port **3000**). Spec path: **`OPENAPI_SPEC_PATH`** or repo default — [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md).
+**Swagger:** With **messaging-service** running, open **`http://localhost:<PORT>/api-docs`** (default port **3000**). Spec path: **`OPENAPI_SPEC_PATH`** or repo default — see **[Configuration](#configuration-and-environment-variables)**.
+
+---
+
+## Deployment steps
+
+1. **Install:** Node **≥ 20**; from repo root run `npm run install:all` or `npm install` in each of **`apps/web-client`** and **`apps/messaging-service`**.
+2. **Configure:** Copy **`infra/.env.example`** to **`.env`** next to Compose if you need overrides; set **`JWT_SECRET`**, **`MONGODB_URI`**, **`REDIS_URL`**, **`RABBITMQ_URL`**, and optional S3/TURN vars per **[Configuration](#configuration-and-environment-variables)**.
+3. **Build client (production):** `cd apps/web-client && npm run build` → static assets under **`dist/`** for nginx.
+4. **Build service:** `cd apps/messaging-service && npm run build` → **`dist/`** for Node.
+5. **Run stack:** `docker compose -f infra/docker-compose.yml up -d --build` from repo root (see table below).
+6. **Smoke:** **`http://localhost:8080/v1/health`**, **`/api-docs`**; optional **`--profile turn`** for WebRTC TURN.
 
 ---
 
@@ -200,15 +283,132 @@ docker compose -f infra/docker-compose.yml up -d --build
 
 Copy **`infra/.env.example`** to **`.env`** at the compose working directory to override broker/storage defaults.
 
+**Compose-specific notes:** **`OPENAPI_SPEC_PATH`** is set in the Docker image to `/app/openapi/openapi.yaml` when baked. **S3 / MinIO:** Compose may set **`S3_BUCKET`**, **`S3_ENDPOINT`**, **`MINIO_ROOT_*`**, **`S3_PUBLIC_BASE_URL`**, **`JWT_SECRET`** for **`POST /v1/media/upload`**.
+
+### Testing — `message:new` (A → B, real-time)
+
+**Automated (integration):** With **MongoDB**, **Redis**, and **RabbitMQ** running (e.g. `docker compose -f infra/docker-compose.yml up -d mongo redis rabbitmq`), from **`apps/messaging-service`**:
+
+```bash
+MESSAGING_INTEGRATION=1 npm run test:integration
+```
+
+This runs **`src/integration/messagingSocket.integration.test.ts`**: creates users **A** and **B**, connects **socket.io-client** as **B**, sends from **A** (REST and **`message:send`** paths), asserts **B** receives **`message:new`** (including an **opaque E2EE-style** **`body`** string). No browser required.
+
+**Manual (two browsers / two users):** Start the stack (`docker compose -f infra/docker-compose.yml up -d --build` or run **messaging-service** + **web-client** per local dev). Use **two** browser profiles or machines. **Register and sign in** as user **A** in one session and user **B** in the other. Ensure the SPA uses the **same origin** for REST and Socket.IO as documented under **web-client** **`VITE_API_BASE_URL`** (**[Configuration](#configuration-and-environment-variables)** — **“REST + Socket.IO (same origin)”**). Open a **direct** thread from **A** to **B** and send a message; **B** should see the new message in real time while both sessions show **connected**. **Optional:** DevTools → **Network** → **WS** → filter **`socket.io`**, confirm inbound **`message:new`** on **B**’s connection after **A** sends.
+
 ---
 
-## Documentation index
+## Configuration and environment variables
 
-| Topic | Location |
-|-------|----------|
-| Environment variables | [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) |
-| Architecture, WebRTC, notifications, deployment | [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md) |
-| Code and review standards | [`docs/PROJECT_GUIDELINES.md`](docs/PROJECT_GUIDELINES.md) |
-| Backlog and delivery checklist | [`docs/TASK_CHECKLIST.md`](docs/TASK_CHECKLIST.md) |
+Single reference for variables passed into each deployable (Docker Compose, local runs, CI). **Do not commit secrets.** When you add or rename variables in code, update **`apps/messaging-service/src/config/env.ts`** and this section together.
+
+| Service | Code / config entry |
+|---------|---------------------|
+| **messaging-service** | `apps/messaging-service/src/config/env.ts` |
+| **web-client** | Vite: `import.meta.env.VITE_*` under **`apps/web-client/`** |
+
+**E2EE / private keys:** Client-side key generation and **IndexedDB** persistence require a **secure context** (HTTPS or localhost). Production must serve the SPA over HTTPS.
+
+### messaging-service
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `NODE_ENV` | no | `development` | `development` \| `production` \| `test` |
+| `PORT` | no | `3000` | HTTP listen port |
+| `LOG_LEVEL` | no | `info` in production, else `debug` | Pino level: `fatal` \| `error` \| `warn` \| `info` \| `debug` \| `trace` \| `silent` |
+| `MONGODB_URI` | no | `mongodb://127.0.0.1:27017/messaging` | MongoDB connection string |
+| `MONGODB_DB_NAME` | no | `messaging` | Application database name |
+| `MONGODB_MAX_POOL_SIZE` | no | `10` | Max connections in the MongoDB driver pool |
+| `RABBITMQ_URL` | no | `amqp://guest:guest@127.0.0.1:5672` | RabbitMQ connection URL |
+| `MESSAGING_INSTANCE_ID` | no | host name | Unique per process/replica; RabbitMQ queue name |
+| `MESSAGING_REALTIME_DELIVERY_LOGS` | no | `false` | When `true`, structured logs for each **`message:new`** / receipt emit from RabbitMQ to Socket.IO (`user:<id>` room, ids) — see **`apps/messaging-service/src/data/messaging/rabbitmq.ts`** |
+| `SOCKET_IO_CORS_ORIGIN` | no | — | Optional Socket.IO CORS origin |
+| `REDIS_URL` | no | `redis://127.0.0.1:6379` | Redis (last seen, rate limits, runtime config — **not** Socket.IO rooms; see **`docs/PROJECT_PLAN.md` §3.2.2**) |
+| `LAST_SEEN_TTL_SECONDS` | no | `604800` | TTL for Redis `presence:lastSeen:{userId}` |
+| `SOCKET_IO_REDIS_ADAPTER` | no | `false` | **Discouraged** — prefer in-memory rooms + RabbitMQ (**`docs/PROJECT_PLAN.md` §3.2.2**) |
+| `OPENAPI_SPEC_PATH` | no | — | Absolute path to **`openapi.yaml`** when default resolution fails |
+| `S3_BUCKET` | no | — | Enables **`POST /v1/media/upload`** when set |
+| `S3_REGION` | no | `us-east-1` | AWS region |
+| `S3_ENDPOINT` | no | — | S3-compatible API URL; requires **`AWS_ACCESS_KEY_ID`** / **`AWS_SECRET_ACCESS_KEY`** |
+| `S3_FORCE_PATH_STYLE` | no | `false` | Path-style URLs for some S3-compatible stores |
+| `S3_KEY_PREFIX` | no | — | Optional object key prefix |
+| `AWS_ACCESS_KEY_ID` | with `S3_ENDPOINT` | — | Access key |
+| `AWS_SECRET_ACCESS_KEY` | with `S3_ENDPOINT` | — | Secret key |
+| `S3_PUBLIC_BASE_URL` | no | — | No trailing slash — optional public **`url`** in upload responses |
+| `MEDIA_MAX_BYTES` | no | `31457280` | Max multipart upload size (default **30 MiB**) |
+| `JWT_SECRET` | no | — | **Required** for auth JWT routes; media upload when Bearer auth enabled |
+| `EMAIL_VERIFICATION_REQUIRED` | no | `false` | Enforce email verification (see tables below) |
+| `GUEST_SESSIONS_ENABLED` | no | `true` | Until overridden by **`system_config`** |
+| `EMAIL_VERIFICATION_TOKEN_TTL_HOURS` | no | `48` | Verification JWT lifetime |
+| `ACCESS_TOKEN_TTL_SECONDS` | no | `3600` | Access token TTL |
+| `REFRESH_TOKEN_TTL_SECONDS` | no | `604800` | Refresh token TTL in Redis (**7 days** default) |
+| `PASSWORD_RESET_TOKEN_TTL_HOURS` | no | `1` | Reset JWT lifetime |
+| `PASSWORD_RESET_WEB_PATH` | no | `/reset-password` | Web path for reset links |
+| `FORGOT_PASSWORD_RATE_LIMIT_WINDOW_SEC` | no | `3600` | Forgot-password window per IP |
+| `FORGOT_PASSWORD_RATE_LIMIT_MAX` | no | `5` | Max forgot-password per IP per window |
+| `REGISTER_RATE_LIMIT_WINDOW_SEC` | no | `3600` | Register window per IP |
+| `REGISTER_RATE_LIMIT_MAX` | no | `5` | Max registrations per IP per window |
+| `RESEND_RATE_LIMIT_WINDOW_SEC` | no | `3600` | Resend verification window |
+| `RESEND_RATE_LIMIT_MAX` | no | `3` | Max resends per email per window |
+| `VERIFY_EMAIL_RATE_LIMIT_WINDOW_SEC` | no | `3600` | Verify-email attempts window per IP |
+| `VERIFY_EMAIL_RATE_LIMIT_MAX` | no | `30` | Max verify attempts per IP per window |
+| `USER_SEARCH_RATE_LIMIT_WINDOW_SEC` | no | `60` | User search window per IP |
+| `USER_SEARCH_RATE_LIMIT_MAX` | no | `60` | Max user searches per IP per window |
+| `USER_SEARCH_MIN_QUERY_LENGTH` | no | `3` | Minimum search query length |
+| `USER_SEARCH_MAX_CANDIDATE_SCAN` | no | `200` | Max MongoDB users scanned per search |
+| `PUBLIC_KEY_FETCH_REQUIRE_DIRECT_THREAD` | no | `false` | Restrict **`GET /users/{id}/public-key`** to existing DM |
+| `PUBLIC_KEY_UPDATE_RATE_LIMIT_WINDOW_SEC` | no | `3600` | Public-key update window per user |
+| `PUBLIC_KEY_UPDATE_RATE_LIMIT_MAX` | no | `30` | Max public-key updates per user per window |
+| `PUBLIC_KEY_JSON_BODY_MAX_BYTES` | no | `8192` | Max JSON body for public-key routes |
+| `MESSAGE_SEND_RATE_LIMIT_WINDOW_SEC` | no | `60` | Message send window |
+| `MESSAGE_SEND_RATE_LIMIT_MAX_PER_USER` | no | `120` | Max sends per user per window |
+| `MESSAGE_SEND_RATE_LIMIT_MAX_PER_IP` | no | `360` | Max sends per IP per window |
+| `MESSAGE_SEND_RATE_LIMIT_MAX_PER_SOCKET` | no | `120` | Max **`message:send`** per socket per window |
+| `MESSAGE_RECEIPT_RATE_LIMIT_WINDOW_SEC` | no | `60` | Receipt events window |
+| `MESSAGE_RECEIPT_RATE_LIMIT_MAX_PER_USER` | no | `600` | Max receipt events per user per window |
+| `MESSAGE_RECEIPT_RATE_LIMIT_MAX_PER_IP` | no | `2000` | Max receipt events per IP per window |
+| `MESSAGE_RECEIPT_RATE_LIMIT_MAX_PER_SOCKET` | no | `600` | Max receipt events per socket per window |
+| `GLOBAL_RATE_LIMIT_WINDOW_SEC` | no | `60` | Global REST per-IP window (Redis TTL) |
+| `GLOBAL_RATE_LIMIT_MAX` | no | `500` | Max REST requests per IP per window (**~500/min** default) |
+| `SENDGRID_API_KEY` | no | — | SendGrid when **`EMAIL_VERIFICATION_REQUIRED`** |
+| `EMAIL_FROM` | with SendGrid | — | Verified sender |
+| `PUBLIC_APP_BASE_URL` | with SendGrid | — | Web origin for verification links |
+| `EMAIL_VERIFICATION_WEB_PATH` | no | `/verify-email` | Verify page path |
+
+#### Global vs per-route rate limits (stacking)
+
+The **global** per-IP limit runs **first** on **`/v1`**; route-specific Redis limits **stack** (separate keys). Tuning: lower **`GLOBAL_RATE_LIMIT_MAX`** for a broad cut, or individual **`REGISTER_*`**, **`USER_SEARCH_*`**, etc. for one surface.
+
+**Reverse proxy:** **`infra/nginx/nginx.conf`** sets **`X-Forwarded-For`** for **`getClientIp`**. Edge **`limit_req`** stacks with app limits unless you tune intentionally.
+
+#### User search policy (`GET /v1/users/search`)
+
+Substring match on normalized email; abuse controls include **`USER_SEARCH_MIN_QUERY_LENGTH`**, **`USER_SEARCH_MAX_CANDIDATE_SCAN`**, **`limit`** response cap, **`USER_SEARCH_RATE_LIMIT_*`**, and **`GLOBAL_RATE_LIMIT_*`**. See **`docs/openapi/openapi.yaml`**.
+
+#### Email verification (`EMAIL_VERIFICATION_REQUIRED`)
+
+| Server setting | Register | New `emailVerified` | Verify / resend routes |
+|----------------|----------|----------------------|-------------------------|
+| **`false`** (default) | Issues tokens | **`true`** immediately | Verify/resend return **400** **`EMAIL_VERIFICATION_DISABLED`** |
+| **`true`** | May return null access until verified | **`false`** until verified | Normal flow |
+
+#### Runtime configuration (MongoDB)
+
+**Collection:** **`system_config`**, singleton **`{ _id: 'singleton' }`**. Fields **`emailVerificationRequired`**, **`guestSessionsEnabled`** override env when present. Cached in Redis (**~5 min**); see **`getEffectiveRuntimeConfig`** in code.
+
+### web-client
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `VITE_API_BASE_URL` | no | *(relative)* `/v1` in dev | REST base including **`/v1`** |
+| `VITE_S3_PUBLIC_BASE_URL` | no | — | Public object base URL |
+| `VITE_S3_BUCKET` | no | — | Bucket name for media URLs in UI |
+
+**REST + Socket.IO (same origin):** **`getApiBaseUrl()`** and **`getSocketUrl()`** in **`apps/web-client/src/common/utils/apiConfig.ts`** both read **`VITE_API_BASE_URL`**. For a **relative** value (e.g. **`/v1`**), the SPA’s **`window.location.origin`** is used for Socket.IO as well, so the Vite dev server must proxy both **`/v1`** and **`/socket.io`** to **messaging-service** (**`apps/web-client/vite.config.ts`**). For an **absolute** URL (e.g. **`http://localhost:8080/v1`** to reach Docker nginx), **`getSocketUrl()`** uses **`http://localhost:8080`** only — REST and **`/socket.io`** stay on the **same host and port**. Production HTTPS pages must use an **`https://`** API base to avoid mixed content. **Compose:** **`infra/nginx/nginx.conf`** forwards **`/`** to **messaging-service** with **`Upgrade`** / **`Connection`** for long-lived Socket.IO connections.
+
+**Tokens:** access JWT in memory (Redux); refresh in **`localStorage`** **`messaging-refresh-token`**. **`POST /v1/auth/refresh`** on **401** — see **`apps/web-client/src/common/api/httpClient.ts`**.
+
+---
 
 Do not commit secrets in **`.env`** files.

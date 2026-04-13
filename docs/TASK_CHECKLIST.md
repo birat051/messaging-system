@@ -2,7 +2,7 @@
 
 Use this checklist to track implementation progress. Sections align with [PROJECT_PLAN.md](./PROJECT_PLAN.md).
 
-**Pattern:** For each feature or cross-cutting area below, work is split into **(A) Infra, backend & deployment** and **(B) Web-client, UI, tests & state management** (Redux, hooks, test-first components per `PROJECT_GUIDELINES.md`). **Prerequisite — User keypair** runs before encrypted **Feature 1** work when E2EE is required. **Default E2EE UX:** no **Settings → encryption** for end users; **chat-thread** E2EE indicator instead—see **Prerequisite — Product direction** and **Feature 1 (B)**.
+**Pattern:** For each feature or cross-cutting area below, work is split into **(A) Infra, backend & deployment** and **(B) Web-client, UI, tests & state management** (Redux, hooks, test-first components per **`docs/PROJECT_PLAN.md` §14**). **Prerequisite — User keypair** runs before encrypted **Feature 1** work when E2EE is required. **Default E2EE UX:** no **Settings → encryption** for end users; **chat-thread** E2EE indicator instead—see **Prerequisite — Product direction** and **Feature 1 (B)**.
 
 **Granularity:** Where a single bullet used to imply many files or layers (e.g. **MSW** + **handlers** + **test utils**, or **MongoDB** + **RabbitMQ** + **Socket.IO**), it is broken into **nested subtasks** so one PR or one agent prompt can close a **small vertical slice** without rewriting half the app.
 
@@ -17,7 +17,7 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
   - [x] **Do not** add a **single** TypeScript, ESLint, or Prettier configuration at the **repository root** that applies to the whole monorepo
   - [x] **Each deployable is self-contained:** **`messaging-service`** and **`web-client`** each have their **own** **`package.json`**, **TypeScript** config, **ESLint** config, and **Prettier** config—**no** shared tooling package between backend and client (keep configs aligned by convention and copy-paste when useful, not a shared `packages/backend-tooling` dependency)
   - [x] Root **README** documents Node.js version, package manager, and how to run lint/build **per app** (**isolated** `package-lock.json` per app, no npm workspaces); optional root **`install:all` / `*:all`** scripts; **architecture and deployment** linked from **`PROJECT_PLAN.md` §13** and [`README`](../README.md)—no duplication of the full plan in the README
-  - [x] **OpenAPI codegen (web-client):** **`openapi-typescript`** (highest npm adoption among the options; actively maintained) generates types from **`docs/openapi/openapi.yaml`** → **`apps/web-client/src/generated/api-types.ts`**; scripts **`generate:api`** / **`generate:api:check`**; ESLint ignores **`api-types.ts`** only; Prettier ignores **`src/generated`**. **No** `packages/shared` — OpenAPI is the contract (`PROJECT_GUIDELINES.md`).
+  - [x] **OpenAPI codegen (web-client):** **`openapi-typescript`** (highest npm adoption among the options; actively maintained) generates types from **`docs/openapi/openapi.yaml`** → **`apps/web-client/src/generated/api-types.ts`**; scripts **`generate:api`** / **`generate:api:check`**; ESLint ignores **`api-types.ts`** only; Prettier ignores **`src/generated`**. **No** `packages/shared` — OpenAPI is the contract (**`docs/PROJECT_PLAN.md` §14**).
 
 - [x] **messaging-service (skeleton)**
   - [x] Bootstrap Express + TypeScript with env-based config; **local** `tsconfig.json`, **ESLint**, **Prettier**, and **`package.json`** under `apps/messaging-service` only
@@ -38,7 +38,7 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
   - [x] **`docker compose`**: **`infra/docker-compose.yml`** — **messaging-service** (image build), MongoDB, Redis, RabbitMQ, MinIO, **nginx** (entry **`http://localhost:8080`**); optional **coturn** — `docker compose -f infra/docker-compose.yml --profile turn up -d`
   - [x] nginx: reverse-proxy REST + **Socket.IO** to **messaging-service** with upgrade headers (`infra/nginx/nginx.conf`)
   - [ ] nginx: serve **`apps/web-client/dist/`** as **static root** (SPA fallback **`index.html`**) — **`infra/nginx/nginx.conf`** + Compose volume or build args
-  - [ ] **TLS:** terminate HTTPS (cert paths, HSTS policy) — nginx or outer load balancer; document **`docs/ENVIRONMENT.md`**
+  - [ ] **TLS:** terminate HTTPS (cert paths, HSTS policy) — nginx or outer load balancer; document **`README.md`** (Configuration section)
   - [ ] **Production WebRTC hardening** (TURN creds rotation, firewall notes) — beyond dev **coturn** profile
   - [x] Document hostnames, ports, one-command bring-up — root **`README.md`**, **`infra/.env.example`**
 
@@ -46,33 +46,33 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 - [ ] **web-client (skeleton)**
   - [x] Scaffold with **Vite** + **React** + **TypeScript** under `apps/web-client` — **`tsconfig.json`** project references + **`tsconfig.app.json`** / **`tsconfig.node.json`**; **`vite.config.ts`**, **`index.html`**, **`src/main.tsx`**, **`eslint.config.mjs`**, **`.prettierrc.json`** — all **inside `apps/web-client` only**
-  - [x] Strict TS (`tsconfig.app.json` — `strict`, unused locals/params, etc.) per `PROJECT_GUIDELINES.md` §1.1
+  - [x] Strict TS (`tsconfig.app.json` — `strict`, unused locals/params, etc.) per **`docs/PROJECT_PLAN.md` §14** §1.1
   - [x] **Tailwind CSS v4** + **themes** — **`@tailwindcss/vite`**, **`tailwind.config.ts`**, semantic tokens + **`@theme`** in **`src/index.css`** (`background`, `foreground`, `surface`, `accent`, `border`, `muted`, `ring`, `radius-card`, `shadow-card`); **class-based dark mode** (`html.dark`) + **`ThemeProvider`** / **`useTheme`** / **`ThemeToggle`** + **`localStorage`** (`messaging-theme`); `prettier-plugin-tailwindcss` in **`.prettierrc.json`**
   - [x] **ESLint** (`typescript-eslint`, **`eslint-plugin-react-hooks`**, **`eslint-plugin-react-refresh`**); **Prettier**; optional a11y plugin later
   - [x] **react-router** + **`src/common/utils/apiConfig.ts`** (**`VITE_API_BASE_URL`**, **`getApiBaseUrl`** / **`getSocketUrl`**) + **`App`/`main`** wiring
   - [x] **Vite:** dev **proxy** to API + **`build.outDir`** (`dist/`) for nginx — **`vite.config.ts`**
   - [x] **Socket.IO in a Web Worker:** **`src/workers/socketWorker.ts`** + **`src/common/realtime/socketBridge.ts`** (`postMessage` to main thread)
   - [x] **Presence hook:** **`emit('presence:heartbeat')` every 5s** while connected — **`src/common/hooks/usePresenceConnection`** (**Feature 6**)
-  - [x] **Vitest** + **React Testing Library** + **jsdom** (`npm run test` / `test:watch`); **`src/setupTests.ts`**; example **`*.tsx`** component test (**`ThemeToggle`**); mandatory tests only for UI **`*.tsx`** per **`PROJECT_GUIDELINES.md` §4.1.1**; **no** client env-based user impersonation for Socket.IO (identity from session only, per \*\*`PROJECT_GUIDELINES.md` §4.1)
+  - [x] **Vitest** + **React Testing Library** + **jsdom** (`npm run test` / `test:watch`); **`src/setupTests.ts`**; example **`*.tsx`** component test (**`ThemeToggle`**); mandatory tests only for UI **`*.tsx`** per ****`docs/PROJECT_PLAN.md` §14** §4.1.1**; **no** client env-based user impersonation for Socket.IO (identity from session only, per \*\***`docs/PROJECT_PLAN.md` §14** §4.1)
   - [ ] **Static assets / uploads (images, etc.):** follow **Cross-cutting — Media (AWS S3)** (**no AWS SDK in the browser**)
     - [x] **API:** call **`uploadMedia`** / **`POST /media/upload`** from UI (FormData); handle **`MediaUploadResponse`** (`key` / `url`) — **`src/common/api/mediaApi.ts`** + thin UI hook
     - [x] **Composer:** file picker, attach flow, pass **`mediaKey`** (or URL) into **`sendMessage`** payload per OpenAPI
     - [x] **UX:** upload **progress** (XHR/`axios` onUploadProgress or equivalent), cancel/retry, error states
     - [x] **Thread UI:** render image attachments from API URLs; loading/**lazy** **`alt`** / a11y (**see also** **Cross-cutting — Media (B)**)
 
-- [ ] **web-client — REST mocking and integration tests** (`PROJECT_GUIDELINES.md` §4.1; behaviour-focused RTL + Vitest)
-  - [x] **API boundary:** components/hooks import **`src/common/api/*`** only (no ad-hoc URLs); tests mock **`httpClient`** or **`authApi`** / **`usersApi`** / … — **see** **`src/common/api/README.md`**, **`API_PATHS`**, ESLint **`no-restricted-imports`** (no direct **`httpClient`** / **`httpMutations`** / **`axios`** in pages, components, hooks)
-  - [x] **Unit tests — mock strategy:** prefer **`vi.mock('../common/api/httpClient')`** or **`vi.mock` one API module**; assert **method + path** (via **`API_PATHS`**) and **resolved UI/state** — not React internals; avoid **`fetch`** stubs — **`src/common/api/usersApi.test.ts`**, **`src/modules/settings/pages/SettingsPage.usersApiMock.test.tsx`**, **`src/common/api/README.md`**
+- [ ] **web-client — REST mocking and integration tests** (**`docs/PROJECT_PLAN.md` §14** §4.1; behaviour-focused RTL + Vitest)
+  - [x] **API boundary:** components/hooks import **`src/common/api/*`** only (no ad-hoc URLs); tests mock **`httpClient`** or **`authApi`** / **`usersApi`** / … — **see** **`docs/PROJECT_PLAN.md` §14.4**, **`API_PATHS`**, ESLint **`no-restricted-imports`** (no direct **`httpClient`** / **`httpMutations`** / **`axios`** in pages, components, hooks)
+  - [x] **Unit tests — mock strategy:** prefer **`vi.mock('../common/api/httpClient')`** or **`vi.mock` one API module**; assert **method + path** (via **`API_PATHS`**) and **resolved UI/state** — not React internals; avoid **`fetch`** stubs — **`src/common/api/usersApi.test.ts`**, **`src/modules/settings/pages/SettingsPage.usersApiMock.test.tsx`**
   - [x] **MSW — dependency + Node setup:** add **`msw`** to **`package.json`**; **`src/setupTests.ts`** — **`setupServer`**, **`beforeAll`/`afterEach`/`afterAll`** (`listen`, **`resetHandlers`**, **`close`**)
   - [x] **MSW — handlers:** **`src/common/mocks/handlers.ts`** (or feature-scoped files) — **`http.patch`** for **`*/v1/users/me`** aligned with **`docs/openapi/openapi.yaml`** (intercepts **`axios`**)
   - [x] **Integration harness:** **`renderWithProviders(ui, { route, preloadedState? })`** in **`src/common/test-utils/`** — **`MemoryRouter`** + **`ThemeProvider`** + **`Provider`** + **`SWRConfig`** when needed
   - [x] **Integration tests:** **`server.use`** per test for **401**, empty lists, errors; **`waitFor` / `findBy`** for async UI — **`src/common/integration/msw.integration.test.tsx`**
   - [ ] **Fixtures:** **`__fixtures__/`** or factories for **`User`**, **`AuthResponse`**, list payloads
-  - [ ] **Security:** no **`VITE_*`** fake user IDs in tests — mock **HTTP** session/**401** only (`PROJECT_GUIDELINES.md` §4.1)
+  - [ ] **Security:** no **`VITE_*`** fake user IDs in tests — mock **HTTP** session/**401** only (**`docs/PROJECT_PLAN.md` §14** §4.1)
 
 - [x] **Redux and client architecture**
   - [x] `@reduxjs/toolkit`, `react-redux`, typed `useAppDispatch` / `useAppSelector`, `configureStore` + middleware extension points
-  - [x] Feature slices (e.g. auth shell); `<Provider>` with router; `hooks/` for composed logic (`useAuth`, etc.); document middleware vs thunks vs components (`PROJECT_GUIDELINES.md` §4.3)
+  - [x] Feature slices (e.g. auth shell); `<Provider>` with router; `hooks/` for composed logic (`useAuth`, etc.); document middleware vs thunks vs components (**`docs/PROJECT_PLAN.md` §14** §4.3)
 
 - [ ] **web-client — Axios, SWR, and global HTTP** (depends on **Redux** + **`react-router`** for session + **401** navigation)
   - [x] **Dependencies:** add **`axios`** and **`swr`** to **`apps/web-client`**; pin versions in **`package.json`** / lockfile
@@ -98,19 +98,133 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
     - [ ] **401 → refresh fails → login redirect:** refresh **401** → assert **`navigateToLogin`** / logout (mock **`navigation`**)
     - [ ] **Optional:** component using **`useSWR`(`API_PATHS.users.me`)** + MSW happy path (smoke)
 
-- [ ] **Connection status UI**
-  - [ ] **Hook:** map **Socket.IO** lifecycle → **`connecting` | `connected` | `disconnected`** (**`usePresenceConnection`** / **`socketBridge`**)
-  - [ ] **State surface (optional):** Redux slice or context if multiple components need the same status
-  - [ ] **UI:** **`ConnectionStatusIndicator`** (`*.tsx`) — label + icon/badge; **tests first** per **`PROJECT_GUIDELINES.md` §4.1.1**
+- [x] **Connection status UI**
+  - [x] **Hook:** map **Socket.IO** lifecycle → **`connecting` | `connected` | `disconnected`** (**`usePresenceConnection`** / **`socketBridge`**)
+  - [x] **State surface (optional):** Redux slice or context if multiple components need the same status
+  - [x] **UI:** **`ConnectionStatusIndicator`** (`*.tsx`) — label + icon/badge; **tests first** per ****`docs/PROJECT_PLAN.md` §14** §4.1.1**
+
+### Web-client — Home & messaging UX (planned fixes)
+
+**Goal:** Address layout, chat-shell patterns, E2EE bootstrap, demo copy removal, and search semantics. Execute as separate PRs where possible; update **OpenAPI** when REST contracts change.
+
+- [x] **Home layout — full width on large screens with `2rem` margins**
+  - [x] **`HomePage`** (and any outer wrapper): remove or relax **`max-w-*`** constraints so the authenticated shell **uses available viewport width** on tablet/desktop while keeping **`2rem` (`mx-8` or equivalent)** horizontal margins — align with ****`docs/PROJECT_PLAN.md` §14** §4.2.1** (responsive breakpoints).
+  - [x] Verify **no horizontal overflow** at common widths (~390 / 768 / 1024+); adjust padding on **`main`** / header as needed.
+  - [x] Update **`HomePage.test.tsx`** (or add RTL checks) if layout structure or visible copy changes.
+
+- [x] **Conversation + thread — WhatsApp-style shell**
+  - [x] **Left column:** **search bar on top**, **conversation list below** (reorder **`HomeConversationShell`** / **`UserSearchPanel`** / **`ConversationList`** so search is visually above the list in the same column, not only below the thread).
+  - [x] **Right column:** active **thread** (message list + composer); sensible **min widths**, **scroll** regions, and **mobile** stacking (list full-width; master–detail with back—no separate thread route or drawer).
+  - [x] **Responsive:** phone / tablet / desktop per §4.2.1; touch-friendly targets.
+  - [x] **Tests:** update **`HomeConversationShell.test.tsx`**, **`HomePage.test.tsx`**, and related **`*.tsx`** tests for new structure/selectors.
+
+- [x] **E2EE keys — auto register/fetch on login; avoid spurious “recipient has no key” errors**
+  - [x] **Session bootstrap:** after **login** / **session restore** (`main.tsx` / **`SessionRestore`** / **`useRestorePrivateKey`** / **`ensureMessagingKeypair`**): ensure the **sender’s** keypair is **created and registered** (or loaded from secure storage) **before** the user can send or before **`useSendEncryptedMessage`** throws for missing **sender** setup.
+  - [x] **Recipient key:** for **first message** to a peer, avoid showing **`The recipient has not registered an encryption key yet. They must use the app on a secure context so a key can be created.`** in normal cases — options: **retry** public-key fetch, **queue** until key appears, or **clearer** empty state; only show a **persistent** error when **`GET /users/{id}/public-key`** is **404** after reasonable retry.
+  - [x] **Hooks:** review **`useSendEncryptedMessage`**, **`ensureMessagingKeypair`**, **`useKeypairStatus`**; consider **prefetch** recipient key when a conversation or search result is selected.
+  - [x] **Tests:** RTL / unit coverage for login → key ready → send without that error string in the happy path.
+
+- [x] **HomePage — remove demo / debug copy**
+  - [x] Remove the **“Semantic tokens: background, surface, accent…”** paragraph and the **API base** / **`VITE_API_BASE_URL` → …** `<dl>` block from **`HomePage.tsx`** (and any duplicate in **README** if undesired).
+  - [x] Keep **ThemeToggle** / product-relevant links as needed; **do not** ship raw env values in UI.
+  - [x] Update **`HomePage.test.tsx`** assertions that referenced removed strings.
+
+- [x] **User search — similarity match (not exact email only)**
+  - [x] **(A) messaging-service:** evolve **`GET /users/search`** (or documented replacement) from **exact email** to **similarity** / **substring** / **prefix** matching (define scoring or ordering — e.g. MongoDB regex + index strategy per ****`docs/PROJECT_PLAN.md` §14** §2**); keep **rate limits** and **Zod** validation; update **`docs/openapi/openapi.yaml`** + controller/validation in the **same PR**.
+  - [x] **(B) web-client:** **`usersApi`** / **`UserSearchPanel`** — debounce, placeholder, and **empty-state** copy reflecting **partial** match; **MSW** handlers + tests (`**usersApi.test.ts**`, **`HomePage.test.tsx`**).
+  - [x] **Security / abuse:** avoid overly broad queries; cap result count; document behaviour in **`README.md`** (Configuration section) if new env vars are required.
+
+- [ ] **Product polish / UX backlog (observations)** — execute as separate PRs; **OpenAPI + Zod** when REST contracts change; **`*.tsx`** tests first per **`docs/PROJECT_PLAN.md` §14** §4.1 / §4.1.1 where UI changes.
+
+  - [x] **Viewport & shell — full window height, no page overflow**
+    - [x] Constrain authenticated layout (**`HomePage`**, **`main`**, root flex) to **available viewport height** (**`100dvh` / `100vh`** + **`min-h-0`** flex children) so the **document/body does not scroll**; only inner panes (list, thread, composer area) scroll.
+    - [x] Smoke at ~390 / 768 / 1024+ widths: **no accidental vertical overflow** on the outer shell.
+
+  - [ ] **Register — display name + unique username; search by username or email**
+    - [x] **(A) messaging-service:** add **`username`** (or equivalent) on **`User`** — **unique**, indexed, validated; extend **`RegisterRequest`** / **`POST /auth/register`**; extend **`GET /v1/users/search`** (query + matching) so users are discoverable by **similarity** on **email and/or username**; update **`docs/openapi/openapi.yaml`** + **Zod** + tests in the **same PR**.
+    - [x] **(B) web-client:** register form — **name** + **username** fields (and existing email/password flows); client validation + error mapping; **`usersApi`** / **`UserSearchPanel`** updated for new search semantics; **MSW** + **`HomePage.test.tsx`** as needed.
+
+  - [x] **Chat thread — long messages: multi-line, no horizontal overflow**
+    - [x] Message bubbles / body text: **wrap** long content (**`break-words`**, **`whitespace-pre-wrap`** where appropriate); **no horizontal scrollbar** inside the chat pane — use **`min-w-0`**, **`overflow-x-hidden`**, and list column constraints.
+    - [x] **Tests:** **`ThreadMessageList.test.tsx`** (or colocated component tests) for long-string wrapping behaviour if high value.
+
+  - [x] **E2EE — decrypt / display bug (ciphertext shown as message text)**
+    - [x] **Symptom:** both parties see **`E2EE_JSON_V1:{...}`** instead of plaintext — indicates decrypt-for-display or **optimistic body** handling is wrong end-to-end.
+    - [x] **Investigate:** **`useSendEncryptedMessage`**, message row rendering (**`ThreadMessageList`** / bubble components), Redux **`messagesById`**, and server-stored **`body`** vs client-only plaintext; align **send path** and **receive path** with **`messageEcies`** / envelope parsing.
+    - [x] **Fix:** render **decrypted** text in thread for recipients; **sender** optimistic UI must not leave raw envelope as visible copy; add **RTL coverage** so **`E2EE_JSON_V1:`** never appears as user-visible primary content in happy path.
+
+  - [x] **E2EE — sender (A) still sees ciphertext while recipient (B) sees plaintext (same session)**
+    - [x] **Symptom:** **A → B** in a live thread: **B**’s client decrypts and shows plaintext; **A**’s own bubbles still show **`E2EE_JSON_V1:`** / wire envelope — **sender-side display** only (distinct from “both see ciphertext” and from **post-reload** durability below). **Verified** (historical): root cause was missing **`senderPlaintextByMessageId`** / merge; **current behaviour** in **`docs/PROJECT_PLAN.md`** §7.1 §4 — own E2EE without map → **`…`**, not wire.
+    - [x] **Verify display pipeline:** **`resolveMessageDisplayBody`** (**`messageDisplayBody.ts`**) for **`senderId === self`** + **`isE2eeEnvelopeBody`**: must prefer **`senderPlaintextByMessageId[message.id]`** over **`message.body`**; confirm **`ThreadMessageList`** / bubble path uses this for **all** own rows (including after **SWR** revalidate). **Done:** traced **`HomeConversationShell`** → **`resolveMessageDisplayBody`** → **`ThreadMessageList`** (no bypass); **`hydrateMessagesFromFetch`** overlay documented; **`docs/PROJECT_PLAN.md`** §7.1 §4 (display pipeline); **`messageDisplayBody.test.ts`** — own E2EE ellipsis when map empty.
+    - [x] **Trace Redux writes:** **`useSendEncryptedMessage`** → optimistic row → **`replaceOptimisticMessage`** / **`appendIncomingMessageIfNew`** / ack handlers — ensure **`senderPlaintextByMessageId`** is set for the **final server `message.id`** (not only **`client:…`**); check for **race** where hydrate replaces **`messagesById`** before plaintext is keyed by server id. **Done:** traced **`useSendMessage`** → **`replaceOptimisticMessage`** / **`appendIncomingMessageIfNew`**; **`hydrateMessagesFromFetch`** overlay; **`docs/PROJECT_PLAN.md`** §7.1 §4 (Redux send path); **`setSenderPlaintextAfterOptimisticMerge`** in **`messagingSlice`** (optimistic plaintext **or** non-envelope `merged.body`); tests **`messagingSlice.test.ts`** (E2EE **`replaceOptimisticMessage`** + new **`appendIncomingMessageIfNew`** case).
+    - [x] **Trace persistence (if reload involved):** **`senderPlaintextPersistListener`** **`put`** runs when plaintext is set; **`loadSenderPlaintextIntoRedux`** + **`hydrateMessagesFromFetch`** order — see also **Option A** subtasks below; confirm same-session bug is not masked by only testing after refresh. **Done:** traced **`senderPlaintextPersistListener`** (post-reducer **`put`** when map entry non-empty); **`loadSenderPlaintextIntoRedux`** after **`setUser`** in **bootstrap / login / register**; **`SessionRestore`** gates shell until bootstrap completes so disk → Redux usually precedes first SWR hydrate; **`docs/PROJECT_PLAN.md`** §7.1 §4 (persistence); same-session vs reload called out (**`messagingSlice` / `messageDisplayBody`** vs **`senderPlaintextPersistListener.test.ts`**).
+    - [x] **Fix:** close whichever gap (id reconciliation, missing dispatch, listener edge case, or UI bypassing **`resolveMessageDisplayBody`**); keep **recipient** decrypt path unchanged. **Done:** **`appendIncomingMessageIfNew`** — merge when optimistic row exists even if **`messageIds`** list is stale (queue pruning only drops heads with **no** **`messagesById`** row); id list update when **`optimisticId`** not in **`ids`**; **`resolveMessageDisplayBody`** — own E2EE without map → **`…`**, never wire; tests **`messagingSlice.test.ts`** (stale list + E2EE), **`messageDisplayBody.test.ts`**.
+    - [x] **Tests:** **`messageDisplayBody`** unit cases for own E2EE + populated **`senderPlaintextByMessageId`**; **`ThreadMessageList.test.tsx`** (or integration) — after simulated send ack, **sender** visible text is plaintext, **not** substring **`E2EE_JSON_V1:`**. **Done:** **`messageDisplayBody.test.ts`** — server id + populated map; **`ThreadMessageList.test.tsx`** — own row **`body`** as resolved plaintext, document must not match **`E2EE_JSON_V1`**.
+
+  - [x] **Real-time — recipient does not receive `message:new` (1:1, both connected)**
+    - [x] **Symptom:** **A** sends via **`message:send`** (E2EE **`body`**); persisted **`Message`** shape is correct; **B**’s client never handles **`message:new`** (no Redux **`appendIncomingMessageIfNew`**) though both show **connected**.
+      - **Done:** **messaging-service** omitted **`setMessagingSocketIoServer(io)`** in **`index.ts`** — RabbitMQ consumer skipped all **`message:new`** emits (**fixed**). Subtasks: delivery path, fan-out, web-client receive, infra same-origin, **`Tests / repro`** below.
+    - [x] **(A) messaging-service — delivery path:** trace **`message:send`** handler → persist → **RabbitMQ** publish/consume → **`io.to(room).emit('message:new', message)`** — confirm **room** for direct messages (**`user:<recipientUserId>`** vs **`conversation:`** vs **`socket.join`**); verify **recipient** socket is in that room (**`handshake.auth.userId`**); compare with **`messagingSocket.integration.test.ts`**; add **structured logs** (conversation id, recipient id, room name) behind env if needed.
+      - **Done:** **Direct** path uses **`message.user.<recipientUserId>`** → consumer **`parseDirectUserRoutingKey`** → **`io.to('user:<userId>').emit('message:new', message)`**; **`socket.join('user:' + auth.user.id)`** in **`socket.ts`** (`auth.kind === 'ok'`). **Bug:** `index.ts` never called **`setMessagingSocketIoServer(io)`**, so **`messagingSocketIo`** stayed **null** and **all** consumer emits were skipped — **fixed:** `setMessagingSocketIoServer(io)` immediately after **`attachSocketIo`**. **Structured logs:** **`MESSAGING_REALTIME_DELIVERY_LOGS`** → **`rabbitmq.ts`** **`info`** fields (routing key, room, message id, conversation id, target user id, skipSocketId).
+    - [x] **(A) Fan-out / skip:** confirm **`except(skipSocketId)`** does not drop **B**’s copy; confirm **B** is not the **sender** socket when testing (two browsers / two users).
+      - **Done:** **Recipient** publish is **`message.user.<B>`** with **flat** `Message` only — consumer uses **`io.to('user:B').emit`** with **no** **`.except`**. **Sender** echo is **`message.user.<A>`** with **`{ message, skipSocketId: originSocketId }`** — **`io.to('user:A').except(skipSocketId).emit`** only applies to that routing key. **`messagingSocket.integration.test.ts`** — **A** sends via **`message:send`** (two sockets); **B** receives **`message:new`**; spy asserts **B**’s broker body has **no** **`skipSocketId`** / **`message`** wrapper; **A**’s echo body has **`skipSocketId === socketA.id`**.
+    - [x] **(B) web-client — receive path:** verify **`socketWorker`** subscribes to **`message:new`**; **`SocketWorkerProvider`** **`message_new`** → **`parseMessageNewPayload`** → **`appendIncomingMessageIfNew`** + **SWR `mutate`**; **`handshake.auth`** **`userId`** matches **B**; no silent parse failure (invalid payload shape).
+      - **Done:** **`socketWorker.ts`** — **`socket.on('message:new')`** → **`post({ type: 'message_new', payload })`**; **`connect`** passes **`auth: { userId, token? }`** from **`SocketWorkerProvider`** (**`user.id`** + access token). **`SocketWorkerProvider.tsx`** — **`parseMessageNewPayload`** → **`appendIncomingMessageIfNew`** + **`mutate(['conversation-messages', conversationId, uid])`**; invalid payload → **`console.warn`** in **`import.meta.env.DEV`** (not silent). **`SocketWorkerProvider.test.tsx`** — mocked bridge: peer **`message:new`** updates **`messagesById`**, **`emitReceipt('message:delivered')`**; own message skips auto-delivered; bad shape warns + no Redux append.
+    - [x] **(B) Infra:** same **origin** / **nginx** **WebSocket** upgrade as REST (**`/socket.io`**); **`VITE_*` / proxy** points to **messaging-service**; no mixed content / wrong port for socket only.
+      - **Done:** **`getSocketUrl()`** / **`getApiBaseUrl()`** share **`VITE_API_BASE_URL`** (**`apiConfig.ts`** JSDoc); relative **`/v1`** → **`window.location.origin`** for Socket.IO; absolute URL → **`new URL(...).origin`**. **Vite** proxies **`/v1`** + **`/socket.io`** (**`vite.config.ts`**). **`infra/nginx/nginx.conf`** — **`location /`** to **messaging-service** with **`map $http_upgrade $connection_upgrade`** + **`Upgrade`** / **`Connection`** / long **`proxy_read_timeout`**. **README** — **“REST + Socket.IO (same origin)”** paragraph. **`apiConfig.test.ts`** — origin behaviour.
+    - [x] **Tests / repro:** minimal **integration** or **manual script** — two users, **A** sends, assert **B** receives **`message:new`** (extend existing socket test or add **E2E** note in **README**).
+      - **Done:** **`messagingSocket.integration.test.ts`** — added **`B receives message:new when body is opaque E2EE-style string`** (persist + Rabbit + **`io.to('user:B')`**). **README** — **“Testing — `message:new` (A → B, real-time)”**: **`MESSAGING_INTEGRATION=1 npm run test:integration`**, manual two-browser steps + optional WS inspection.
+
+  - [ ] **Read receipts — avoid emitting `message:read` / `conversation:read` when already read**
+    - [ ] **Symptom:** client emits **`message:read`** / **`conversation:read`** over Socket.IO even when the message or thread is **already marked read** (REST **`GET …/message-receipts`** or **`receiptsByMessageId`** shows **seen** for the current user).
+    - [x] **(B) web-client — guards:** in **`HomeConversationShell`** (or **`useConversation` / receipt hook):** before **`emitReceipt('message:read')`**, skip if **`receiptsByMessageId[messageId]`** already records **current user** as **seen** (per OpenAPI **`MessageReceiptSummary`** shape); before **`conversation:read`**, skip if **last message** / cursor already has **read** state aligned with server (avoid re-emit on **SWR revalidate** / **focus** when state unchanged).
+      - **Done:** **`receiptEmitGuards.ts`** — **`currentUserHasSeenMessage`**. **`HomeConversationShell`** — **`onPeerMessageVisible`**: skip + mark **`messageReadEmittedRef`** when **`receiptsByUserId[userId].seenAt`** set; **`conversation:read`** effect: when **last** message is **from peer** and **current user** already **seen**, **skip** emit and **set** cursor ref (no duplicate after SWR receipt hydrate). **Last message own** — no **seen** guard (per-message receipts are peer→reader; cursor still deduped by ref). **Tests:** **`receiptEmitGuards.test.ts`**, **`HomeConversationShell.test.tsx`** (mock **`useSocketWorker`** / **`useConversation`**).
+    - [x] **Refinement:** keep **`messageReadEmittedRef`** for in-session dedupe but **hydrate** “already read” from **`mergeReceiptSummariesFromFetch`** so reload does not re-flood; clear refs only when appropriate (conversation switch already clears).
+      - **Done:** **`hydratePeerReadDedupeFromReceipts`** in **`receiptEmitGuards.ts`**; **`HomeConversationShell`** — **`useLayoutEffect`** seeds **`messageReadEmittedRef`** / **`conversationReadCursorKeyRef`** from **`receiptsByMessageId`** after **`mergeReceiptSummariesFromFetch`**; **conversation-switch** clear moved to **`useLayoutEffect`** so it runs **before** hydration (same tick as **`activeConversationId`** change). **Tests:** **`receiptEmitGuards.test.ts`**.
+
+  - [ ] **E2EE — own messages after full reload (sender sees plaintext, not wire ciphertext)**
+    - **How production messengers usually behave (e.g. WhatsApp):** the **sending device already had plaintext** when the user hit send; the app **persists message history in a local encrypted store** on the phone. After restart, the thread reads from **that local store**, not from “decrypt the server’s stored blob as the sender.” **Multi-device** adds encrypted sync between devices — still **not** “upload the user’s **private** key to our database.”
+    - **Why “user key in MongoDB” is the wrong lever:** the **public** directory key **does** belong in the DB (**`GET /users/{id}/public-key`**). The **private** key must **never** be stored server-side. **`E2EE_JSON_V1`** ciphertext is for the **recipient**; the **sender cannot decrypt** it with their own private key, so **`GET /conversations/.../messages`** alone cannot restore “what I typed” without **local durability** of sender copy and/or a **protocol** that includes a sender-readable ciphertext.
+    - [x] **Doc:** add a short subsection to **`docs/PROJECT_PLAN.md`** (E2EE / messaging) or **`README.md`**: (1) public vs private key placement; (2) same pattern as above — local durability vs wire-only; (3) link **`messageEcies`** / **`E2EE_JSON_V1`**; (4) optional footnote that optional **cloud backup** (outside core E2EE) is a separate product decision.
+    - [ ] **Option A — local sender-plaintext durability (incremental, no protocol change):** treat **`senderPlaintextByMessageId`** as the in-memory leg of **WhatsApp-style local history**; persist **`messageId` → plaintext** to survive full reload; merge on hydrate when **`senderId === self`** and wire **`body`** is E2EE. **Subtasks:**
+      - [x] **IndexedDB schema + module:** add a small **`apps/web-client/src/common/...`** module (name TBD, e.g. **`senderPlaintextLocalStore.ts`**) — object store scoped by **signed-in `userId`** (store name or key prefix) with **`messageId`** as key and **UTF-8 plaintext** (or encrypted blob) as value; **`open` / `put` / `get` / `getAll` / `delete` / `clearUser`** async API; **`indexedDB`** required (browser); Vitest uses **`fake-indexeddb`**. **Implemented:** [`apps/web-client/src/common/senderPlaintext/senderPlaintextLocalStore.ts`](apps/web-client/src/common/senderPlaintext/senderPlaintextLocalStore.ts) — compound key **`['userId','messageId']`**, **`deleteEntry`** (JS reserved `delete`); **`__deleteSenderPlaintextDbForTests`** for test isolation; Vitest in **`senderPlaintextLocalStore.test.ts`**.
+      - [x] **Bootstrap → Redux:** after **session restore** / **`user.id` known**, **async load** persisted map and **dispatch** merge into **`senderPlaintextByMessageId`** (new action or **`hydrateSenderPlaintextFromDisk`**) **before** or **in parallel with** first **`GET /conversations/{id}/messages`** so **`hydrateMessagesFromFetch`** overlay runs on a populated map. **Implemented:** **`hydrateSenderPlaintextFromDisk`** in **`messagingSlice`**; **`loadSenderPlaintextIntoRedux`** ([`loadSenderPlaintextIntoRedux.ts`](apps/web-client/src/common/senderPlaintext/loadSenderPlaintextIntoRedux.ts)) after **`setUser`** in **`sessionBootstrap`**, **`LoginPage`**, **`RegisterPage`**.
+      - [x] **Write-through on send ack:** when **`replaceOptimisticMessage`** / **`appendIncomingMessageIfNew`** sets **sender plaintext** for a server **`message.id`**, **`put(messageId, plaintext)`** to IndexedDB (same paths that set **`senderPlaintextByMessageId[messageId]`** today). **Implemented:** RTK **`senderPlaintextPersistListener`** ([`senderPlaintextPersistListener.ts`](apps/web-client/src/store/senderPlaintextPersistListener.ts)) — **`concat`** on app store + **`createTestStore`**; **`senderPlaintextPersistListener.test.ts`**.
+      - **Future scope** (rationale + table: **[`README.md` — Future scope](../README.md#future-scope)**): optional **`sessionStorage` mirror**; **encryption-at-rest**; **cap + eviction**; **logout / `clearUser` + mirror cleanup**; **expanded Vitest** (eviction, full persist → hydrate). Not tracked as blocking MVP tasks here.
+      - **Future scope — Option B (dual envelope):** protocol change so the **sender** can decrypt **their** copy from server-stored blobs (**OpenAPI**, **messaging-service**, **web-client**, backward compatibility for legacy single-envelope messages; no private keys on server). **Solves vs tradeoffs:** **[`README.md` — Option B: dual envelope](../README.md#option-b-dual-envelope-protocol)**.
+      - **Future scope — product stance (A vs B):** when to stay on **local-only** sender plaintext vs invest in **Option B** for multi-device / “recover from server” — see the same **[`README.md` — Option B](../README.md#option-b-dual-envelope-protocol)** subsection (not a blocking checklist gate).
+
+  - [x] **Composer — send button alignment, icon send, attach icon row, image previews**
+    - [x] **Alignment:** vertically **centre** the primary **Send** control with the message input (**flex** + **`items-center`** on the composer row). **Implemented:** **`ThreadComposer`** (`sm:items-center`); **`FollowUpThreadComposer`** / **`NewDirectThreadComposer`** — textarea + Send in **`flex-row sm:items-center`**.
+    - [x] **Send affordance:** replace **“Send”** label with a **send icon** (WhatsApp-style); keep accessible **`aria-label`** / **`title`**. **Implemented:** **`SendIcon`** ([`SendIcon.tsx`](apps/web-client/src/common/components/SendIcon.tsx)); **`ThreadComposer`**, **`FollowUpThreadComposer`**, **`NewDirectThreadComposer`** — **`aria-label` / `title`**, spinner while submitting.
+    - [x] **Attach:** replace **“Attach file”** text button with an **attach icon** control **to the left of** the send control in the **same** flex row (**`ComposerAttachmentToolbar`** / **`ThreadComposer`**). **Implemented:** **`AttachIcon`**; **`ComposerAttachButton`** + **`attachButtonPlacement="external"`** on **`ThreadComposer`**, **`FollowUpThreadComposer`**, **`NewDirectThreadComposer`**; toolbar default remains icon-only when attach stays in toolbar.
+    - [x] **Previews:** show **small thumbnails** above the composer input row for pending image attachments (existing attachment state + layout). **Implemented:** **`imagePreviewUrl`** on **`useComposerMediaAttachment`** (`blob:` for **`image/*`**); **`ComposerImagePreviewStrip`** above the textarea row in **`ThreadComposer`**, **`FollowUpThreadComposer`**, **`NewDirectThreadComposer`**.
+
+  - [x] **User search — remove verbose helper copy**
+    - [x] Remove from **`UserSearchPanel`** (or equivalent): **“Matches any part of a stored email…”**, **“Pause typing; search runs after you stop for a moment.”**, **“Enter at least 3 characters…”** — replace with minimal placeholder / no instructional wall of text (debounce behaviour can remain). **Implemented:** **`UserSearchPanel`** — **`placeholder="Search"`**, **`sr-only`** label **“Search users”**; removed empty / too-short / invalid-character helper paragraphs; **`HomePage.test.tsx`** queries updated.
+
+  - [x] **Empty thread pane — centred placeholder**
+    - [x] When no conversation is selected, **“Select a conversation to open the thread”** — **centre horizontally and vertically** within the right-hand pane (**`HomeConversationShell`** empty state). **Implemented:** **`thread-empty-placeholder`** — **`items-center`**, **`justify-center`**, **`text-center`**, **`w-full`**, **`min-h-0`**; **`HomeConversationShell.test.tsx`**.
+
+  - [x] **Conversation list row — avatar + two-line preview layout**
+    - [x] **Layout:** each row = **flex**: **profile picture** → **stacked block** with **line 1:** user/conversation **name**, **line 2:** **truncated** latest message preview (**`ConversationListRow`** + list data).
+    - [x] **Tests:** update **`ConversationListRow.test.tsx`** (and list integration tests) for structure / accessibility.
+
+  - [x] **Connection status — move to global header**
+    - [x] Relocate **`ConnectionStatusIndicator`** from the **thread/composer** footer to the **authenticated shell header** (e.g. **`HomePage`** header beside **`ThemeToggle`** / title) so status is **global**, not tied to an open thread.
+    - [x] Update **`HomeConversationShell.test.tsx`** / **`ConnectionStatusIndicator`** tests for new placement; keep Redux **`connection`** slice as source of truth.
+
+  - [x] **Header — remove stack / tech marketing line**
+    - [x] Remove **“web-client — Vite, React, TypeScript, Tailwind”** (and similar) from the **`HomePage`** header — product-facing copy only.
 
 ### Web-client — directory structure migration (`common/` + `modules/`)
 
 **Reference:** [`PROJECT_PLAN.md`](./PROJECT_PLAN.md) **§10.1** — target layout: **`src/common/`** (shared **`api`**, **`components`**, **`constants`**, **`types`**, **`utils`**) and **`src/modules/<module-id>/`** (per-feature **`components`**, **`stores`**, **`api`**, **`constants`**, **`utils`**, **`types`**, **`pages/`** or **`Page.tsx`**). **Do not** start this migration until the checklist is agreed; execute tasks **in order** where dependencies apply.
 
 - [ ] **Documentation & conventions**
-  - [x] Update **`PROJECT_GUIDELINES.md`** (file layout / imports / testing paths) to match **`PROJECT_PLAN.md` §10.1** — replace references to flat **`src/pages/`**, **`src/api/`**, **`src/features/`** with **`common/*`** and **`modules/*`** once migration lands (**§1.2**, **§4.0**, **§4.1.2**, **§4.2**, **§4.3**)
+  - [x] Update ****`docs/PROJECT_PLAN.md` §14**** (file layout / imports / testing paths) to match **`PROJECT_PLAN.md` §10.1** — replace references to flat **`src/pages/`**, **`src/api/`**, **`src/features/`** with **`common/*`** and **`modules/*`** once migration lands (**§1.2**, **§4.0**, **§4.1.2**, **§4.2**, **§4.3**)
   - [x] Update **`.cursor/rules/web-client.mdc`** (and any README under **`apps/web-client`**) with new import examples and folder rules
-  - [x] **Decide once:** route path constants live in **`src/routes/`** only vs **`common/constants/routes`** — **decision:** **`src/routes/`** only (**`paths.ts`** etc.); documented in **`PROJECT_GUIDELINES.md` §4.0**
+  - [x] **Decide once:** route path constants live in **`src/routes/`** only vs **`common/constants/routes`** — **decision:** **`src/routes/`** only (**`paths.ts`** etc.); documented in ****`docs/PROJECT_PLAN.md` §14** §4.0**
 
 - [ ] **Scaffold `common/`**
   - [x] Create **`src/common/api/`**, **`src/common/components/`**, **`src/common/constants/`**, **`src/common/types/`**, **`src/common/utils/`** (add minimal **`index.ts`** barrels only where the codebase already uses barrels — avoid empty noise — **`common/api/index.ts`** retained; other dirs have **no** empty barrels)
@@ -124,7 +238,7 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
   - [x] Move shared **`src/types/**`** → **`src/common/types/**`** where still client-local (OpenAPI types remain **`src/generated/`**) — **`axios-auth.d.ts`** (Axios module augmentation)
 
 - [ ] **Scaffold `modules/` and migrate by feature**
-  - [x] For each route / feature (e.g. **home**, **settings**, **auth**), create **`src/modules/<module-id>/`** with **`components/`**, **`stores/`**, **`api/`**, **`constants/`**, **`utils/`**, **`types/`**, and **`pages/`** (or **`Page.tsx`**) — **use one naming convention** for page files across modules — **done:** **`modules/home`**, **`modules/settings`**, **`modules/auth`** + **`src/modules/README.md`** (**`*Page.tsx`** in **`pages/`**)
+  - [x] For each route / feature (e.g. **home**, **settings**, **auth**), create **`src/modules/<module-id>/`** with **`components/`**, **`stores/`**, **`api/`**, **`constants/`**, **`utils/`**, **`types/`**, and **`pages/`** (or **`Page.tsx`**) — **use one naming convention** for page files across modules — **done:** **`modules/home`**, **`modules/settings`**, **`modules/auth`** (**`*Page.tsx`** in **`pages/`**); layout per **`docs/PROJECT_PLAN.md` §10.1**
   - [x] Migrate **`src/pages/*`** into the corresponding **`modules/*/pages/`** (or module root) — **`home`**, **`settings`**, **`auth`**; **`App.tsx`** + **`common/integration/msw.integration.test.tsx`** updated; ESLint **`src/modules/**/pages/**`**
   - [x] Migrate **`src/features/auth/**`** (and other feature folders) into **`modules/<auth-module-id>/`** — split **`login`** / **`register`** submodules if that matches routing — **single `modules/auth`**: **`stores/`** (slice + selectors), **`utils/`** (apiError, applyAuthResponse, authStorage, sessionBootstrap), **`components/`** (SessionRestore); login/register/verify **pages** stay in **`modules/auth/pages/`\*\*
   - [x] Move **`src/realtime/`**, **`src/theme/`**, etc., to **`common/`** or the owning **`module/`** based on §10.1 rules of thumb (shared vs single-feature) — **`src/common/realtime/`**, **`src/common/theme/`** (used app-wide, not single module)
@@ -156,11 +270,11 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 - [x] **Spec bump `0.1.2`:** **`POST /media/upload`** — **`MediaUploadResponse`**; backend implemented — **Cross-cutting — Media**
 - [x] **Spec bump `0.1.3`:** **`POST /media/upload`** — **`MEDIA_MAX_BYTES`** (default 30 MiB) documented in OpenAPI description
 - [x] **Spec bump `0.1.4`:** **`/auth/register`**, **`/auth/verify-email`**, **`/auth/resend-verification`** — **Feature 2**
-- [x] **Spec / docs (env-gated verification):** **`User.emailVerified`** + verify/resend **`EMAIL_VERIFICATION_REQUIRED`** — **`docs/ENVIRONMENT.md`** + **`openapi.yaml` `0.1.7`** (no **`GET /config`**)
+- [x] **Spec / docs (env-gated verification):** **`User.emailVerified`** + verify/resend **`EMAIL_VERIFICATION_REQUIRED`** — **`README.md`** (Configuration section) + **`openapi.yaml` `0.1.7`** (no **`GET /config`**)
 - [x] **messaging-service:** **Zod** — **`src/validation/`** (`schemas.ts` mirrors OpenAPI request bodies / query / path; **`validateBody`**, **`validateQuery`**, **`validateParams`**); **`POST /media/upload`** uses **`createMulterFileSchema`**; **`presence:getLastSeen`** uses **`getLastSeenPayloadSchema`** — wire **`validate*`** on new HTTP routes as they land
-- [x] Serve **Swagger UI** from **messaging-service** (`swagger-ui-express`) at **`/api-docs`**; works in Docker Compose / local dev; URL documented in root **`README.md`** and **`OPENAPI_SPEC_PATH`** in **`docs/ENVIRONMENT.md`**
+- [x] Serve **Swagger UI** from **messaging-service** (`swagger-ui-express`) at **`/api-docs`**; works in Docker Compose / local dev; URL documented in root **`README.md`** and **`OPENAPI_SPEC_PATH`** in **`README.md`** (Configuration section)
 - [ ] Optional: restrict Swagger to non-prod or auth
-- [ ] Process: update OpenAPI in same PR as route changes (`PROJECT_GUIDELINES.md` §3)
+- [ ] Process: update OpenAPI in same PR as route changes (**`docs/PROJECT_PLAN.md` §14** §3)
 
 ### (B) Web-client, UI, tests & state management
 
@@ -178,7 +292,7 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
   - [x] **`guestSessionsEnabled`** (boolean) — env default **`GUEST_SESSIONS_ENABLED`** until set in DB; reserved for **`POST /auth/guest`** (**Feature 2a**)
 - [x] **Read path:** auth + registration + verify/resend (+ future guest) **query effective config** via **`getEffectiveRuntimeConfig`** — **Redis first** (TTL **5 min**), then **MongoDB** + env on miss; **`RUNTIME_CONFIG_REDIS_KEY`**, **`RUNTIME_CONFIG_REDIS_TTL_SECONDS`** in **`runtimeConfig.ts`**
 - [ ] **Write path:** internal **admin API**, CLI migration, or seed script to update toggles (authz TBD); **audit** optional
-- [ ] **Docs:** **`docs/ENVIRONMENT.md`** — which env keys are **deprecated** / **override-only** vs **DB-owned**; **`docs/GUEST_PRODUCT_RULES.md`** — align **TTL** (30 min) and **refresh** rules when implemented
+- [ ] **Docs:** **`README.md`** (Configuration section) — which env keys are **deprecated** / **override-only** vs **DB-owned**; **`docs/PROJECT_PLAN.md`** and **`README.md`** — align **TTL** (30 min) and **refresh** rules when implemented
 - [ ] **Tests:** unit/integration for fallback **env → DB** and disabled guest / email verification branches
 
 ---
@@ -240,14 +354,14 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 ### (A) Infra, backend & deployment
 
 - [ ] **Global per-IP rate limit — 500 calls / minute (configurable)**
-  - [x] **Design:** map **500/min** to implementation (fixed-window counter in Redis — e.g. **`GLOBAL_RATE_LIMIT_WINDOW_SEC=60`**, **`GLOBAL_RATE_LIMIT_MAX=500`**) and document semantics (bursts, clock skew) — **`docs/GLOBAL_RATE_LIMIT.md`**, **`globalRestRateLimit.ts`**, **`env.ts`**
+  - [x] **Design:** map **500/min** to implementation (fixed-window counter in Redis — e.g. **`GLOBAL_RATE_LIMIT_WINDOW_SEC=60`**, **`GLOBAL_RATE_LIMIT_MAX=500`**) and document semantics (bursts, clock skew) — **`README.md`** (Configuration — rate limits), **`globalRestRateLimit.ts`**, **`env.ts`**
   - [x] **Express middleware:** single early **`app.use`** on **`/v1`** (or appropriate prefix) so most REST traffic is covered; respect **`trust proxy`** for client IP (**`getClientIp`**) — **`middleware/globalRestRateLimit.ts`**, **`app.ts`**
-  - [x] **Path exclusions:** do **not** count (or bypass) **`GET /v1/health`**, **`GET /v1/ready`**, and public **`/api-docs`** (and any other liveness/readiness routes); decide how **Socket.IO** on the same HTTP server interacts with the limit (upgrade / long-poll — typically **exclude** from REST global counter) — health/ready skipped in middleware; **`/api-docs`** off **`/v1`**; Socket.IO documented in **`GLOBAL_RATE_LIMIT.md`**
+  - [x] **Path exclusions:** do **not** count (or bypass) **`GET /v1/health`**, **`GET /v1/ready`**, and public **`/api-docs`** (and any other liveness/readiness routes); decide how **Socket.IO** on the same HTTP server interacts with the limit (upgrade / long-poll — typically **exclude** from REST global counter) — health/ready skipped in middleware; **`/api-docs`** off **`/v1`**; Socket.IO documented in **`README.md` (rate limits)**
   - [x] **Redis:** reuse **`apps/messaging-service/src/utils/auth/rateLimitRedis.ts`** primitives; stable key pattern (e.g. **`ratelimit:global:ip:{ip}`**)
-  - [x] **Relationship to existing per-route limits:** **`POST /auth/register`**, **`/auth/forgot-password`**, **`/auth/verify-email`**, **`GET /users/search`**, etc. — decide **stack** (global **and** stricter route limit), **replace** redundant route limits, or **tier** (document in code + **`ENVIRONMENT.md`**) — **stack** (separate Redis keys; global first); documented in **`ENVIRONMENT.md`**, **`GLOBAL_RATE_LIMIT.md`**, route **`auth`/`users`/`messages`** comments
+  - [x] **Relationship to existing per-route limits:** **`POST /auth/register`**, **`/auth/forgot-password`**, **`/auth/verify-email`**, **`GET /users/search`**, etc. — decide **stack** (global **and** stricter route limit), **replace** redundant route limits, or **tier** (document in code + **`README.md` (Configuration)**) — **stack** (separate Redis keys; global first); documented in **`README.md` (Configuration)**, **`README.md` (rate limits)**, route **`auth`/`users`/`messages`** comments
   - [x] **429 responses:** stable JSON (**`AppError`** / **`RATE_LIMIT_EXCEEDED`** or dedicated code); optional **`Retry-After`** header if product wants it — **`AppError`** + **`errorHandler`**; **`Retry-After`** not set (optional follow-up)
-  - [x] **Configuration:** extend **`apps/messaging-service/src/config/env.ts`**; document in **`docs/ENVIRONMENT.md`** and **`infra/.env.example`**
-  - [x] **Operational:** confirm behaviour behind **nginx** (real client IP via **`X-Forwarded-For`**) and avoid double-throttling at edge vs app unless intentional — **`infra/nginx/nginx.conf`** + **`docs/GLOBAL_RATE_LIMIT.md`** § Operations; **`getClientIp`** JSDoc; **`ENVIRONMENT.md`** pointer
+  - [x] **Configuration:** extend **`apps/messaging-service/src/config/env.ts`**; document in **`README.md`** (Configuration section) and **`infra/.env.example`**
+  - [x] **Operational:** confirm behaviour behind **nginx** (real client IP via **`X-Forwarded-For`**) and avoid double-throttling at edge vs app unless intentional — **`infra/nginx/nginx.conf`** + **`README.md`** (Configuration — rate limits) § Operations; **`getClientIp`** JSDoc; **`README.md` (Configuration)** pointer
   - [x] **Tests:** middleware unit/integration tests with Redis mocked or test container; cover excluded paths — **`vitest`** + **`supertest`**; **`isGlobalRestRateLimitExceeded`** mocked; **`globalRestRateLimit.test.ts`** (health/ready excluded, 429, **`X-Forwarded-For`**)
 
 ### (B) Web-client, UI, tests & state management
@@ -265,24 +379,24 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 ### Prerequisite — Product direction (E2EE UX)
 
-The **default product** does **not** expose a **Settings** (or similar) screen for **encryption / key backup / rotate / key status**—end users should **not** have to “manage keys” in the UI. Satisfy **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`** (ECIES-style hybrid encryption, user-level public keys, client-only private keys) and **`docs/PROJECT_PLAN.md`** (opaque message payloads on **Socket.IO** / **RabbitMQ**, server never sees plaintext content) **without** that surface: e.g. **automatic** keypair generation + public-key registration after login, recovery/rotation only via **documented** or **support** paths—not a first-class settings flow. **Chat** UX instead carries a **small, persistent** indicator that **messages are end-to-end encrypted** (see **Feature 1 (B)** and **Feature 11 (B)**). Code that added a Settings encryption block may remain for **dev** or be removed; it is **not** part of the default user journey.
+The **default product** does **not** expose a **Settings** (or similar) screen for **encryption / key backup / rotate / key status**—end users should **not** have to “manage keys” in the UI. Satisfy **`README.md`** and **`docs/PROJECT_PLAN.md` §14** (ECIES-style hybrid encryption, user-level public keys, client-only private keys) and **`docs/PROJECT_PLAN.md`** (opaque message payloads on **Socket.IO** / **RabbitMQ**, server never sees plaintext content) **without** that surface: e.g. **automatic** keypair generation + public-key registration after login, recovery/rotation only via **documented** or **support** paths—not a first-class settings flow. **Chat** UX instead carries a **small, persistent** indicator that **messages are end-to-end encrypted** (see **Feature 1 (B)** and **Feature 11 (B)**). Code that added a Settings encryption block may remain for **dev** or be removed; it is **not** part of the default user journey.
 
 ### (A) Infra, backend & deployment
 
-- [x] **Design doc** in `docs/`: algorithms (e.g. ECDH + AES-GCM hybrid, or chosen suite), key sizes, threat model, rotation rules; server never stores private keys — **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`**
+- [x] **Design doc** in `docs/`: algorithms (e.g. ECDH + AES-GCM hybrid, or chosen suite), key sizes, threat model, rotation rules; server never stores private keys — **`README.md`** and **`docs/PROJECT_PLAN.md` §14**
 - [x] **MongoDB:** collection shape — `userId` → **public key** material, optional `keyVersion`, `updatedAt`; indexes on `userId`; **no device-level** rows — **`user_public_keys`**, **`UserPublicKeyDocument`**, **`ensureUserPublicKeyIndexes`**
 - [x] **OpenAPI:** paths + schemas for key register / rotate / **`GET` by `userId`**
 - [x] **Routes + Zod:** implement handlers; **authz** on **`GET`** (e.g. only peers who may message)
 - [x] **Validation:** reject malformed keys; max payload size; rate-limit key updates
 - [x] **Audit / security:** no private key fields in any schema; structured logs must never print key material
-- [x] **Operational:** document user-initiated **rotation** (new version) and impact on decrypting old messages (product decision) — **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`** §6.3–6.4
+- [x] **Operational:** document user-initiated **rotation** (new version) and impact on decrypting old messages (product decision) — **`README.md`** and **`docs/PROJECT_PLAN.md` §14** §6.3–6.4
 
 ### (B) Web-client, UI, tests & state management
 
 - [x] **Generate**: after **authenticated** session exists, generate keypair in-browser via **Web Crypto API** (or audited lib—**libsodium** / WASM if using X25519); **unit tests** with known test vectors only (no real secrets in repo) — **`src/common/crypto/keypair.ts`** (`generateP256EcdhKeyPair`, SPKI/PKCS8 export); **`useGenerateUserKeypair`** gates on **`useAuth().isAuthenticated`**; **`src/common/crypto/keypair.test.ts`** (OpenSSL fixture PKCS8/SPKI vectors + size checks); **`setupTests.ts`** polyfills **`crypto.subtle`** under jsdom
-- [x] **Store private key securely**: never send to server; persist **wrapped** private key in **IndexedDB** (or equivalent), optionally encrypted with a key derived from a **user passphrase** (PBKDF2 / Argon2 with secure parameters); document secure-context (HTTPS) requirement — **`src/common/crypto/privateKeyStorage.ts`** (IndexedDB `messaging-client-crypto`), **`privateKeyWrap.ts`** (PBKDF2-SHA256 default **310k** + AES-256-GCM), **`encoding.ts`**, **`secureContext.ts`**; dev-only plaintext store gated by **`import.meta.env.DEV`**; **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`** §2.1 + **`docs/ENVIRONMENT.md`** pointer; Vitest uses **`fake-indexeddb`** + Node **`webcrypto`** in **`setupTests.ts`**
+- [x] **Store private key securely**: never send to server; persist **wrapped** private key in **IndexedDB** (or equivalent), optionally encrypted with a key derived from a **user passphrase** (PBKDF2 / Argon2 with secure parameters); document secure-context (HTTPS) requirement — **`src/common/crypto/privateKeyStorage.ts`** (IndexedDB `messaging-client-crypto`), **`privateKeyWrap.ts`** (PBKDF2-SHA256 default **310k** + AES-256-GCM), **`encoding.ts`**, **`secureContext.ts`**; dev-only plaintext store gated by **`import.meta.env.DEV`**; **`README.md`** and **`docs/PROJECT_PLAN.md` §14** §2.1 + **`README.md`** (Configuration section) pointer; Vitest uses **`fake-indexeddb`** + Node **`webcrypto`** in **`setupTests.ts`**
 - [x] **Upload public key**: call API to register/update **user-level** public key; handle success/failure and retry; **Redux** slice or `crypto` slice for `keyRegistered`, `keyVersion` — **`usersApi.putMyPublicKey`** / **`rotateMyPublicKey`**; **`retryAsync`** in **`cryptoSlice`** thunks **`uploadPublicKey`** / **`rotatePublicKey`**; **`useRegisterPublicKey`**; store **`crypto`** reducer
-- [x] **Maintain** (technical building blocks): **backup** export (encrypted file or documented recovery path); **restore** flow for new browser; **rotate** path → new keypair → **`POST /v1/users/me/public-key/rotate`**; default product rule: **retain old private keys** in a local keyring (**Option A** — **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`** §6.3–6.4); **`privateKeyStorage`** keyring + **`keyringBackup.ts`**; hooks **`useKeypairStatus`**, **`useKeypairMaintenance`** (backup / restore / rotate), **`getUserPublicKeyById`**, **`registeredPublicKeySpki`** on **`crypto` slice** — no Settings UI (removed)
+- [x] **Maintain** (technical building blocks): **backup** export (encrypted file or documented recovery path); **restore** flow for new browser; **rotate** path → new keypair → **`POST /v1/users/me/public-key/rotate`**; default product rule: **retain old private keys** in a local keyring (**Option A** — **`README.md`** and **`docs/PROJECT_PLAN.md` §14** §6.3–6.4); **`privateKeyStorage`** keyring + **`keyringBackup.ts`**; hooks **`useKeypairStatus`**, **`useKeypairMaintenance`** (backup / restore / rotate), **`getUserPublicKeyById`**, **`registeredPublicKeySpki`** on **`crypto` slice** — no Settings UI (removed)
 - [x] **Hooks**: `useKeypairStatus`, `useRegisterPublicKey`, `useRestorePrivateKey` (names illustrative); **`common/hooks`** + unit tests where applicable
 - [x] **Remove encryption / key-management UI from Settings** (not part of **`docs/PROJECT_PLAN.md`** — **`settings/`** module is profile/account per **§10.1** layout; E2EE is **automatic / chat / programmatic**, not a Settings surface):
   - [x] **Interim shipped:** production **`SettingsPage`** did not render **`EncryptionSettingsSection`** in non-**`DEV`** builds — previously gated by **`showEncryptionSettingsUi()`** (removed)
@@ -300,7 +414,7 @@ The **default product** does **not** expose a **Settings** (or similar) screen f
 ### (A) Infra, backend & deployment
 
 - [x] Depends on **Prerequisite — User keypair** for ciphertext fields and public-key APIs when E2EE is enabled — **`Message.body`** / **`SendMessageRequest.body`** documented as opaque (plaintext or E2EE ciphertext); **`info`** + schema **`description`** in **`docs/openapi/openapi.yaml`** **`0.1.18`**; **`sendMessageForUser`** JSDoc; **`npm run generate:api`** → **`apps/web-client/src/generated/api-types.ts`**
-- [x] **MongoDB:** **`conversations`** + **`messages`** collections; indexes per **`PROJECT_GUIDELINES.md` §2.0** — **`CONVERSATIONS_COLLECTION`** / **`MESSAGES_COLLECTION`**; **`ensureConversationIndexes`** (`id`, partial **`directPairKey`**, **`participantIds` + `updatedAt` + `id`** for list-by-participant); **`ensureMessageIndexes`** (compound **`conversationId` + `createdAt` + `id`**, unique **`id`**); access-pattern table comments in **`conversations.collection.ts`** / **`messages.collection.ts`**; startup in **`index.ts`**
+- [x] **MongoDB:** **`conversations`** + **`messages`** collections; indexes per ****`docs/PROJECT_PLAN.md` §14** §2.0** — **`CONVERSATIONS_COLLECTION`** / **`MESSAGES_COLLECTION`**; **`ensureConversationIndexes`** (`id`, partial **`directPairKey`**, **`participantIds` + `updatedAt` + `id`** for list-by-participant); **`ensureMessageIndexes`** (compound **`conversationId` + `createdAt` + `id`**, unique **`id`**); access-pattern table comments in **`conversations.collection.ts`** / **`messages.collection.ts`**; startup in **`index.ts`**
 - [x] **`POST /messages`:** **`validateBody`** + service — **lazy-create** direct conversation when **`conversationId`** omitted + **`recipientUserId`** set (**Cross-cutting** — interim REST; **Socket.IO** send — **Send path — Socket.IO (target)**)
 - [x] **1:1 messaging — send (Socket.IO) + list (REST):**
   - [x] **Socket.IO send:** client-originated **send** via **Socket.IO** (reuse **`sendMessageForUser`**) — **`src/utils/realtime/socket.ts`** **`message:send`** — **`sendMessageRequestSchema.safeParse`**, **`isMessageSendRateLimited`**, **`sendMessageForUser`**, ack **`messageDocumentToApi`** / **`AppError`** (same contract as **`POST /v1/messages`**)
@@ -311,14 +425,14 @@ The **default product** does **not** expose a **Settings** (or similar) screen f
   - [x] **Sender multi-device echo:** also publish to **`message.user.<senderId>`** (envelope **`{ message, skipSocketId? }`**) so the sender's other sessions get **`message:new`**; **`message:send`** passes **`originSocketId`** → consumer uses **`io.to('user:…').except(skipSocketId).emit`** (same idea as **`socket.to(room)`**)
 - [x] **RabbitMQ consumer — wire `io`:** **`setMessagingSocketIoServer(io)`** in **`index.ts`** after **`attachSocketIo`**; cleared on shutdown — **`src/data/messaging/rabbitmq.ts`**
 - [x] **RabbitMQ consumer — implement emit:** parse **`message.user.<userId>`** → **`io.to('user:<userId>').emit('message:new', payload)`**; envelope with **`skipSocketId`** uses **`.except(skipSocketId)`**; flat JSON (recipient publish) unchanged; **`ack`** after delivery attempt (`PROJECT_PLAN.md` §3.2)
-- [x] **Socket.IO Redis adapter — deprecate / guard:** intended architecture uses **in-memory rooms** + **RabbitMQ** per replica (**`PROJECT_PLAN.md` §3.2.2**), not **`@socket.io/redis-adapter`**. Wiring remains for edge cases; default **`SOCKET_IO_REDIS_ADAPTER=false`** with **startup `warn`** if enabled (**`socket.ts`**), **`docs/ENVIRONMENT.md`** + **docker-compose** comments discourage enabling it
-- [x] **Integration test / manual checklist:** automated **`npm run test:integration`** (`src/integration/messagingSocket.integration.test.ts`) — A→B **`message:new`**; **one** `publishMessage` to **`message.user.<B>`** plus **one** sender echo to **`message.user.<A>`**; manual two-replica steps in **`docs/INTEGRATION_MESSAGING.md`**
+- [x] **Socket.IO Redis adapter — deprecate / guard:** intended architecture uses **in-memory rooms** + **RabbitMQ** per replica (**`PROJECT_PLAN.md` §3.2.2**), not **`@socket.io/redis-adapter`**. Wiring remains for edge cases; default **`SOCKET_IO_REDIS_ADAPTER=false`** with **startup `warn`** if enabled (**`socket.ts`**), **`README.md`** (Configuration section) + **docker-compose** comments discourage enabling it
+- [x] **Integration test / manual checklist:** automated **`npm run test:integration`** (`src/integration/messagingSocket.integration.test.ts`) — A→B **`message:new`**; **one** `publishMessage` to **`message.user.<B>`** plus **one** sender echo to **`message.user.<A>`**; manual two-replica steps in **`README.md` (manual integration steps)**
 - [x] **OpenAPI** for messaging: **`docs/openapi/openapi.yaml`** **`0.1.18`** — **`Message`**, **`SendMessageRequest`**, **`GET/POST` messaging**, **`GET /conversations/{id}/message-receipts`** + **`message:new`** / Socket.IO narrative; **`429`** for rate limits; **`npm run generate:api`** in **`apps/web-client`**
 - [x] If shipping **Feature 12** in the same release as Feature 1, add **receipt-related** fields to the message schema early; otherwise **Feature 12** may introduce a migration — **done:** **`MessageDocument.receiptsByUserId`** + **`MessageReceiptEntry`** in **`messages.collection.ts`** (optional on insert; receipt updates use **`$set`** on nested paths — **no** backfill migration for existing rows); **`conversation_reads`** + indexes at Feature 12 — see **Feature 12 (A)** MongoDB line
 
 ### (B) Web-client, UI, tests & state management
 
-- [x] **Tests first (`*.tsx`):** conversation **list** row; **thread** message list; **composer** — RTL per **`PROJECT_GUIDELINES.md` §4.1.1** — **`ConversationListRow.test.tsx`**, **`ConversationList.test.tsx`** (empty / loading / error), **`ThreadMessageList.test.tsx`** (empty / loading / error + log), **`ThreadComposer.test.tsx`** (send + errors); **no** demo preview on **`HomePage`**
+- [x] **Tests first (`*.tsx`):** conversation **list** row; **thread** message list; **composer** — RTL per ****`docs/PROJECT_PLAN.md` §14** §4.1.1** — **`ConversationListRow.test.tsx`**, **`ConversationList.test.tsx`** (empty / loading / error), **`ThreadMessageList.test.tsx`** (empty / loading / error + log), **`ThreadComposer.test.tsx`** (send + errors); **no** demo preview on **`HomePage`**
 - [x] **UI — shell:** conversation list layout + active selection state
 - [x] **UI — thread:** scroll container, message bubbles, timestamps
 - [x] **UI — composer:** text input, send button, disabled/loading
@@ -327,7 +441,7 @@ The **default product** does **not** expose a **Settings** (or similar) screen f
 - [x] **Socket.IO — receive:** listen for **`message:new`** events (emitted by the RabbitMQ consumer via `io.to('user:<userId>')`) in the **`socketWorker`** / **`socketBridge`**; dispatch to Redux; **dedupe** by **`messageId`** before rendering (`PROJECT_PLAN.md` §3.2.1)
 - [x] **Optimistic vs server:** reconcile temp ids with server **`Message.id`**
 - [x] **Loading / empty / error** states; **chat** **`role="log"`** / **`aria-live`** where appropriate
-- [x] **E2EE messaging indicator (product):** small, non-blocking component in the **chat / thread** area (e.g. near composer or thread header) that states messages are **end-to-end encrypted**, consistent with **`docs/PROJECT_PLAN.md`** (opaque payloads on real-time path; server routing without content visibility) and **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`** (hybrid / ECIES, user-level keys). **No** reliance on a **Settings → encryption** screen. **Tests first** (`*.tsx`) per **`PROJECT_GUIDELINES.md` §4.1.1**
+- [x] **E2EE messaging indicator (product):** small, non-blocking component in the **chat / thread** area (e.g. near composer or thread header) that states messages are **end-to-end encrypted**, consistent with **`docs/PROJECT_PLAN.md`** (opaque payloads on real-time path; server routing without content visibility) and **`README.md`** and **`docs/PROJECT_PLAN.md` §14** (hybrid / ECIES, user-level keys). **No** reliance on a **Settings → encryption** screen. **Tests first** (`*.tsx`) per ****`docs/PROJECT_PLAN.md` §14** §4.1.1**
 - [ ] **Sent tick** (stub) or full **Feature 12** receipts when ready
 
 ---
@@ -344,8 +458,8 @@ The **default product** does **not** expose a **Settings** (or similar) screen f
 - [x] User schema: **`users`** collection — unique indexes on **`email`** + **`id`**; **`passwordHash`** (**Argon2id** via **`argon2`**); **`profilePicture`**, **`status`**, **`displayName`**, **`emailVerified`**, **`lastSeenAt`** — see **`src/data/users/`** + **OpenAPI** `User` — **keep `emailVerified`** (do not remove)
 - [x] Registration + **`POST /auth/verify-email`** + **`POST /auth/resend-verification`** + verification JWTs — **`src/routes/auth.ts`**
 - [x] **`EMAIL_VERIFICATION_REQUIRED`** (boolean, default **`false`**) — **`apps/messaging-service/src/config/env.ts`**
-- [x] Document **`EMAIL_VERIFICATION_REQUIRED`** — **`docs/ENVIRONMENT.md`** + **`infra/.env.example`** (+ Compose)
-- [x] When **`EMAIL_VERIFICATION_REQUIRED=false`:** **`POST /auth/register`** sets **`emailVerified: true`**; **`/auth/verify-email`** + **`/auth/resend-verification`** return **400** **`EMAIL_VERIFICATION_DISABLED`** (**`ENVIRONMENT.md`**)
+- [x] Document **`EMAIL_VERIFICATION_REQUIRED`** — **`README.md`** (Configuration section) + **`infra/.env.example`** (+ Compose)
+- [x] When **`EMAIL_VERIFICATION_REQUIRED=false`:** **`POST /auth/register`** sets **`emailVerified: true`**; **`/auth/verify-email`** + **`/auth/resend-verification`** return **400** **`EMAIL_VERIFICATION_DISABLED`** (**`README.md` (Configuration)**)
 - [x] When **`EMAIL_VERIFICATION_REQUIRED=true`:** **`POST /auth/register`** sets **`emailVerified: false`**
 - [x] **SendGrid path:** **`SENDGRID_API_KEY`** + **`EMAIL_FROM`** + **`PUBLIC_APP_BASE_URL`** — **`src/email/sendVerificationEmail.ts`**; verification mail on register; **`resend`** returns **503** if SendGrid throws
 - [x] **`verify-email` / `resend-verification`:** JWT validation + **Redis** rate limits (per route)
@@ -364,20 +478,20 @@ The **default product** does **not** expose a **Settings** (or similar) screen f
 - [x] **Protected routes:** wrapper or loader — unauthenticated → **`/login`**; post-login redirect — **`ProtectedRoute`**, **`postLoginRedirect.ts`**, **`App.tsx`** nested route; login/register/verify preserve **`state.from`**
 - [x] **Session restore:** on app load, **`getCurrentUser`** (or refresh) if refresh token present — **`main`/`App`** bootstrap — **`SessionRestore`**, **`sessionBootstrap.ts`** (**`refreshTokens`** → **`getCurrentUser`**)
 - [x] **Settings / profile:** **`PATCH /users/me`** via **`updateCurrentUserProfile`** (FormData: image + **status** + **displayName**) — **`SettingsPage`**, **`ROUTES.settings`**
-- [x] **Tests first (`*.tsx`):** one screen per test file or shared **`renderWithProviders`** — RTL + MSW per **`PROJECT_GUIDELINES.md` §4.1.1** — **`src/common/test-utils/renderWithProviders.tsx`**, **`src/common/mocks/handlers.ts`** + **`server`**, **`SettingsPage.test.tsx`**, **`HomePage.test.tsx`**, **`src/common/components/ThemeToggle.test.tsx`**
+- [x] **Tests first (`*.tsx`):** one screen per test file or shared **`renderWithProviders`** — RTL + MSW per ****`docs/PROJECT_PLAN.md` §14** §4.1.1** — **`src/common/test-utils/renderWithProviders.tsx`**, **`src/common/mocks/handlers.ts`** + **`server`**, **`SettingsPage.test.tsx`**, **`HomePage.test.tsx`**, **`src/common/components/ThemeToggle.test.tsx`**
 - [x] **Form validation UX** (client) + **API** error mapping (`code` / `message`) — **`lib/formValidation.ts`**, **`parseApiError`** / **`ApiErrorAlert`**, auth + **`SettingsPage`**
 
 ---
 
 ## Feature 2a — Guest / try-the-platform (temporary access)
 
-**Goal (demo / playground):** Instead of shared demo passwords, visitors **enter a display name only** and receive **temporary access** to **message other users** on the system and explore the product. **Product rules (locked):** [`docs/GUEST_PRODUCT_RULES.md`](./GUEST_PRODUCT_RULES.md) — _update doc on implementation:_ **30 min** session + refresh, rate limits, search + DM to registered users, **no settings** / admin / password / billing. **Guest access** **on/off** via **`guestSessionsEnabled`** in **MongoDB** (see **Cross-cutting — Runtime configuration (MongoDB)**), not env-only. Open items (e.g. groups / calls) remain in checklist.
+**Goal (demo / playground):** Instead of shared demo passwords, visitors **enter a display name only** and receive **temporary access** to **message other users** on the system and explore the product. **Product rules (locked):** **`README.md`** / **`docs/PROJECT_PLAN.md`** (guest rules) — _update doc on implementation:_ **30 min** session + refresh, rate limits, search + DM to registered users, **no settings** / admin / password / billing. **Guest access** **on/off** via **`guestSessionsEnabled`** in **MongoDB** (see **Cross-cutting — Runtime configuration (MongoDB)**), not env-only. Open items (e.g. groups / calls) remain in checklist.
 
 ### (A) Infra, backend & deployment
 
-- [x] **Product rules:** Document guest **TTL**, **rate limits**, and **who guests can message** (and what is blocked: e.g. admin, password change, billing) — **[`docs/GUEST_PRODUCT_RULES.md`](./GUEST_PRODUCT_RULES.md)**
+- [x] **Product rules:** Document guest **TTL**, **rate limits**, and **who guests can message** (and what is blocked: e.g. admin, password change, billing) — ****`README.md`** / **`docs/PROJECT_PLAN.md`** (guest rules)**
 - [ ] **Guest enable/disable (DB):** enforce **`guestSessionsEnabled`** from **MongoDB** runtime config — reject **`POST /auth/guest`** when disabled — **Cross-cutting — Runtime configuration (MongoDB)**
-- [ ] **Session + refresh TTL (30 minutes):** **access token** lifetime **30 minutes**; issue a **refresh token** for guests with **30 minutes** validity (Redis TTL / stored expiry aligned); document in OpenAPI + **`docs/GUEST_PRODUCT_RULES.md`** + **`docs/ENVIRONMENT.md`** when vars exist
+- [ ] **Session + refresh TTL (30 minutes):** **access token** lifetime **30 minutes**; issue a **refresh token** for guests with **30 minutes** validity (Redis TTL / stored expiry aligned); document in OpenAPI + **`docs/PROJECT_PLAN.md`** and **`README.md`** + **`README.md`** (Configuration section) when vars exist
 - [ ] **OpenAPI + Zod:** e.g. **`POST /v1/auth/guest`** — body **`{ displayName }`**; response **`accessToken`**, **`refreshToken`**, **`user`** (or public profile), **`expiresAt`**; **`guest: true`** (or equivalent) in **`User`** / token claims — bump spec + **`generate:api`** in same PR as routes.
 - [ ] **Persistence:** Guest identity — either rows in **`users`** with **`isGuest: true`** + nullable **`email`**, or a dedicated **`guest_sessions`** / **`users`** slice; indexes + optional **MongoDB TTL** on session documents.
 - [ ] **JWT:** Access + refresh for guests (**30 min** each, per above) with **`guest`** claim; align with **Feature 2** token shape so one **auth middleware** can branch **guest vs full user**; **`POST /auth/refresh`** for guest refresh tokens within validity window
@@ -435,7 +549,7 @@ The **default product** does **not** expose a **Settings** (or similar) screen f
 - [x] **Search input is email** (not internal user id): **`GET /v1/users/search?email=`** — returns **`UserSearchResult`** ( **`displayName`**, **`profilePicture`**, **`userId`**, **`conversationId`** nullable)
 - [x] **MongoDB + limits:** unique index on **`email`** (exact lookup — **`users_email_unique`**); **Redis** per-IP rate limits on search (**`USER_SEARCH_RATE_LIMIT_*`**)
 - [x] **Privacy (MVP):** **exact match** only — **no** prefix/typeahead (enumeration risk); extended discoverability rules TBD
-- [x] **OpenAPI** — **`/users/search`** + **`UserSearchResult`** + **`429`**; **`docs/ENVIRONMENT.md`** — **User search policy**
+- [x] **OpenAPI** — **`/users/search`** + **`UserSearchResult`** + **`429`**; **`README.md`** (Configuration section) — **User search policy**
 
 ### (B) Web-client, UI, tests & state management
 
@@ -449,7 +563,7 @@ The **default product** does **not** expose a **Settings** (or similar) screen f
 
 ## Feature 6 — Last seen per user
 
-**Distinction from Feature 12:** **Last seen** is **user presence** (last app activity). **Message “seen” / read receipts** are **per-message** state — **independent** pipelines; see **`docs/SEEN_VS_LAST_SEEN_ORDERING.md`**.
+**Distinction from Feature 12:** **Last seen** is **user presence** (last app activity). **Message “seen” / read receipts** are **per-message** state — **independent** pipelines; see **`docs/PROJECT_PLAN.md` §14**.
 
 **Algorithm (locked):** While Socket.IO is connected, the **client** sends **`presence:heartbeat` every 5 seconds**; **messaging-service** stores the timestamp in **Redis** (`presence:lastSeen:{userId}`, TTL **`LAST_SEEN_TTL_SECONDS`**). When the **Socket.IO connection closes**, the service **writes that last-seen time to MongoDB** (`users.lastSeenAt` for `users.id === userId`) and **removes** the Redis key. _No_ Redis update on connect alone—only heartbeats.
 
@@ -565,7 +679,7 @@ The **default product** does **not** expose a **Settings** (or similar) screen f
 
 - [ ] **Crypto module** (`web-client`): use **Web Crypto API** and/or audited library (e.g. libsodium via WASM); **unit tests** for encrypt/decrypt/sign/verify helpers (vectors, no real private keys in repo); extend helpers built in **Prerequisite — User keypair** as needed for message payloads
 - [ ] **Key lifecycle (non-Settings):** production needs met **without** a **Settings → encryption** flow—automatic or silent key registration, backup/rotate only where **documented** or **support**, not as primary UI; **message-thread** inline states only when needed (e.g. “cannot decrypt”)—not rotation banners in **Settings**
-- [ ] **1:1 flow**: before send, fetch recipient’s **user-level** public key (cached in Redux), encrypt (hybrid per **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`**), send ciphertext; on receive, decrypt with local private key; handle missing/wrong keys with **inline** / thread-level UX if needed
+- [x] **1:1 flow**: before send, fetch recipient’s **user-level** public key (cached in Redux), encrypt (hybrid per **`README.md`** and **`docs/PROJECT_PLAN.md` §14**), send ciphertext; on receive, decrypt with local private key; handle missing/wrong keys with **inline** / thread-level UX if needed
 - [ ] **Group flow**: for each outgoing group message, build content key, encrypt message, wrap key for **each current member’s** public key (per design in (A)); on receive, unwrap and decrypt; handle member add/remove vs key rotation
 - [ ] **Redux / hooks**: `usePublicKey`, `useEncryptMessage`, `useDecryptMessage`; cache peers’ public keys with invalidation on rotation
 - [ ] **Tests first** (`*.tsx`): **E2EE indicator** in chat (see **Feature 1 (B)**); any “encryption unavailable” or decrypt-failure UI in **thread** context—not **Settings**
@@ -576,15 +690,15 @@ The **default product** does **not** expose a **Settings** (or similar) screen f
 
 **Scope:** Per-message (or per-conversation cursor) **delivery** and **read** state so the UI can show **sent** → **delivered** → **seen** indicators (e.g. tick icons). **Build after Feature 1** (and **Feature 8** for groups) can create and list messages.
 
-**Semantics (define in `docs/`):** **Sent** — server accepted and stored the message. **Delivered** — recipient’s client acknowledged receipt (at-least-once to their device/session). **Seen** — recipient has read the message (e.g. conversation open / read cursor past that `messageId`). Group chats may use per-member delivery/read maps or a simplified “read up to” cursor per member — see **`docs/MESSAGE_RECEIPTS_AND_READ_STATE_DESIGN.md`**.
+**Semantics (define in `docs/`):** **Sent** — server accepted and stored the message. **Delivered** — recipient’s client acknowledged receipt (at-least-once to their device/session). **Seen** — recipient has read the message (e.g. conversation open / read cursor past that `messageId`). Group chats may use per-member delivery/read maps or a simplified “read up to” cursor per member — see **`docs/PROJECT_PLAN.md` §14**.
 
 ### (A) Infra, backend & deployment
 
-- [x] **Design doc**: 1:1 vs group representation (`deliveredAt` / `seenAt` fields vs per-recipient maps vs `lastReadMessageId` per user per conversation); privacy (e.g. disable read receipts setting — optional follow-up) — **`docs/MESSAGE_RECEIPTS_AND_READ_STATE_DESIGN.md`**
-- [x] **MongoDB**: extend message or receipt sub-documents with timestamps or user→timestamp maps; indexes for querying latest receipt state; access patterns per `PROJECT_GUIDELINES.md` §2.0 — **`messages.receiptsByUserId`**, **`conversation_reads`** (`ensureConversationReadsIndexes`, **`conversation_reads.collection.ts`** + **`repo.ts`**)
+- [x] **Design doc**: 1:1 vs group representation (`deliveredAt` / `seenAt` fields vs per-recipient maps vs `lastReadMessageId` per user per conversation); privacy (e.g. disable read receipts setting — optional follow-up) — **`docs/PROJECT_PLAN.md` §14**
+- [x] **MongoDB**: extend message or receipt sub-documents with timestamps or user→timestamp maps; indexes for querying latest receipt state; access patterns per **`docs/PROJECT_PLAN.md` §14** §2.0 — **`messages.receiptsByUserId`**, **`conversation_reads`** (`ensureConversationReadsIndexes`, **`conversation_reads.collection.ts`** + **`repo.ts`**)
 - [x] **Socket.IO** (and **RabbitMQ** if cross-node): events such as `message:delivered`, `message:read` / `conversation:read` with `messageId`, `conversationId`, `userId`; idempotent handlers; fan-out to sender and relevant peers — **`receiptSocketHandlers.ts`**, **`message.receipt.<userId>`** routing keys, **`messageReceiptOps`**, **`receiptPublish.ts`**, Redis **`MESSAGE_RECEIPT_RATE_LIMIT_*`**
 - [x] **REST** (optional): fetch receipt summary for history sync; align with **OpenAPI** — **`GET /v1/conversations/{conversationId}/message-receipts`** (`listMessageReceipts`), **`MessageReceiptPage`**, receipts **removed** from **`Message`**
-- [x] **Ordering**: define how **seen** interacts with **last seen** (Feature 6) — related but distinct (message-level vs user presence) — **`docs/SEEN_VS_LAST_SEEN_ORDERING.md`**
+- [x] **Ordering**: define how **seen** interacts with **last seen** (Feature 6) — related but distinct (message-level vs user presence) — **`docs/PROJECT_PLAN.md` §14**
 - [x] **Rate limits** on receipt floods; no PII in logs — **`MESSAGE_RECEIPT_RATE_LIMIT_*`** + **`isMessageReceiptRateLimited`**
 
 ### (B) Web-client, UI, tests & state management
@@ -606,11 +720,11 @@ The **default product** does **not** expose a **Settings** (or similar) screen f
 ### (A) messaging-service (backend) — AWS SDK
 
 - [x] Dependencies: **`@aws-sdk/client-s3`**; **`@aws-sdk/lib-storage`** (`Upload`); **do not** add AWS SDK to **web-client**
-- [x] **S3 client factory:** `src/storage/s3Client.ts` — env from `docs/ENVIRONMENT.md`; **MinIO** (`S3_ENDPOINT`, path-style when endpoint set); credentials via env or IAM default chain on AWS
+- [x] **S3 client factory:** `src/storage/s3Client.ts` — env from **`README.md`** (Configuration); **MinIO** (`S3_ENDPOINT`, path-style when endpoint set); credentials via env or IAM default chain on AWS
 - [x] **Upload path:** **`POST /v1/media/upload`** — multipart **`file`**; **`Authorization: Bearer`** (HS256, `sub`) when **`JWT_SECRET`** set; non-production **`X-User-Id`** for local dev; **conversation-level authz** can be added with messaging (**Feature 1**)
 - [x] **Before calling SDK:** **`MEDIA_MAX_BYTES`** (default **30 MiB** via env); allowlisted **MIME** (images + common video types); keys `users/{userId}/{uuid}-{name}`; in-memory buffer up to max (stream to **`Upload`** later if needed)
 - [x] **AWS SDK:** **`Upload`** from `@aws-sdk/lib-storage`; response **`{ key, bucket, url? }`** per **OpenAPI** `MediaUploadResponse`
-- [ ] **MongoDB:** message (or attachment) documents store **S3 key** (and optional public/base URL); access patterns per `PROJECT_GUIDELINES.md` §2.0
+- [ ] **MongoDB:** message (or attachment) documents store **S3 key** (and optional public/base URL); access patterns per **`docs/PROJECT_PLAN.md` §14** §2.0
 - [x] **Operational:** **`HeadBucket`** on **`/v1/ready`** when S3 configured; **`ensureBucketExists`** at startup; **Compose** wires **MinIO** + **`S3_*`** env (see **`infra/docker-compose.yml`**)
 
 ### (B) Web-client (UI) — upload via API only
@@ -621,7 +735,7 @@ The **default product** does **not** expose a **Settings** (or similar) screen f
 - [ ] **Composer:** after upload, pass **`mediaKey`** / preview URL into **`sendMessage`** — **no** browser **S3** calls
 - [ ] **`useMediaUpload` hook:** percent + error state (**no** `aws-sdk` in **`package.json`**)
 - [ ] **Thread:** **`<img>`** from API/CDN URLs; **`loading="lazy"`**; **`alt`**; optional lightbox
-- [ ] **Env / CDN:** **`VITE_API_BASE_URL`** in **`docs/ENVIRONMENT.md`**; public **bucket/CDN** base URL for **`src`** if different from API origin
+- [ ] **Env / CDN:** **`VITE_API_BASE_URL`** in **`README.md`** (Configuration section); public **bucket/CDN** base URL for **`src`** if different from API origin
 
 ---
 
@@ -647,7 +761,7 @@ Run these when you want to exercise the **whole stack** (Compose, nginx, **messa
 - [ ] **HTTP health:** **`GET /v1/health`** and **`GET /v1/ready`** via nginx entry (e.g. **`http://localhost:8080`**) — **200** when dependencies are up; **`/v1/ready`** reflects MongoDB, Redis, RabbitMQ, S3 as configured.
 - [ ] **Swagger:** **`/api-docs`** loads; spot-check a **public** route, then **Authorize** with a Bearer token and hit a protected route.
 - [ ] **Web client:** `npm run dev` in **`apps/web-client`** _or_ static **`dist/`** behind nginx — app shell loads; browser **Network** tab shows API calls to expected **`VITE_API_BASE_URL`** / proxy.
-- [ ] **Auth path:** register + login **or** login only — session survives refresh (refresh token); **logout** clears client storage as designed; optional: **`EMAIL_VERIFICATION_REQUIRED=true`** path documented in **`ENVIRONMENT.md`**.
+- [ ] **Auth path:** register + login **or** login only — session survives refresh (refresh token); **logout** clears client storage as designed; optional: **`EMAIL_VERIFICATION_REQUIRED=true`** path documented in **`README.md` (Configuration)**.
 - [ ] **Socket.IO:** client reaches **connected** (UI or worker); no repeated **401** loops; **presence:heartbeat** only if **Feature 6** path is enabled.
 - [ ] **Quality gates:** `npm run lint` + `npm run typecheck` in **`apps/web-client`** and **`apps/messaging-service`** (and **`npm run test`** where UI **`*.tsx`** tests exist).
 
@@ -661,7 +775,7 @@ When **Feature 1** messaging and later features land, also run the **Definition 
 - [ ] **nginx** serves **web-client** **`dist/`** + proxies API (or documented equivalent)
 - [ ] **TLS** documented for production (even if local dev stays HTTP)
 - [ ] **OpenAPI** in repo; **`npm run generate:api`** in **web-client**; **Swagger** at **`/api-docs`**
-- [ ] **Redux** + typed hooks per **`PROJECT_GUIDELINES.md`**
+- [ ] **Redux** + typed hooks per ****`docs/PROJECT_PLAN.md` §14****
 - [ ] **Smoke — auth:** register → login ( **`EMAIL_VERIFICATION_REQUIRED=false`** default; separate smoke if **`true`** )
 - [ ] **Smoke — messaging:** 1:1 thread send/receive; optional **group** create + message
 - [ ] **Smoke — media:** upload + attach in thread
@@ -674,4 +788,4 @@ When **Feature 1** messaging and later features land, also run the **Definition 
 
 ---
 
-_Checklist version: 6.3 — **Settings removal** complete; **`keyLifecycleImportPolicy.test.ts`** guards E2EE vs **`modules/settings`**._
+_Checklist version: 7.1 — **Real-time `message:new` delivery** + **read-receipt dedupe** tasks under **Product polish / UX backlog**._

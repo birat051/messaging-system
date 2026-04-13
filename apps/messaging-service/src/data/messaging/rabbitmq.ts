@@ -172,9 +172,9 @@ async function deliverReceiptToSocketIo(
   }
   const io = messagingSocketIo;
   if (!io) {
-    logger.debug(
-      { targetUserId },
-      'rabbitmq: Socket.IO not registered yet; skip receipt emit',
+    logger.warn(
+      { routingKey: `message.receipt.${targetUserId}` },
+      'rabbitmq: Socket.IO not registered; skip receipt emit',
     );
     return;
   }
@@ -184,6 +184,20 @@ async function deliverReceiptToSocketIo(
     io.to(room).except(skipSocketId).emit(socketEvent, data);
   } else {
     io.to(room).emit(socketEvent, data);
+  }
+  const env = loadEnv();
+  if (env.MESSAGING_REALTIME_DELIVERY_LOGS) {
+    logger.info(
+      {
+        event: socketEvent,
+        room,
+        targetUserId,
+        messageId: data.messageId,
+        conversationId: data.conversationId,
+        skipSocketId: skipSocketId ?? null,
+      },
+      'rabbitmq: emitted receipt to Socket.IO room',
+    );
   }
 }
 
@@ -210,9 +224,9 @@ async function deliverMessageToSocketIo(msg: ConsumeMessage): Promise<void> {
   }
   const io = messagingSocketIo;
   if (!io) {
-    logger.debug(
-      { routingKey },
-      'rabbitmq: Socket.IO not registered yet; skip emit',
+    logger.warn(
+      { routingKey, targetUserId: userId },
+      'rabbitmq: Socket.IO not registered; skip message:new emit (call setMessagingSocketIoServer after attachSocketIo)',
     );
     return;
   }
@@ -222,6 +236,21 @@ async function deliverMessageToSocketIo(msg: ConsumeMessage): Promise<void> {
     io.to(room).except(skipSocketId).emit('message:new', message);
   } else {
     io.to(room).emit('message:new', message);
+  }
+  const env = loadEnv();
+  if (env.MESSAGING_REALTIME_DELIVERY_LOGS) {
+    logger.info(
+      {
+        event: 'message:new',
+        routingKey,
+        room,
+        targetUserId: userId,
+        messageId: message.id,
+        conversationId: message.conversationId,
+        skipSocketId: skipSocketId ?? null,
+      },
+      'rabbitmq: emitted to Socket.IO room',
+    );
   }
 }
 

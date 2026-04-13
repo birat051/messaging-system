@@ -4,7 +4,7 @@ import { logger } from '../../utils/logger.js';
 /** MongoDB collection name. */
 export const MESSAGES_COLLECTION = 'messages';
 
-/** Per-recipient delivery / seen timestamps on a message (**Feature 12** — see **`docs/MESSAGE_RECEIPTS_AND_READ_STATE_DESIGN.md`**). */
+/** Per-recipient delivery / seen timestamps on a message (**Feature 12** — see **`docs/PROJECT_PLAN.md` §14**). */
 export type MessageReceiptEntry = {
   deliveredAt?: Date;
   seenAt?: Date;
@@ -37,7 +37,7 @@ export type MessageDocument = {
 };
 
 /**
- * **`messages`** collection — indexes follow **`PROJECT_GUIDELINES.md`** (access-pattern-first).
+ * **`messages`** collection — indexes follow **`docs/PROJECT_PLAN.md` §14** (access-pattern-first).
  *
  * | Access pattern | Query shape | Index |
  * |----------------|-------------|--------|

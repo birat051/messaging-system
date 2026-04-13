@@ -20,6 +20,7 @@ import { verifyPassword } from '../data/users/password.js';
 import {
   createUser,
   DuplicateEmailError,
+  DuplicateUsernameError,
   findUserByEmail,
   findUserById,
   setUserEmailVerified,
@@ -82,6 +83,8 @@ export function postRegister(env: Env): RequestHandler {
       const user = await createUser({
         email: body.email,
         password: body.password,
+        username: body.username,
+        displayName: body.displayName.trim(),
         profilePicture: body.profilePicture ?? undefined,
         status: body.status ?? undefined,
         emailVerified,
@@ -147,6 +150,16 @@ export function postRegister(env: Env): RequestHandler {
             'EMAIL_ALREADY_REGISTERED',
             409,
             'An account with this email already exists',
+          ),
+        );
+        return;
+      }
+      if (err instanceof DuplicateUsernameError) {
+        next(
+          new AppError(
+            'USERNAME_TAKEN',
+            409,
+            'This username is already taken',
           ),
         );
         return;

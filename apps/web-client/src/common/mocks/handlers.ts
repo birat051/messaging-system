@@ -10,6 +10,7 @@ type UserPublicKeyResponse = components['schemas']['UserPublicKeyResponse'];
 export const defaultMockUser: User = {
   id: 'test-user-1',
   email: 'test@example.com',
+  username: 'testuser',
   displayName: 'Test User',
   emailVerified: true,
   status: 'Hello',
@@ -45,19 +46,29 @@ export const handlers = [
   ),
   http.get('*/v1/users/search', ({ request }) => {
     const url = new URL(request.url);
-    const email = url.searchParams.get('email')?.trim().toLowerCase() ?? '';
-    if (!email) {
+    const qRaw =
+      url.searchParams.get('q')?.trim() ??
+      url.searchParams.get('email')?.trim() ??
+      '';
+    const q = qRaw.toLowerCase();
+    if (!q) {
       return HttpResponse.json(
-        { code: 'INVALID_REQUEST', message: 'email required' },
+        { code: 'INVALID_REQUEST', message: 'q or email required' },
         { status: 400 },
       );
     }
-    /** Substring match on stored email (same idea as messaging-service). */
-    const mockByStoredEmail: Array<{ storedEmail: string; row: UserSearchResult }> = [
+    /** Substring match on stored email and username (same idea as messaging-service). */
+    const mockRows: Array<{
+      storedEmail: string;
+      storedUsername: string;
+      row: UserSearchResult;
+    }> = [
       {
         storedEmail: 'found@example.com',
+        storedUsername: 'found_user',
         row: {
           userId: 'user-found-1',
+          username: 'found_user',
           displayName: 'Found User',
           profilePicture: null,
           conversationId: 'conv-7a3f9e2b-4411-4c0d-9e8a',
@@ -65,16 +76,21 @@ export const handlers = [
       },
       {
         storedEmail: 'newonly@example.com',
+        storedUsername: 'new_contact',
         row: {
           userId: 'user-new-1',
+          username: 'new_contact',
           displayName: 'New Contact',
           profilePicture: null,
           conversationId: null,
         },
       },
     ];
-    const results: UserSearchResult[] = mockByStoredEmail
-      .filter(({ storedEmail }) => storedEmail.includes(email))
+    const results: UserSearchResult[] = mockRows
+      .filter(
+        ({ storedEmail, storedUsername }) =>
+          storedEmail.includes(q) || storedUsername.includes(q),
+      )
       .map(({ row }) => row);
     return HttpResponse.json(results);
   }),

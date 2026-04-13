@@ -1,4 +1,10 @@
-import { useCallback, useRef, useState, type ChangeEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+} from 'react';
 import type { UseComposerMediaAttachmentResult } from '../types/useComposerMediaAttachment-types';
 import { useMediaUpload } from './useMediaUpload';
 
@@ -18,6 +24,26 @@ export function useComposerMediaAttachment(): UseComposerMediaAttachmentResult {
   } = useMediaUpload();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const imagePreviewUrlRef = useRef<string | null>(null);
+
+  const replaceImagePreview = useCallback((next: string | null) => {
+    if (imagePreviewUrlRef.current) {
+      URL.revokeObjectURL(imagePreviewUrlRef.current);
+      imagePreviewUrlRef.current = null;
+    }
+    imagePreviewUrlRef.current = next;
+    setImagePreviewUrl(next);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (imagePreviewUrlRef.current) {
+        URL.revokeObjectURL(imagePreviewUrlRef.current);
+        imagePreviewUrlRef.current = null;
+      }
+    };
+  }, []);
 
   const openFilePicker = useCallback(() => {
     fileInputRef.current?.click();
@@ -32,20 +58,24 @@ export function useComposerMediaAttachment(): UseComposerMediaAttachmentResult {
       }
       setFileName(file.name);
       reset();
+      replaceImagePreview(
+        file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
+      );
       try {
         await upload(file);
       } catch {
         // **`useMediaUpload`** sets **`error`**
       }
     },
-    [upload, reset],
+    [upload, reset, replaceImagePreview],
   );
 
   const clearAttachment = useCallback(() => {
     cancel();
     reset();
     setFileName(null);
-  }, [cancel, reset]);
+    replaceImagePreview(null);
+  }, [cancel, reset, replaceImagePreview]);
 
   const retryUploadAttachment = useCallback(async () => {
     try {
@@ -61,6 +91,7 @@ export function useComposerMediaAttachment(): UseComposerMediaAttachmentResult {
   return {
     fileInputRef,
     fileName,
+    imagePreviewUrl,
     openFilePicker,
     onFileInputChange,
     clearAttachment,

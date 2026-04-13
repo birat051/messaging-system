@@ -25,11 +25,21 @@ function base(): ComposerAttachmentToolbarProps {
 }
 
 describe('ComposerAttachmentToolbar', () => {
-  it('uses a touch-sized Attach control', () => {
+  it('uses a touch-sized Attach control (icon)', () => {
     renderWithProviders(<ComposerAttachmentToolbar {...base()} />);
 
     const attach = screen.getByRole('button', { name: /attach a file/i });
     expect(attach).toHaveClass('min-h-11', 'touch-manipulation');
+  });
+
+  it('does not render attach in toolbar when attachButtonPlacement is external', () => {
+    renderWithProviders(
+      <ComposerAttachmentToolbar {...base()} attachButtonPlacement="external" />,
+    );
+
+    expect(
+      screen.queryByRole('button', { name: /attach a file/i }),
+    ).not.toBeInTheDocument();
   });
 
   it('shows a determinate progress bar and label while uploading', () => {

@@ -3,7 +3,7 @@ import type { Socket } from 'socket.io';
 
 /**
  * Best-effort client IP for rate limiting — first **`X-Forwarded-For`** hop when set (nginx:
- * **`infra/nginx/nginx.conf`** → **`docs/GLOBAL_RATE_LIMIT.md`** § Operations).
+ * **`infra/nginx/nginx.conf`** → **`README.md`** (Configuration — rate limits)).
  */
 export function getClientIp(req: Request): string {
   const xff = req.headers['x-forwarded-for'];

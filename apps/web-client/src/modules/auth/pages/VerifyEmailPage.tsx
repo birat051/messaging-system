@@ -91,7 +91,8 @@ export function VerifyEmailPage() {
   }
 
   return (
-    <div className="text-foreground mx-auto max-w-md px-6 py-16">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div className="text-foreground mx-auto max-w-md px-6 py-16">
       <h1 className="text-2xl font-semibold tracking-tight">Verify email</h1>
       <p className="text-muted mt-2 text-sm">
         Open the link we sent you (it fills the token below), or paste the token
@@ -180,6 +181,7 @@ export function VerifyEmailPage() {
           Register
         </Link>
       </p>
+    </div>
     </div>
   );
 }

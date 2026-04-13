@@ -8,7 +8,7 @@ export const USER_PUBLIC_KEYS_COLLECTION = 'user_public_keys';
  * One document per **`userId`** (same id as **`User.id`**) — **no** device id dimension.
  * **No `privateKey` field** (or any private material) exists in this type or in REST/Zod/OpenAPI — only **`publicKey`**.
  *
- * @see `docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`
+ * @see **`README.md`** / **`docs/PROJECT_PLAN.md` §14**
  */
 export type UserPublicKeyDocument = {
   _id?: ObjectId;

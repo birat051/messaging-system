@@ -1,0 +1,21 @@
+---
+description: Comment density and Markdown — one line per function; only README + PROJECT_PLAN + TASK_CHECKLIST as repo docs
+alwaysApply: true
+---
+
+# Comments and documentation
+
+## Comments (code)
+
+- Do **not** write **more than one line** of comment per **function** or per **implementation unit** (a cohesive block you add or change). Prefer **self-explanatory names** and small functions.
+- If a second line seems necessary, **refactor** (extract, rename) instead of adding explanatory prose.
+- **Exception:** machine-oriented single-line directives only (e.g. `eslint-disable-next-line` with a short reason on the **same** line) do not count toward the prose limit.
+
+## Markdown (repository)
+
+- The repository uses **exactly three** Markdown documents for project documentation:
+  1. **[`README.md`](../../README.md)** (repo root) — product overview, features, architecture summary, diagrams, deployment and configuration.
+  2. **[`docs/PROJECT_PLAN.md`](../../docs/PROJECT_PLAN.md)** — algorithms, procedures, stack, layout, and **engineering standards** (§14).
+  3. **[`docs/TASK_CHECKLIST.md`](../../docs/TASK_CHECKLIST.md)** — delivery backlog and checkboxes.
+- **Do not** create additional **`*.md`** files anywhere in the repo (including `docs/`, `apps/*/`, `src/**/`, ADRs, or nested READMEs). **Do not** add Markdown “design notes” beside code; fold content into **`PROJECT_PLAN.md`** or **`README.md`** when documentation is required.
+- **OpenAPI** (`docs/openapi/openapi.yaml`) is not Markdown and remains the REST contract; update it when routes change per **`project-authority`**.

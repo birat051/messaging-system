@@ -12,6 +12,8 @@ export type UserDocument = {
   _id?: ObjectId;
   id: string;
   email: string;
+  /** Normalized **`[a-z0-9_]{3,30}`** — unique when present; omitted on legacy rows. */
+  username?: string;
   passwordHash: string;
   displayName: string | null;
   profilePicture: string | null;
@@ -26,7 +28,12 @@ export type UserDocument = {
 };
 
 /**
- * Idempotent indexes for **`users`**: unique **`email`**, unique **`id`** (API id).
+ * Idempotent indexes for **`users`**: unique **`email`**, unique **`id`** (API id), unique sparse **`username`**.
+ *
+ * **`GET /users/search`** uses **regex** substrings on **`email`** and **`username`** (escaped user input, bounded
+ * scan via **`USER_SEARCH_MAX_CANDIDATE_SCAN`**). The unique **`email`** index supports **equality**;
+ * broad substrings may scan until that cap — mitigated by **`limit`**, per-IP rate limits, and
+ * **`USER_SEARCH_MIN_QUERY_LENGTH`**.
  */
 export async function ensureUserIndexes(db: Db): Promise<void> {
   const col = db.collection(USERS_COLLECTION);
@@ -35,6 +42,10 @@ export async function ensureUserIndexes(db: Db): Promise<void> {
     { unique: true, name: 'users_email_unique' },
   );
   await col.createIndex({ id: 1 }, { unique: true, name: 'users_id_unique' });
+  await col.createIndex(
+    { username: 1 },
+    { unique: true, sparse: true, name: 'users_username_unique' },
+  );
   logger.info('MongoDB users indexes ensured');
 }
 

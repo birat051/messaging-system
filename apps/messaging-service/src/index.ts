@@ -45,6 +45,9 @@ async function main(): Promise<void> {
   const app = createApp(env);
   const httpServer = createServer(app);
   const io = await attachSocketIo(httpServer);
+  /** Required so the RabbitMQ consumer can `io.to('user:<id>').emit('message:new', …)` — see `rabbitmq.ts`. */
+  setMessagingSocketIoServer(io);
+  logger.info('RabbitMQ consumer wired to Socket.IO for message:new / receipt fan-out');
 
   httpServer.listen(env.PORT, () => {
     logger.info(

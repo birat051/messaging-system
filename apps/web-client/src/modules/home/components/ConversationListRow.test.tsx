@@ -5,7 +5,7 @@ import { renderWithProviders } from '@/common/test-utils';
 import { ConversationListRow } from './ConversationListRow';
 
 describe('ConversationListRow', () => {
-  it('renders title and optional subtitle', () => {
+  it('renders avatar initials, title, and optional subtitle', () => {
     renderWithProviders(
       <ConversationListRow title="Ada" subtitle="Last message preview" />,
     );
@@ -13,7 +13,15 @@ describe('ConversationListRow', () => {
     const row = screen.getByRole('button', { name: /ada/i });
     expect(row).toBeInTheDocument();
     expect(row).toHaveClass('min-h-11', 'touch-manipulation');
+    expect(screen.getByText('AD')).toBeInTheDocument();
     expect(screen.getByText('Last message preview')).toBeInTheDocument();
+  });
+
+  it('uses explicit avatarInitials when provided', () => {
+    renderWithProviders(
+      <ConversationListRow title="Ada" avatarInitials="A1" subtitle="Hi" />,
+    );
+    expect(screen.getByText('A1')).toBeInTheDocument();
   });
 
   it('calls onSelect when the row is activated', async () => {

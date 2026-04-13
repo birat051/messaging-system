@@ -115,14 +115,17 @@ describe.skipIf(!enabled)('integration: A→B Socket.IO + RabbitMQ', () => {
     baseUrl = `http://127.0.0.1:${addr.port}`;
 
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const t = Date.now();
     userA = await createUser({
       email: `a-${suffix}@example.com`,
       password: 'test-password-1',
+      username: `ua${t}`,
       emailVerified: true,
     });
     userB = await createUser({
       email: `b-${suffix}@example.com`,
       password: 'test-password-2',
+      username: `ub${t}`,
       emailVerified: true,
     });
   }, 60_000);
@@ -208,6 +211,128 @@ describe.skipIf(!enabled)('integration: A→B Socket.IO + RabbitMQ', () => {
       expect(toRecipient).toHaveLength(1);
       expect(toSenderEcho).toHaveLength(1);
 
+      socketB.disconnect();
+    },
+    35_000,
+  );
+
+  /**
+   * **Repro (E2EE on wire):** Service stores **`body`** as an opaque string; **B** must still get **`message:new`**
+   * with the same ciphertext (matches product checklist: sender uses E2EE **`body`**, **B** receives real-time).
+   */
+  it(
+    'B receives message:new when body is opaque E2EE-style string',
+    async () => {
+      publishSpy.mockClear();
+
+      const socketB = await connectClient(userB.id);
+      const received = new Promise<unknown>((resolve, reject) => {
+        const t = setTimeout(
+          () => reject(new Error('timeout waiting for message:new')),
+          25_000,
+        );
+        socketB.once('message:new', (payload: unknown) => {
+          clearTimeout(t);
+          resolve(payload);
+        });
+      });
+
+      const { sendMessageForUser } = await import(
+        '../data/messages/sendMessage.js',
+      );
+      const opaqueBody = 'E2EE_JSON_V1:eyJhbGciOiJub25lIn0';
+      await sendMessageForUser(userA.id, {
+        recipientUserId: userB.id,
+        body: opaqueBody,
+      });
+
+      const payload = await received;
+      expect(payload).toMatchObject({
+        senderId: userA.id,
+        body: opaqueBody,
+      });
+
+      socketB.disconnect();
+    },
+    35_000,
+  );
+
+  /**
+   * **(A) Fan-out / skip:** Recipient routing key **`message.user.<B>`** carries a **flat** `Message`
+   * JSON (no **`skipSocketId`**). Sender echo **`message.user.<A>`** wraps **`{ message, skipSocketId }`**
+   * so **`io.to('user:A').except(originSocketId)`** does not double-notify the sending tab — it must **not**
+   * affect **`message.user.<B>`** delivery to **B**.
+   */
+  it(
+    'fan-out / skip: A sends via socket message:send; B receives message:new; recipient publish is flat; sender echo has skipSocketId',
+    async () => {
+      publishSpy.mockClear();
+
+      const socketA = await connectClient(userA.id);
+      const socketB = await connectClient(userB.id);
+
+      const bIncoming = new Promise<unknown>((resolve, reject) => {
+        const t = setTimeout(
+          () => reject(new Error('timeout waiting for B message:new')),
+          25_000,
+        );
+        socketB.once('message:new', (payload: unknown) => {
+          clearTimeout(t);
+          resolve(payload);
+        });
+      });
+
+      const ackPromise = new Promise<unknown>((resolve, reject) => {
+        socketA.emit(
+          'message:send',
+          { recipientUserId: userB.id, body: 'fanout-skip-test' },
+          (r: unknown) => {
+            if (r === undefined) {
+              reject(new Error('missing ack'));
+              return;
+            }
+            resolve(r);
+          },
+        );
+      });
+
+      const [ack, payload] = await Promise.all([ackPromise, bIncoming]);
+
+      expect(ack).toMatchObject({
+        senderId: userA.id,
+        body: 'fanout-skip-test',
+      });
+      expect(payload).toMatchObject({
+        senderId: userA.id,
+        body: 'fanout-skip-test',
+      });
+
+      const toRecipient = publishSpy.mock.calls.filter(
+        (c) => c[0] === `message.user.${userB.id}`,
+      );
+      const toSenderEcho = publishSpy.mock.calls.filter(
+        (c) => c[0] === `message.user.${userA.id}`,
+      );
+      expect(toRecipient).toHaveLength(1);
+      expect(toSenderEcho).toHaveLength(1);
+
+      const recipPayload = toRecipient[0]![1];
+      expect(recipPayload).not.toBeNull();
+      expect(typeof recipPayload).toBe('object');
+      if (typeof recipPayload === 'object' && recipPayload !== null) {
+        expect('skipSocketId' in recipPayload).toBe(false);
+        expect('message' in recipPayload).toBe(false);
+      }
+
+      const echoPayload = toSenderEcho[0]![1] as Record<string, unknown>;
+      expect(echoPayload.message).toMatchObject({
+        senderId: userA.id,
+        body: 'fanout-skip-test',
+      });
+      expect(typeof echoPayload.skipSocketId).toBe('string');
+      expect(echoPayload.skipSocketId).toBe(socketA.id);
+
+      socketA.disconnect();
       socketB.disconnect();
     },
     35_000,

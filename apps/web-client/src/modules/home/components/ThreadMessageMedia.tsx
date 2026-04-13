@@ -26,18 +26,18 @@ export function ThreadMessageMedia({
 
   if (!url) {
     return (
-      <p className="text-sm whitespace-pre-wrap break-words">Attachment</p>
+      <p className="min-w-0 text-sm break-words whitespace-pre-wrap">Attachment</p>
     );
   }
 
   if (!isLikelyImageMediaKey(mediaKey)) {
     return (
-      <p className="mt-1.5 text-sm">
+      <p className="mt-1.5 min-w-0 text-sm break-words">
         <a
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-accent underline underline-offset-2"
+          className="text-accent break-all underline underline-offset-2"
         >
           Open attachment
         </a>
@@ -51,7 +51,7 @@ export function ThreadMessageMedia({
   if (imgError) {
     return (
       <p
-        className="text-muted mt-1.5 text-sm"
+        className="text-muted mt-1.5 min-w-0 text-sm break-words"
         role="status"
         id={`thread-msg-media-err-${messageId}`}
       >
@@ -60,7 +60,7 @@ export function ThreadMessageMedia({
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-accent underline underline-offset-2"
+          className="text-accent break-all underline underline-offset-2"
         >
           Open in new tab
         </a>
@@ -69,7 +69,7 @@ export function ThreadMessageMedia({
   }
 
   return (
-    <div className="mt-1.5 w-full max-w-[min(100%,20rem)]">
+    <div className="mt-1.5 min-w-0 w-full max-w-[min(100%,20rem)]">
       <div
         className="border-border bg-muted/30 relative aspect-video w-full overflow-hidden rounded-md border"
         aria-label={alt}

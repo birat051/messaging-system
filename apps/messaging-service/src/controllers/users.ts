@@ -7,7 +7,7 @@ import type { Env } from '../config/env.js';
 import { AppError } from '../utils/errors/AppError.js';
 import { getS3Client } from '../data/storage/s3Client.js';
 import { uploadUserMediaToS3 } from '../data/storage/userMediaUpload.js';
-import { searchUsersByEmailForCaller } from '../data/users/search.js';
+import { searchUsersForCaller } from '../data/users/search.js';
 import type { UpdateUserProfilePatch } from '../data/users/repo.js';
 import { updateUserProfile } from '../data/users/repo.js';
 import { toUserApiShape } from '../data/users/publicUser.js';
@@ -93,10 +93,11 @@ export function getSearchUsers(env: Env): RequestHandler {
 
       const q = req.query as unknown as z.infer<typeof searchUsersQuerySchema>;
 
-      const rows = await searchUsersByEmailForCaller({
+      const rows = await searchUsersForCaller({
         callerUserId: authUser.id,
-        email: q.email,
+        query: q.q,
         limit: resolveListLimit(q.limit),
+        maxCandidateScanCap: env.USER_SEARCH_MAX_CANDIDATE_SCAN,
       });
       res.status(200).json(rows);
     } catch (err) {

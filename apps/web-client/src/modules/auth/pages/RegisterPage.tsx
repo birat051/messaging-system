@@ -6,12 +6,14 @@ import { getCurrentUser, updateCurrentUserProfile } from '../../../common/api/us
 import { ApiErrorAlert } from '../../../common/components/ApiErrorAlert';
 import { parseApiError, type ParsedApiError } from '../utils/apiError';
 import {
+  DISPLAY_NAME_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
   REGISTER_AVATAR_MAX_BYTES,
   STATUS_MAX_LENGTH,
   validateRegisterForm,
   type RegisterFieldKey,
 } from '../../../common/utils/formValidation';
+import { loadSenderPlaintextIntoRedux } from '../../../common/senderPlaintext/loadSenderPlaintextIntoRedux';
 import { applyAuthResponse } from '../utils/applyAuthResponse';
 import { setUser } from '../stores/authSlice';
 import { useAuth } from '../../../common/hooks/useAuth';
@@ -40,6 +42,8 @@ export function RegisterPage() {
     from: authState?.from,
   });
   const [email, setEmail] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState('');
   const [profileFile, setProfileFile] = useState<File | null>(null);
@@ -62,6 +66,8 @@ export function RegisterPage() {
     setApiError(null);
     const v = validateRegisterForm({
       email,
+      displayName,
+      username,
       password,
       status,
       profilePictureUrl,
@@ -75,6 +81,8 @@ export function RegisterPage() {
     try {
       const body = {
         email: email.trim(),
+        displayName: displayName.trim(),
+        username: username.trim().toLowerCase(),
         password,
         ...(status.trim() ? { status: status.trim() } : {}),
         ...(!profileFile && profilePictureUrl.trim()
@@ -91,6 +99,7 @@ export function RegisterPage() {
         }
         const user = await getCurrentUser();
         dispatch(setUser(user));
+        await loadSenderPlaintextIntoRedux(dispatch, user.id);
         if (user.emailVerified === false) {
           if (profileFile) {
             toast.info(
@@ -116,19 +125,29 @@ export function RegisterPage() {
         state: verifyEmailState(body.email),
       });
     } catch (err) {
-      setApiError(parseApiError(err));
+      const parsed = parseApiError(err);
+      if (parsed.code === 'EMAIL_ALREADY_REGISTERED') {
+        setFieldErrors({ email: parsed.message });
+        setApiError(null);
+      } else if (parsed.code === 'USERNAME_TAKEN') {
+        setFieldErrors({ username: parsed.message });
+        setApiError(null);
+      } else {
+        setApiError(parsed);
+      }
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <div className="text-foreground mx-auto max-w-md px-6 py-16">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div className="text-foreground mx-auto max-w-md px-6 py-16">
       <h1 className="text-2xl font-semibold tracking-tight">Create account</h1>
       <p className="text-muted mt-2 text-sm">
-        Password at least {PASSWORD_MIN_LENGTH} characters. Optional status (max {STATUS_MAX_LENGTH}{' '}
-        chars) and profile photo — upload an image (preferred); or paste a URL in the advanced
-        section.
+        Add your display name and a unique username (letters, digits, underscores). Password at least{' '}
+        {PASSWORD_MIN_LENGTH} characters. Optional status (max {STATUS_MAX_LENGTH} chars) and profile
+        photo — upload an image (preferred); or paste a URL in the advanced section.
       </p>
 
       <form onSubmit={onSubmit} className="mt-8 space-y-4">
@@ -151,6 +170,61 @@ export function RegisterPage() {
           {fieldErrors.email && (
             <p id="register-email-err" className="mt-1 text-xs text-red-600 dark:text-red-400" role="alert">
               {fieldErrors.email}
+            </p>
+          )}
+        </div>
+        <div>
+          <label htmlFor="register-display-name" className="mb-1 block text-sm font-medium">
+            Display name
+          </label>
+          <input
+            id="register-display-name"
+            name="displayName"
+            type="text"
+            autoComplete="name"
+            required
+            maxLength={DISPLAY_NAME_MAX_LENGTH}
+            value={displayName}
+            onChange={(ev) => setDisplayName(ev.target.value)}
+            aria-invalid={Boolean(fieldErrors.displayName)}
+            aria-describedby={fieldErrors.displayName ? 'register-display-name-err' : undefined}
+            className={`bg-background ring-ring focus:ring-accent/40 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 ${fieldBorderClass('displayName')}`}
+            placeholder="How you want to appear"
+          />
+          {fieldErrors.displayName && (
+            <p
+              id="register-display-name-err"
+              className="mt-1 text-xs text-red-600 dark:text-red-400"
+              role="alert"
+            >
+              {fieldErrors.displayName}
+            </p>
+          )}
+        </div>
+        <div>
+          <label htmlFor="register-username" className="mb-1 block text-sm font-medium">
+            Username
+          </label>
+          <input
+            id="register-username"
+            name="username"
+            type="text"
+            autoComplete="username"
+            required
+            value={username}
+            onChange={(ev) => setUsername(ev.target.value)}
+            aria-invalid={Boolean(fieldErrors.username)}
+            aria-describedby={fieldErrors.username ? 'register-username-err' : undefined}
+            className={`bg-background ring-ring focus:ring-accent/40 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 ${fieldBorderClass('username')}`}
+            placeholder="your_handle"
+          />
+          {fieldErrors.username && (
+            <p
+              id="register-username-err"
+              className="mt-1 text-xs text-red-600 dark:text-red-400"
+              role="alert"
+            >
+              {fieldErrors.username}
             </p>
           )}
         </div>
@@ -281,6 +355,7 @@ export function RegisterPage() {
           Sign in
         </Link>
       </p>
+    </div>
     </div>
   );
 }

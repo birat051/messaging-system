@@ -34,6 +34,7 @@ export {
   getUserPublicKeyById,
   putMyPublicKey,
   rotateMyPublicKey,
+  searchUsers,
   searchUsersByEmail,
   updateCurrentUserProfile,
 } from './usersApi';

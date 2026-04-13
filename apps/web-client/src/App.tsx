@@ -22,7 +22,7 @@ function NavigationBridge() {
 
 export default function App() {
   return (
-    <>
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <NavigationBridge />
       <Suspense fallback={<RouteFallback />}>
         <Routes>
@@ -35,6 +35,6 @@ export default function App() {
           <Route path={ROUTES.verifyEmail} element={<VerifyEmailPage />} />
         </Routes>
       </Suspense>
-    </>
+    </div>
   );
 }

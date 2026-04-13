@@ -1,24 +1,24 @@
 ---
-description: messaging-service — TypeScript, Express, MongoDB, Redis; read docs/PROJECT_GUIDELINES.md first
+description: messaging-service — TypeScript, Express, MongoDB, Redis; read docs/PROJECT_PLAN.md §14 first
 globs: apps/messaging-service/**
 alwaysApply: false
 ---
 
-# Backend (messaging-service) (from `docs/PROJECT_GUIDELINES.md`)
+# Backend (messaging-service) (from `docs/PROJECT_PLAN.md` §14)
 
-**Before coding:** read **`docs/PROJECT_GUIDELINES.md`** (§1–3 for Node/HTTP/DB). The **`project-authority`** rule applies to every chat.
+**Before coding:** read **`docs/PROJECT_PLAN.md` §14** (§14.1–§14.3 for Node/HTTP/DB). The **`project-authority`** rule applies to every chat.
 
 ## TypeScript & Node
 
 - `"strict": true`. Prefer `unknown` over `any`. Explicit return types on exports and public APIs.
 - `async`/`await` with handled rejections; no floating promises in handlers. `node:` prefix for builtins.
-- **No deprecated APIs:** avoid deprecated Node built-ins and library calls; prefer current documented APIs and heed `@deprecated` in typings (`PROJECT_GUIDELINES.md` §1.1).
+- **No deprecated APIs:** avoid deprecated Node built-ins and library calls; prefer current documented APIs and heed `@deprecated` in typings (`docs/PROJECT_PLAN.md` §14.1).
 
 ## Structure
 
 - **Layers:** routes/controllers → **services** (use cases) → **repositories** (MongoDB/Redis). Thin route handlers.
 - **REST contract:** `docs/openapi/` is authoritative; validate requests with **Zod** (or equivalent) in services; keep in sync with OpenAPI in the same PR.
-- **Env:** validate at startup (e.g. Zod); fail fast. Never commit secrets; never log passwords, tokens, or full PII.
+- **Env:** validate at startup (e.g. Zod); fail fast. Never commit secrets; never log passwords, tokens, or full PII. Document vars in **`README.md`** (Configuration).
 
 ## Express
 
@@ -28,7 +28,7 @@ alwaysApply: false
 
 ## Design patterns (use with purpose)
 
-Repository, service layer, Strategy/Adapter for third parties, Express middleware chain, Factory for clients. Document non-obvious choices (PR note or short ADR).
+Repository, service layer, Strategy/Adapter for third parties, Express middleware chain, Factory for clients. Document non-obvious choices in **`PROJECT_PLAN.md`** / **`README.md`** or PR — **do not** add new Markdown files.
 
 ## MongoDB
 

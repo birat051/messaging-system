@@ -7,6 +7,11 @@ export type UseComposerMediaAttachmentResult = {
   fileInputRef: RefObject<HTMLInputElement | null>;
   /** Selected file label (name) while an attachment is in play. */
   fileName: string | null;
+  /**
+   * **`blob:` URL** for a pending **image** (`image/*`) — **`null`** for video/audio or no file.
+   * Revoked when the attachment clears or the hook unmounts.
+   */
+  imagePreviewUrl: string | null;
   openFilePicker: () => void;
   onFileInputChange: (e: ChangeEvent<HTMLInputElement>) => Promise<void>;
   clearAttachment: () => void;

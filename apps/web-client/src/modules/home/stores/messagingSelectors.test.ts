@@ -30,6 +30,8 @@ describe('selectOutboundReceiptTickState (direct)', () => {
       receiptsByMessageId: {},
       sendPendingByConversationId: {},
       sendErrorByConversationId: {},
+      senderPlaintextByMessageId: {},
+      decryptedBodyByMessageId: {},
     };
     expect(
       selectOutboundReceiptTickState(messaging, 'm1', userId, {
@@ -65,6 +67,8 @@ describe('selectOutboundReceiptTickState (direct)', () => {
       },
       sendPendingByConversationId: {},
       sendErrorByConversationId: {},
+      senderPlaintextByMessageId: {},
+      decryptedBodyByMessageId: {},
     };
     const root = { messaging } as RootState;
     const ctx = { kind: 'direct' as const, peerUserId: peerId };
@@ -97,6 +101,8 @@ describe('selectOutboundReceiptDisplay (group aggregate)', () => {
     receiptsByMessageId: {},
     sendPendingByConversationId: {},
     sendErrorByConversationId: {},
+    senderPlaintextByMessageId: {},
+    decryptedBodyByMessageId: {},
   });
 
   it('shows sent until all recipients have delivered', () => {

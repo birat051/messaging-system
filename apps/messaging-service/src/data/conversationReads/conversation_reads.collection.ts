@@ -7,7 +7,7 @@ export const CONVERSATION_READS_COLLECTION = 'conversation_reads';
 /**
  * Durable **read cursor** for **`(userId, conversationId)`** — “I have read up to **`lastReadMessageId`**.”
  * **Delivered** state remains on **`messages.receiptsByUserId`** (or future paths); see
- * **`docs/MESSAGE_RECEIPTS_AND_READ_STATE_DESIGN.md`**.
+ * **`docs/PROJECT_PLAN.md` §14**.
  */
 export type ConversationReadDocument = {
   userId: string;
@@ -19,7 +19,7 @@ export type ConversationReadDocument = {
 };
 
 /**
- * **`conversation_reads`** — indexes follow **`PROJECT_GUIDELINES.md` §2.0** (access-pattern-first).
+ * **`conversation_reads`** — indexes follow **`docs/PROJECT_PLAN.md` §14.2** (access-pattern-first).
  *
  * | Access pattern | Query shape | Index |
  * |----------------|-------------|--------|

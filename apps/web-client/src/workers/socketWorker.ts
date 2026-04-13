@@ -34,6 +34,7 @@ function connectSocket(msg: Extract<MainToWorkerMessage, { type: 'connect' }>): 
   clearHeartbeat();
   socket?.disconnect();
 
+  /** Same **`userId`** as Redux **`auth.user.id`** — server joins **`user:<id>`**; must match the recipient of **`message:new`**. */
   const auth: Record<string, string> = { userId: msg.userId };
   if (msg.accessToken?.trim()) {
     auth.token = msg.accessToken.trim();

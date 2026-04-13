@@ -12,12 +12,18 @@ function initialsFromResult(user: UserSearchResult): string {
     }
     return name.slice(0, 2).toUpperCase();
   }
+  const handle = user.username?.trim();
+  if (handle) {
+    return handle.slice(0, 2).toUpperCase();
+  }
   return user.userId.slice(0, 2).toUpperCase();
 }
 
 function displayNameFor(user: UserSearchResult): string {
   const name = user.displayName?.trim();
   if (name) return name;
+  const handle = user.username?.trim();
+  if (handle) return `@${handle}`;
   return `User ${user.userId.slice(0, 8)}`;
 }
 

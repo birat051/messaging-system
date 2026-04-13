@@ -81,7 +81,15 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
           break;
         case 'message_new': {
           const message = parseMessageNewPayload(msg.payload);
-          if (!message) break;
+          if (!message) {
+            if (import.meta.env.DEV) {
+              console.warn(
+                '[message:new] dropped invalid payload (expected flat Message: id, conversationId, senderId, createdAt, optional body/mediaKey)',
+                msg.payload,
+              );
+            }
+            break;
+          }
           dispatch(appendIncomingMessageIfNew({ message, currentUserId: uid }));
           void mutate(['conversation-messages', message.conversationId, uid]);
           if (message.senderId !== uid) {

@@ -9,6 +9,7 @@ import {
   type ParsedApiError,
 } from '../utils/apiError';
 import { validateLoginForm } from '../../../common/utils/formValidation';
+import { loadSenderPlaintextIntoRedux } from '../../../common/senderPlaintext/loadSenderPlaintextIntoRedux';
 import { applyAuthResponse } from '../utils/applyAuthResponse';
 import { setUser } from '../stores/authSlice';
 import { useAuth } from '../../../common/hooks/useAuth';
@@ -56,6 +57,7 @@ export function LoginPage() {
       applyAuthResponse(dispatch, data, null);
       const user = await getCurrentUser();
       dispatch(setUser(user));
+      await loadSenderPlaintextIntoRedux(dispatch, user.id);
       navigate(getPostLoginRedirectPath(location.state), { replace: true });
     } catch (err) {
       const parsed = parseLoginError(err);
@@ -67,7 +69,8 @@ export function LoginPage() {
   }
 
   return (
-    <div className="text-foreground mx-auto max-w-md px-6 py-16">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div className="text-foreground mx-auto max-w-md px-6 py-16">
       <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
       <p className="text-muted mt-2 text-sm">
         Use the email and password for your account.
@@ -159,6 +162,7 @@ export function LoginPage() {
           Register
         </Link>
       </p>
+    </div>
     </div>
   );
 }

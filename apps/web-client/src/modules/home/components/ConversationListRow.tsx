@@ -1,24 +1,31 @@
+import { conversationListAvatarInitials } from '@/modules/home/utils/conversationListPreview';
+
 export type ConversationListRowProps = {
   title: string;
   subtitle?: string;
+  /** **1–2** characters for the avatar circle; defaults from **`title`**. */
+  avatarInitials?: string;
   /** When true, this row is the active conversation (e.g. open thread). */
   isActive?: boolean;
   onSelect?: () => void;
 };
 
 /**
- * Single row in a conversation list — selectable, with optional preview line.
+ * Single row in a conversation list — **avatar**, **name**, and optional **truncated** preview line.
  */
 export function ConversationListRow({
   title,
   subtitle,
+  avatarInitials,
   isActive = false,
   onSelect,
 }: ConversationListRowProps) {
+  const initials = (avatarInitials ?? conversationListAvatarInitials(title)).slice(0, 2);
+
   return (
     <button
       type="button"
-      className={`focus:ring-accent/40 flex min-h-11 w-full touch-manipulation items-start rounded-lg border px-3 py-3 text-left text-sm outline-none transition focus:ring-2 sm:px-4 ${
+      className={`focus:ring-accent/40 flex min-h-11 w-full touch-manipulation items-center gap-3 rounded-lg border px-3 py-3 text-left text-sm outline-none transition focus:ring-2 sm:px-4 ${
         isActive
           ? 'border-accent bg-accent/10 text-foreground'
           : 'border-border bg-surface hover:bg-background/80'
@@ -26,10 +33,18 @@ export function ConversationListRow({
       aria-pressed={isActive}
       onClick={onSelect}
     >
-      <div className="text-foreground font-medium">{title}</div>
-      {subtitle ? (
-        <div className="text-muted line-clamp-1 text-xs">{subtitle}</div>
-      ) : null}
+      <span
+        className="bg-muted text-muted-foreground flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
+        aria-hidden="true"
+      >
+        {initials}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="text-foreground block font-medium line-clamp-1">{title}</span>
+        {subtitle ? (
+          <span className="text-muted mt-0.5 block line-clamp-1 text-xs">{subtitle}</span>
+        ) : null}
+      </span>
     </button>
   );
 }

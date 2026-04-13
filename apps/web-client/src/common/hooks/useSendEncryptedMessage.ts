@@ -1,7 +1,8 @@
 import { useCallback } from 'react';
+import { useStore } from 'react-redux';
 import { ensureUserKeypairReadyForMessaging } from '../crypto/ensureMessagingKeypair';
 import { encryptUtf8ToE2eeBody } from '../crypto/messageEcies';
-import { fetchRecipientPublicKeyForMessaging } from '../utils/fetchRecipientPublicKey';
+import { fetchRecipientPublicKeyWithCache } from '../utils/fetchRecipientPublicKey';
 import type { Message, SendMessageRequest } from '../realtime/socketWorkerProtocol';
 import { useAppDispatch } from '@/store/hooks';
 import { useAuth } from './useAuth';
@@ -18,7 +19,7 @@ export type UseSendEncryptedMessageOptions = {
 /**
  * **`message:send`** with **ECIES** on UTF-8 **`body`** (opaque to the server).
  * Ensures the sender’s directory key exists (**`ensureUserKeypairReadyForMessaging`**) and
- * loads the recipient’s public key via **`fetchRecipientPublicKeyForMessaging`** (retries) before encrypting.
+ * loads the recipient’s public key via **`fetchRecipientPublicKeyWithCache`** (Redux cache, else GET with retries) before encrypting.
  * **`usePrefetchRecipientPublicKey`** may warm the same GET earlier when a thread or search row is selected.
  */
 export function useSendEncryptedMessage(
@@ -26,6 +27,7 @@ export function useSendEncryptedMessage(
 ): { sendMessage: (payload: SendMessageRequest) => Promise<Message> } {
   const { user } = useAuth();
   const dispatch = useAppDispatch();
+  const store = useStore();
   const { sendMessage: socketSend } = useSocketWorkerSendMessage();
   const peerUserId = options.peerUserId?.trim() ?? '';
 
@@ -61,8 +63,11 @@ export function useSendEncryptedMessage(
 
       await ensureUserKeypairReadyForMessaging(senderId, dispatch);
 
-      const recipientPk =
-        await fetchRecipientPublicKeyForMessaging(recipientUserId);
+      const recipientPk = await fetchRecipientPublicKeyWithCache(
+        recipientUserId,
+        () => store.getState(),
+        dispatch,
+      );
 
       const encryptedBody = await encryptUtf8ToE2eeBody(
         bodyText,
@@ -74,7 +79,7 @@ export function useSendEncryptedMessage(
         body: encryptedBody,
       });
     },
-    [dispatch, peerUserId, socketSend, user?.id],
+    [dispatch, peerUserId, socketSend, store, user?.id],
   );
 
   return { sendMessage };

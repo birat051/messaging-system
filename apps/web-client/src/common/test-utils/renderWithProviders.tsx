@@ -13,6 +13,7 @@ import {
   messagingReducer,
 } from '../../modules/home/stores/messagingSlice';
 import type { RootState } from '../../store/store';
+import { senderPlaintextPersistListener } from '../../store/senderPlaintextPersistListener';
 import { ToastProvider } from '../components/toast/ToastProvider';
 import { ThemeProvider } from '../theme/ThemeProvider';
 
@@ -69,6 +70,8 @@ export function createTestStore(preloadedState?: Partial<RootState>) {
       messaging: messagingReducer,
     },
     preloadedState: mergeRootState(preloadedState),
+    middleware: (getDefaultMiddleware) =>
+      getDefaultMiddleware().concat(senderPlaintextPersistListener.middleware),
   });
 }
 

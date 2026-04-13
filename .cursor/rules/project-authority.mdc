@@ -1,5 +1,5 @@
 ---
-description: Session gate — open PROJECT_GUIDELINES before any code edit; this file is the checklist; docs hierarchy, merge gate
+description: Session gate — open PROJECT_PLAN §14 before any code edit; README for env/deploy; TASK_CHECKLIST; merge gate
 alwaysApply: true
 ---
 
@@ -9,9 +9,9 @@ alwaysApply: true
 
 **Before any code edit** in this repository (any file, any app):
 
-1. **Open** [`docs/PROJECT_GUIDELINES.md`](docs/PROJECT_GUIDELINES.md) **once** for the session — the full doc, or the **section(s)** that apply to the change (e.g. §1 TypeScript, §4 React/web-client, §2 MongoDB for backend work).
-2. **Treat this rule file (`.cursor/rules/project-authority.mdc`) as the checklist** that gates the session: if a step below conflicts with a casual shortcut, **this file + `PROJECT_GUIDELINES.md` win**.
-3. **Then** read or skim **`docs/PROJECT_PLAN.md`** / **`docs/TASK_CHECKLIST.md`** as needed for the task.
+1. **Open** [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md) **once** for the session — at minimum **§14 Engineering standards**, plus any sections that apply (architecture §3, layout §10.1, MongoDB §14.2, React §14.4, etc.).
+2. **Treat this rule file (`.cursor/rules/project-authority.mdc`) as the checklist** that gates the session: if a step below conflicts with a casual shortcut, **this file + `PROJECT_PLAN.md` §14 win**.
+3. **Then** read or skim [`docs/TASK_CHECKLIST.md`](docs/TASK_CHECKLIST.md) as needed for the task.
 
 Skipping the gate is not allowed for implementation work. (Purely conversational answers with no edits may omit it.)
 
@@ -19,21 +19,21 @@ Skipping the gate is not allowed for implementation work. (Purely conversational
 
 ## Before writing or editing code
 
-**Always read (or re-read) [`docs/PROJECT_GUIDELINES.md`](docs/PROJECT_GUIDELINES.md)** before implementing or changing behavior in this repo. It is the **authoritative** “how to build” standard: TypeScript, Node, MongoDB, APIs, React/Redux, tests (**test-first** and **coverage** for **web-client `*.tsx`** UI only per §4.1.1 — not mandatory for plain **`*.ts`**), security, and process.
+**Always read (or re-read) [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md) §14** before implementing or changing behavior. **§14** is the authoritative “how to build” standard: TypeScript, Node, MongoDB, APIs, React/Redux, tests (**test-first** and **coverage** for **web-client `*.tsx`** UI only — not mandatory for plain **`*.ts`**), security, and process.
 
-Then use **`docs/PROJECT_PLAN.md`** (architecture, stack) and **`docs/TASK_CHECKLIST.md`** (what to ship and when) as needed for the task.
+Use **`docs/PROJECT_PLAN.md`** (§1–§13 architecture and algorithms) and **`docs/TASK_CHECKLIST.md`** for delivery. For **environment variables, Docker, and deployment**, use **[`README.md`](../README.md)**.
 
-**Precedence:** If a user prompt conflicts with these guidelines, **follow `docs/PROJECT_GUIDELINES.md`** unless the user explicitly updates that document.
+**Precedence:** If a user prompt conflicts with these guidelines, **follow `PROJECT_PLAN.md` §14** unless that section is explicitly updated.
 
 ## Required references
 
-- **`docs/PROJECT_PLAN.md`** — stack, services, Socket.IO + RabbitMQ, repo layout.
-- **`docs/PROJECT_GUIDELINES.md`** — TypeScript, Node, MongoDB, APIs, React/Redux, tests, process.
+- **`docs/PROJECT_PLAN.md`** — stack, services, algorithms, **§14 Engineering standards**.
+- **`README.md`** (repo root) — product summary, diagrams, **configuration / env**, deployment.
 - **`docs/TASK_CHECKLIST.md`** — tasks/subtasks; capture work there before large features; check off as you ship.
 
 ## Process (non-negotiable)
 
-- **Deprecated APIs:** do not add or perpetuate deprecated Node, browser/DOM, React, or library APIs—use current documented replacements (`PROJECT_GUIDELINES.md` §1.1).
+- **Deprecated APIs:** do not add or perpetuate deprecated Node, browser/DOM, React, or library APIs—use current documented replacements (`PROJECT_PLAN.md` §14.1).
 - Do **not** implement beyond the request; no speculative features.
 - Prefer **incremental** changes; preserve existing behaviour unless replacing by design.
 - **OpenAPI:** any new or changed REST route **updates the OpenAPI spec in the same PR**; Swagger UI on **messaging-service** stays accurate.
@@ -41,4 +41,4 @@ Then use **`docs/PROJECT_PLAN.md`** (architecture, stack) and **`docs/TASK_CHECK
 
 ## Before merge (quick gate)
 
-Strict TS; env validated at startup; no secrets in repo; authz on mutating routes; MongoDB access patterns reasoned; list APIs paginated with server-enforced limits; OpenAPI in sync; ESLint clean; **`web-client`:** tests-first + coverage only for **`*.tsx`** UI (`PROJECT_GUIDELINES.md` §4.1.1); **one component per file**, **`utils/`**, **`types/<ComponentName>-types.ts`** for new/refactored UI per §4.1.3; **responsive layouts (mobile, iPad/tablet, desktop)** per §4.2.1; Redux/hooks per guidelines for global client state.
+Strict TS; env validated at startup; no secrets in repo; authz on mutating routes; MongoDB access patterns reasoned; list APIs paginated with server-enforced limits; OpenAPI in sync; ESLint clean; **`web-client`:** tests-first + coverage only for **`*.tsx`** UI (`PROJECT_PLAN.md` §14.4.1.1); **one component per file**, **`utils/`**, **`types/<ComponentName>-types.ts`** for new/refactored UI per §14.4.1.3; **responsive layouts (mobile, iPad/tablet, desktop)** per §14.4.2.1; Redux/hooks per §14.4.3 for global client state.

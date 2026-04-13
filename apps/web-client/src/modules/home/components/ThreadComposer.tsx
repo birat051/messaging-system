@@ -1,7 +1,12 @@
 import { type FormEvent, useId, useState } from 'react';
+import { SendIcon } from '@/common/components/SendIcon';
 import { useComposerMediaAttachment } from '@/common/hooks/useComposerMediaAttachment';
 import type { ThreadComposerSendPayload } from '../types/ThreadComposer-types';
-import { ComposerAttachmentToolbar } from './ComposerAttachmentToolbar';
+import { ComposerImagePreviewStrip } from './ComposerImagePreviewStrip';
+import {
+  ComposerAttachButton,
+  ComposerAttachmentToolbar,
+} from './ComposerAttachmentToolbar';
 
 export type ThreadComposerProps = {
   onSend: (payload: ThreadComposerSendPayload) => void | Promise<void>;
@@ -72,11 +77,11 @@ export function ThreadComposer({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="min-w-0 space-y-2">
       {displayError ? (
         <p
           role="alert"
-          className="text-sm text-red-600 dark:text-red-400"
+          className="min-w-0 break-words text-sm text-red-600 dark:text-red-400"
         >
           {displayError}
         </p>
@@ -94,9 +99,11 @@ export function ThreadComposer({
         cancelUpload={attachment.cancelUpload}
         mediaKey={attachment.mediaKey}
         retryUpload={attachment.retryUpload}
+        attachButtonPlacement="external"
       />
+      <ComposerImagePreviewStrip url={attachment.imagePreviewUrl} />
       <form
-        className="flex flex-col gap-2 sm:flex-row sm:items-end"
+        className="flex flex-col gap-2 sm:flex-row sm:items-center"
         onSubmit={handleSubmit}
       >
         <div className="min-w-0 flex-1">
@@ -122,13 +129,29 @@ export function ThreadComposer({
             className="border-border bg-background ring-ring focus:ring-accent/40 w-full resize-y rounded-md border px-3 py-2 text-base outline-none focus:ring-2 md:text-sm"
           />
         </div>
+        <ComposerAttachButton
+          fileInputId={fileInputId}
+          openFilePicker={attachment.openFilePicker}
+          disabled={
+            attachment.isUploading || disabled || submitting
+          }
+        />
         <button
           type="submit"
           disabled={sendDisabled}
           aria-busy={submitting}
-          className="bg-accent text-accent-foreground hover:bg-accent/90 focus:ring-accent/50 min-h-11 min-w-[5.5rem] shrink-0 touch-manipulation rounded-md px-4 text-sm font-medium outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
+          aria-label={submitting ? 'Sending message' : 'Send message'}
+          title={submitting ? 'Sending…' : 'Send message'}
+          className="bg-accent text-accent-foreground hover:bg-accent/90 focus:ring-accent/50 inline-flex min-h-11 min-w-11 shrink-0 touch-manipulation items-center justify-center rounded-md px-2.5 text-sm font-medium outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {submitting ? 'Sending…' : 'Send'}
+          {submitting ? (
+            <span
+              className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-current/30 border-t-current"
+              aria-hidden
+            />
+          ) : (
+            <SendIcon className="h-5 w-5" />
+          )}
         </button>
       </form>
     </div>

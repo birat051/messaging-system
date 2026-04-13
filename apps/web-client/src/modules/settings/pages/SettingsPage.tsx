@@ -76,14 +76,17 @@ export function SettingsPage() {
 
   if (!user) {
     return (
-      <div className="text-foreground mx-auto max-w-md px-6 py-16">
-        <p className="text-muted text-sm">Loading profile…</p>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <div className="text-foreground mx-auto max-w-md px-6 py-16">
+          <p className="text-muted text-sm">Loading profile…</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="text-foreground mx-auto max-w-lg px-6 py-10">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div className="text-foreground mx-auto max-w-lg px-6 py-10">
       <div className="mb-8">
         <Link
           to={ROUTES.home}
@@ -176,6 +179,7 @@ export function SettingsPage() {
           {submitting ? 'Saving…' : 'Save changes'}
         </button>
       </form>
+    </div>
     </div>
   );
 }

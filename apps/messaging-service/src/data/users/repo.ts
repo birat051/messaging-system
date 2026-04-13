@@ -2,14 +2,18 @@ import { randomUUID } from 'node:crypto';
 import { MongoServerError } from 'mongodb';
 import { getDb } from '../../data/db/mongo.js';
 import { hashPassword } from './password.js';
+import { escapeRegexLiteral } from '../../utils/escapeRegexLiteral.js';
 import {
   USERS_COLLECTION,
   type UserDocument,
 } from './users.collection.js';
+import { normalizeUsername } from './username.js';
 
 export type CreateUserInput = {
   email: string;
   password: string;
+  /** Normalized unique handle — required for new registrations. */
+  username: string;
   displayName?: string | null;
   profilePicture?: string | null;
   status?: string | null;
@@ -29,6 +33,7 @@ export function normalizeUserDocument(doc: UserDocument | null): UserDocument | 
     ...doc,
     profilePicture: doc.profilePicture ?? null,
     status: doc.status ?? null,
+    username: doc.username,
   };
 }
 
@@ -39,12 +44,14 @@ export async function createUser(
   input: CreateUserInput,
 ): Promise<UserDocument> {
   const email = normalizeEmail(input.email);
+  const username = normalizeUsername(input.username);
   const now = new Date();
   const passwordHash = await hashPassword(input.password);
 
   const doc: UserDocument = {
     id: randomUUID(),
     email,
+    username,
     passwordHash,
     displayName: input.displayName ?? null,
     profilePicture: input.profilePicture ?? null,
@@ -60,7 +67,14 @@ export async function createUser(
     await getDb().collection<UserDocument>(USERS_COLLECTION).insertOne(doc);
   } catch (err: unknown) {
     if (err instanceof MongoServerError && err.code === 11000) {
-      throw new DuplicateEmailError(email);
+      const kp = err.keyPattern as Record<string, unknown> | undefined;
+      if (kp && 'username' in kp) {
+        throw new DuplicateUsernameError(username);
+      }
+      if (kp && 'email' in kp) {
+        throw new DuplicateEmailError(email);
+      }
+      throw err;
     }
     throw err;
   }
@@ -74,6 +88,13 @@ export class DuplicateEmailError extends Error {
   }
 }
 
+export class DuplicateUsernameError extends Error {
+  constructor(public readonly username: string) {
+    super('Duplicate username');
+    this.name = 'DuplicateUsernameError';
+  }
+}
+
 export async function findUserByEmail(
   email: string,
 ): Promise<UserDocument | null> {
@@ -82,6 +103,51 @@ export async function findUserByEmail(
     .collection<UserDocument>(USERS_COLLECTION)
     .findOne({ email: normalized });
   return normalizeUserDocument(found);
+}
+
+/**
+ * Fields needed for **`GET /users/search`** — **`passwordHash`** is never read (projection).
+ */
+export type UserSearchRow = Pick<
+  UserDocument,
+  'id' | 'email' | 'username' | 'displayName' | 'profilePicture'
+>;
+
+/**
+ * **Access pattern:** case-insensitive **substring** match on **`email`** or **`username`** via escaped regex.
+ * The unique index on **`email`** supports **equality** lookups; arbitrary substrings may scan up to
+ * **`maxCandidates`** documents — bounded by **`limit`** scaling + hard cap in **`search.ts`**, plus
+ * per-IP Redis rate limiting on the route (**`docs/PROJECT_PLAN.md` §14.2**).
+ */
+export async function findUsersBySearchSubstringMatch(params: {
+  normalizedNeedle: string;
+  excludeUserId: string;
+  maxCandidates: number;
+}): Promise<UserSearchRow[]> {
+  const escaped = escapeRegexLiteral(params.normalizedNeedle);
+  const regex = new RegExp(escaped, 'i');
+  const docs = await getDb()
+    .collection<UserDocument>(USERS_COLLECTION)
+    .find(
+      {
+        id: { $ne: params.excludeUserId },
+        $or: [
+          { email: { $regex: regex } },
+          { username: { $regex: regex } },
+        ],
+      },
+      { projection: { passwordHash: 0 } },
+    )
+    .limit(params.maxCandidates)
+    .toArray();
+
+  return docs.map((d) => ({
+    id: d.id,
+    email: d.email,
+    username: d.username,
+    displayName: d.displayName,
+    profilePicture: d.profilePicture ?? null,
+  }));
 }
 
 export async function findUserById(id: string): Promise<UserDocument | null> {

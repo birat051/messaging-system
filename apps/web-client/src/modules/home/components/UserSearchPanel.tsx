@@ -1,13 +1,10 @@
 import { useEffect, useId, useState } from 'react';
 import useSWR from 'swr';
 import type { components } from '@/generated/api-types';
-import { searchUsersByEmail } from '@/common/api/usersApi';
+import { searchUsers } from '@/common/api/usersApi';
 import { usePrefetchRecipientPublicKey } from '@/common/hooks/usePrefetchRecipientPublicKey';
 import { useDebouncedValue } from '@/common/hooks/useDebouncedValue';
-import {
-  isValidUserSearchEmailQuery,
-  USER_SEARCH_EMAIL_QUERY_MIN_LENGTH,
-} from '@/common/utils/formValidation';
+import { isValidUserSearchQuery } from '@/common/utils/formValidation';
 import { parseApiError } from '@/modules/auth/utils/apiError';
 import { FollowUpThreadComposer } from './FollowUpThreadComposer';
 import { NewDirectThreadComposer } from './NewDirectThreadComposer';
@@ -15,12 +12,14 @@ import { UserSearchResultList } from './UserSearchResultList';
 
 type UserSearchResult = components['schemas']['UserSearchResult'];
 
-/** Pause between keystrokes before calling **`GET /users/search`** (substring match on email). */
+/** Pause between keystrokes before calling **`GET /users/search`**. */
 export const SEARCH_DEBOUNCE_MS = 400;
 
 function threadLabelFor(user: UserSearchResult): string {
   const name = user.displayName?.trim();
   if (name) return name;
+  const handle = user.username?.trim();
+  if (handle) return `@${handle}`;
   return `User ${user.userId.slice(0, 8)}`;
 }
 
@@ -37,16 +36,16 @@ export type UserSearchPanelProps = {
 export function UserSearchPanel({ embedInSidebar = false }: UserSearchPanelProps) {
   const id = useId();
   const headingId = `user-search-heading-${id}`;
-  const inputId = `user-search-email-${id}`;
+  const inputId = `user-search-query-${id}`;
 
-  const [email, setEmail] = useState('');
+  const [query, setQuery] = useState('');
   const [selectedRecipient, setSelectedRecipient] = useState<UserSearchResult | null>(null);
   /** Persisted from **`message:send`** ack **`Message.conversationId`** after the first send in a new thread. */
   const [storedConversationId, setStoredConversationId] = useState<string | null>(null);
 
-  const debouncedTrimmed = useDebouncedValue(email.trim(), SEARCH_DEBOUNCE_MS);
+  const debouncedTrimmed = useDebouncedValue(query.trim(), SEARCH_DEBOUNCE_MS);
   const normalizedQuery = debouncedTrimmed.toLowerCase();
-  const canSearch = isValidUserSearchEmailQuery(normalizedQuery);
+  const canSearch = isValidUserSearchQuery(normalizedQuery);
 
   useEffect(() => {
     setSelectedRecipient(null);
@@ -58,7 +57,7 @@ export function UserSearchPanel({ embedInSidebar = false }: UserSearchPanelProps
 
   const { data, error, isLoading, isValidating } = useSWR(
     canSearch ? (['users-search', normalizedQuery] as const) : null,
-    ([, q]) => searchUsersByEmail({ email: q }),
+    ([, q]) => searchUsers({ query: q }),
     { revalidateOnFocus: false },
   );
 
@@ -78,52 +77,24 @@ export function UserSearchPanel({ embedInSidebar = false }: UserSearchPanelProps
       aria-labelledby={headingId}
     >
       <h2 id={headingId} className="text-foreground text-sm font-medium">
-        Find someone by email
+        Find someone
       </h2>
       <div>
         <label htmlFor={inputId} className="sr-only">
-          Email text to search (partial match)
+          Search users
         </label>
         <input
           id={inputId}
           type="text"
-          inputMode="email"
           autoComplete="off"
-          placeholder="e.g. ann, @company.com, or full address"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          placeholder="Search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
           className="border-border bg-background ring-ring focus:ring-accent/40 min-h-11 w-full rounded-md border px-3 py-2 text-base outline-none focus:ring-2 md:text-sm"
         />
-        <p className="text-muted mt-1 text-xs">
-          Matches any part of a stored email. Pause typing; search runs after you stop for a moment.
-        </p>
       </div>
 
-      <div aria-live="polite" className="min-h-[1.5rem] text-sm">
-        {!email.trim() && (
-          <p className="text-muted">
-            Enter at least {USER_SEARCH_EMAIL_QUERY_MIN_LENGTH} characters (letters, digits, and
-            @._+-).
-          </p>
-        )}
-
-        {email.trim() &&
-          !canSearch &&
-          normalizedQuery.length < USER_SEARCH_EMAIL_QUERY_MIN_LENGTH && (
-          <p className="text-muted" role="status">
-            Enter at least {USER_SEARCH_EMAIL_QUERY_MIN_LENGTH} characters to search (partial email
-            is fine).
-          </p>
-        )}
-
-        {email.trim() &&
-          !canSearch &&
-          normalizedQuery.length >= USER_SEARCH_EMAIL_QUERY_MIN_LENGTH && (
-          <p className="text-muted" role="status">
-            Use only letters, digits, and @._+-.
-          </p>
-        )}
-
+      <div aria-live="polite" className="text-sm">
         {canSearch && showLoading && (
           <p className="text-foreground" role="status" aria-busy="true">
             Searching…

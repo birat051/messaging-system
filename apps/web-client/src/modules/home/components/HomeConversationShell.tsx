@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from 'react';
 import useSWR from 'swr';
 import { listConversations } from '@/common/api';
 import { useAuth } from '@/common/hooks/useAuth';
@@ -6,7 +12,17 @@ import { usePrefetchRecipientPublicKey } from '@/common/hooks/usePrefetchRecipie
 import { useSocketWorker } from '@/common/realtime/SocketWorkerProvider';
 import { parseApiError } from '@/modules/auth/utils/apiError';
 import { useConversation } from '@/modules/home/hooks/useConversation';
+import { usePeerMessageDecryption } from '@/modules/home/hooks/usePeerMessageDecryption';
 import { useSendMessage } from '@/modules/home/hooks/useSendMessage';
+import { resolveMessageDisplayBody } from '@/modules/home/utils/messageDisplayBody';
+import {
+  conversationListAvatarInitials,
+  lastMessagePreviewLine,
+} from '@/modules/home/utils/conversationListPreview';
+import {
+  currentUserHasSeenMessage,
+  hydratePeerReadDedupeFromReceipts,
+} from '@/modules/home/utils/receiptEmitGuards';
 import { setActiveConversationId, setSendError } from '@/modules/home/stores/messagingSlice';
 import {
   selectOutboundReceiptDisplay,
@@ -14,7 +30,6 @@ import {
 } from '@/modules/home/stores/messagingSelectors';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { ConversationList } from './ConversationList';
-import { ConnectionStatusIndicator } from './ConnectionStatusIndicator';
 import { E2eeMessagingIndicator } from './E2eeMessagingIndicator';
 import { ThreadComposer } from './ThreadComposer';
 import { ThreadMessageList, type ThreadMessageItem } from './ThreadMessageList';
@@ -70,6 +85,8 @@ export function HomeConversationShell() {
   });
 
   const messaging = useAppSelector((state) => state.messaging);
+
+  usePeerMessageDecryption(activeConversationId, messageIdsForActive);
 
   const { data, error, isLoading } = useSWR(
     user?.id ? (['conversations', user.id] as const) : null,
@@ -135,10 +152,33 @@ export function HomeConversationShell() {
     return { kind: 'direct', peerUserId: selectedPeerUserId };
   }, [isGroupThread, recipientUserIdsForGroup, selectedPeerUserId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     conversationReadCursorKeyRef.current = '';
     messageReadEmittedRef.current.clear();
   }, [activeConversationId]);
+
+  useLayoutEffect(() => {
+    const { peerMessageIdsSeen, conversationReadCursorKey } =
+      hydratePeerReadDedupeFromReceipts({
+        activeConversationId,
+        messageIds: messageIdsForActive,
+        messagesById: messaging.messagesById,
+        receiptsByMessageId: messaging.receiptsByMessageId,
+        currentUserId: user?.id,
+      });
+    for (const id of peerMessageIdsSeen) {
+      messageReadEmittedRef.current.add(id);
+    }
+    if (conversationReadCursorKey !== null) {
+      conversationReadCursorKeyRef.current = conversationReadCursorKey;
+    }
+  }, [
+    activeConversationId,
+    messageIdsForActive,
+    messaging.messagesById,
+    messaging.receiptsByMessageId,
+    user?.id,
+  ]);
 
   const threadMessages = useMemo((): ThreadMessageItem[] => {
     if (!activeConversationId || !user?.id) {
@@ -156,7 +196,12 @@ export function HomeConversationShell() {
         : null;
       out.push({
         id: m.id,
-        body: m.body ?? '',
+        body: resolveMessageDisplayBody(
+          m,
+          isOwn,
+          messaging.senderPlaintextByMessageId,
+          messaging.decryptedBodyByMessageId,
+        ),
         mediaKey: m.mediaKey ?? null,
         isOwn,
         createdAt: m.createdAt,
@@ -192,6 +237,21 @@ export function HomeConversationShell() {
       return;
     }
     const key = `${activeConversationId}:${lastId}`;
+    const uid = user?.id?.trim() ?? '';
+    const lastMsg = messaging.messagesById[lastId];
+    if (
+      uid &&
+      lastMsg &&
+      lastMsg.senderId !== uid &&
+      currentUserHasSeenMessage(
+        messaging.receiptsByMessageId,
+        lastId,
+        uid,
+      )
+    ) {
+      conversationReadCursorKeyRef.current = key;
+      return;
+    }
     if (conversationReadCursorKeyRef.current === key) {
       return;
     }
@@ -204,11 +264,24 @@ export function HomeConversationShell() {
         conversationReadCursorKeyRef.current = '';
       }
     });
-  }, [activeConversationId, messagesLoading, messageIdsForActive, emitReceipt]);
+  }, [
+    activeConversationId,
+    messagesLoading,
+    messageIdsForActive,
+    emitReceipt,
+    user?.id,
+    messaging.messagesById,
+    messaging.receiptsByMessageId,
+  ]);
 
   const onPeerMessageVisible = useCallback(
     (messageId: string) => {
-      if (!activeConversationId || !emitReceipt) {
+      if (!activeConversationId || !emitReceipt || !user?.id) {
+        return;
+      }
+      const uid = user.id;
+      if (currentUserHasSeenMessage(messaging.receiptsByMessageId, messageId, uid)) {
+        messageReadEmittedRef.current.add(messageId);
         return;
       }
       if (messageReadEmittedRef.current.has(messageId)) {
@@ -222,7 +295,12 @@ export function HomeConversationShell() {
         messageReadEmittedRef.current.delete(messageId);
       });
     },
-    [activeConversationId, emitReceipt],
+    [
+      activeConversationId,
+      emitReceipt,
+      messaging.receiptsByMessageId,
+      user?.id,
+    ],
   );
 
   const { sendMessage } = useSendMessage({
@@ -236,15 +314,35 @@ export function HomeConversationShell() {
     : null;
 
   const items = useMemo(() => {
-    if (!data?.items) {
+    if (!data?.items || !user?.id) {
       return [];
     }
-    return data.items.map((c) => ({
-      id: c.id,
-      title: c.title ?? (c.isGroup ? 'Group' : 'Direct message'),
-      subtitle: formatConversationListSubtitle(c.updatedAt),
-    }));
-  }, [data]);
+    const uid = user.id;
+    return data.items.map((c) => {
+      const title = c.title ?? (c.isGroup ? 'Group' : 'Direct message');
+      const ids = messaging.messageIdsByConversationId[c.id] ?? [];
+      const lastId = ids.length > 0 ? ids[ids.length - 1]! : null;
+      const lastMsg = lastId ? messaging.messagesById[lastId] : null;
+      let subtitle: string;
+      if (lastMsg) {
+        const preview = lastMessagePreviewLine(
+          lastMsg,
+          uid,
+          messaging.senderPlaintextByMessageId,
+          messaging.decryptedBodyByMessageId,
+        );
+        subtitle = preview || formatConversationListSubtitle(c.updatedAt);
+      } else {
+        subtitle = formatConversationListSubtitle(c.updatedAt);
+      }
+      return {
+        id: c.id,
+        title,
+        subtitle,
+        avatarInitials: conversationListAvatarInitials(title),
+      };
+    });
+  }, [data, messaging, user?.id]);
 
   const composerDisabled =
     messagesLoading ||
@@ -258,7 +356,7 @@ export function HomeConversationShell() {
 
   return (
     <div
-      className="border-border bg-surface/40 flex min-h-[min(18rem,50vh)] flex-col overflow-hidden rounded-xl border max-md:min-h-[min(88dvh,40rem)] md:h-[min(40rem,85vh)] md:min-h-[min(22rem,55vh)] md:flex-row"
+      className="border-border bg-surface/40 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border md:flex-row"
       data-testid="home-conversation-shell"
     >
       {/* Left: search + list — full width on phone; hidden on small screens when a thread is open (master/detail). */}
@@ -321,10 +419,7 @@ export function HomeConversationShell() {
               />
             </div>
             <div className="border-border shrink-0 space-y-2 border-t pt-2">
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                <ConnectionStatusIndicator />
-                <E2eeMessagingIndicator />
-              </div>
+              <E2eeMessagingIndicator />
               <ThreadComposer
                 onSend={sendMessage}
                 disabled={composerDisabled || sendPending}
@@ -353,12 +448,15 @@ export function HomeConversationShell() {
           </section>
         ) : (
           <section
+            data-testid="thread-empty-placeholder"
             role="region"
             aria-label="Conversation thread"
-            className="text-muted flex flex-1 flex-col justify-center p-4 text-sm md:min-w-0"
+            className="text-muted flex min-h-0 w-full flex-1 flex-col items-center justify-center p-4 text-center text-sm md:min-w-0"
             aria-live="polite"
           >
-            <p role="status">Select a conversation to open the thread.</p>
+            <p role="status" className="max-w-sm">
+              Select a conversation to open the thread.
+            </p>
           </section>
         )}
       </div>

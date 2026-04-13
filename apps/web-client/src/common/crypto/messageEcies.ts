@@ -60,6 +60,14 @@ function parseEnvelope(body: string): E2eeEnvelopeV1 | null {
   }
 }
 
+/** Whether **`body`** is a valid **`E2EE_JSON_V1:`** envelope (wire format). */
+export function isE2eeEnvelopeBody(body: string | null | undefined): boolean {
+  if (body == null || typeof body !== 'string') {
+    return false;
+  }
+  return parseEnvelope(body) !== null;
+}
+
 async function deriveAes256GcmKeyFromEcdh(
   localPrivate: CryptoKey,
   remotePublic: CryptoKey,

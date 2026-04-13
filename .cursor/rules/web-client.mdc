@@ -1,12 +1,12 @@
 ---
-description: web-client — React, Vite, Redux; common/ + modules/ layout; test-first + coverage for *.tsx UI only (§4.1.1); read docs/PROJECT_GUIDELINES.md first
+description: web-client — React, Vite, Redux; common/ + modules/ layout; test-first + coverage for *.tsx UI only; read docs/PROJECT_PLAN.md §14 first
 globs: apps/web-client/**
 alwaysApply: false
 ---
 
-# Web client (from `docs/PROJECT_GUIDELINES.md`)
+# Web client (from `docs/PROJECT_PLAN.md` §14)
 
-**Before coding:** read **`docs/PROJECT_GUIDELINES.md`** (especially **§4.0** file layout and **§4** React/UI). See **`docs/PROJECT_PLAN.md` §10.1** for the full tree. The **`project-authority`** rule applies to every chat.
+**Before coding:** read **`docs/PROJECT_PLAN.md` §14** (especially **§14.4** React/UI and **§10.1** layout). The **`project-authority`** rule applies to every chat.
 
 ## Folder layout (`common/` + `modules/`)
 
@@ -17,19 +17,19 @@ alwaysApply: false
 | **`src/common/realtime/`** | Socket.IO main-thread bridge + **`socketWorkerProtocol`** (shared with **`src/workers/`**). |
 | **`src/common/theme/`** | **`ThemeProvider`**, **`useTheme`**, theme storage (app-wide). |
 | **`src/common/mocks/`**, **`src/common/test-utils/`**, **`src/common/integration/`** | MSW **`handlers`** + **`server`**, RTL **`renderWithProviders`**, cross-route integration tests. |
-| **`src/modules/<module-id>/`** | One folder per feature or route area — see **`src/modules/README.md`** for **`home`**, **`settings`**, **`auth`** and **`*Page.tsx`** in **`pages/`**. Subfolders: **`components/`**, **`stores/`**, **`api/`**, **`constants/`**, **`utils/`**, **`types/`**, **`pages/`**. |
+| **`src/modules/<module-id>/`** | One folder per feature or route area — see **`docs/PROJECT_PLAN.md` §10.1**. Subfolders: **`components/`**, **`stores/`**, **`api/`**, **`constants/`**, **`utils/`**, **`types/`**, **`pages/`**. |
 | **`src/store/`** | **`configureStore`**, root reducer wiring, **`hooks.ts`** (`useAppDispatch` / `useAppSelector`). Slice **files** live under **`modules/*/stores/`**; registered here. |
 | **`src/routes/`** | **`paths.ts`** (**`ROUTES`**), **`lazyPages.ts`** (**`React.lazy`**), **`RouteFallback`**, **`ProtectedRoute`**, navigation — **`App.tsx`** uses **`Suspense`**. |
 | **`src/generated/`** | OpenAPI codegen — do not hand-edit. |
 | **`src/workers/`** | Web Worker entries (e.g. Socket.IO). |
 | **`src/`** root | **`main.tsx`**, **`App.tsx`**, **`index.css`**, **`setupTests.ts`**. |
 
-**Layout:** REST under **`src/common/api/`**; pages under **`src/modules/<module-id>/pages/`**; feature state (e.g. auth) under **`src/modules/<module-id>/`**. **New work** should colocate under **`modules/`** when adding features.
+**Layout:** REST under **`src/common/api/`**; pages under **`src/modules/<module-id>/pages/`**; feature state under **`src/modules/<module-id>/`**. **New work** should colocate under **`modules/`** when adding features.
 
 ## Rules of thumb
 
 1. **Shared vs module-only:** If code is imported from **two or more** modules or from **`App`**, it belongs in **`common/`** (or **`store/`** / **`routes/`** as appropriate). If only one module uses it, keep it under **`modules/<module-id>/`**.
-2. **REST boundary:** Pages, layouts, and module components import **`authApi`**, **`usersApi`**, **`API_PATHS`**, **`swrFetcher`**, or the **`common/api`** barrel — **not** **`httpClient`**, **`httpMutations`**, or raw URLs. See **`src/common/api/README.md`**.
+2. **REST boundary:** Pages, layouts, and module components import **`authApi`**, **`usersApi`**, **`API_PATHS`**, **`swrFetcher`**, or the **`common/api`** barrel — **not** **`httpClient`**, **`httpMutations`**, or raw URLs.
 3. **Imports:** Prefer **relative** imports inside a single **`modules/<id>/`** tree. **Cross-cutting** imports use paths into **`common/`** (and **`@/`** aliases if configured in **`vite.config.ts`** / **`tsconfig`**).
 
 ## Import examples (target)
@@ -48,17 +48,17 @@ import { useAppDispatch, useAppSelector } from '../../../store/hooks';
 import { ProfileCard } from '../components/ProfileCard';
 ```
 
-**Tests — mock `httpClient` or a single `*Api` module** (see **`docs/PROJECT_GUIDELINES.md`** and **`src/common/api/README.md`**). Use mock paths relative to the test file (e.g. **`vi.mock('@/common/api/httpClient')`** or **`../common/api/httpClient`** from **`pages/`**).
+**Tests — mock `httpClient` or a single `*Api` module** (see **`docs/PROJECT_PLAN.md` §14.4**). Use mock paths relative to the test file (e.g. **`vi.mock('@/common/api/httpClient')`** or **`../common/api/httpClient`** from **`pages/`**).
 
 ## Tests before implementation (UI only — `*.tsx`)
 
 For **each new or substantially changed React UI file** (**`*.tsx`** — components, pages, layouts): write **unit and integration tests first** (React Testing Library + Vitest/Jest), then implement. Test **behaviour** (render, interaction, a11y), not implementation details.
 
-**Do not** require mandatory unit/integration tests or coverage for plain **`*.ts`** files (Redux slices, hooks without UI, `httpClient`, utils, workers, etc.) unless the task explicitly asks — see **`docs/PROJECT_GUIDELINES.md` §4.1.1**. **Coverage** gates apply only to **`*.tsx`** UI sources.
+**Do not** require mandatory unit/integration tests or coverage for plain **`*.ts`** files (Redux slices, hooks without UI, `httpClient`, utils, workers, etc.) unless the task explicitly asks — see **`docs/PROJECT_PLAN.md` §14.4.1.1**. **Coverage** gates apply only to **`*.tsx`** UI sources.
 
 ## One test file per component (`*.tsx` + `*.test.tsx`)
 
-**Mandatory in `apps/web-client`:** For every **`ComponentName.tsx`** that exports a primary UI component under **`src/common/`** or **`src/modules/`** (or legacy **`pages/`** until migrated), create or update **`ComponentName.test.tsx` in the same folder** — tests only for that component. Do not merge unrelated components into one test file. Exceptions: **`main.tsx`**, generated code, barrels with no UI — see **`docs/PROJECT_GUIDELINES.md` §4.1.2**. Cross-route tests (e.g. **`src/common/integration/*.test.tsx`**) are extra, not a substitute for colocated tests.
+**Mandatory in `apps/web-client`:** For every **`ComponentName.tsx`** that exports a primary UI component under **`src/common/`** or **`src/modules/`** (or legacy **`pages/`** until migrated), create or update **`ComponentName.test.tsx` in the same folder** — tests only for that component. Do not merge unrelated components into one test file. Exceptions: **`main.tsx`**, generated code, barrels with no UI — see **`docs/PROJECT_PLAN.md` §14.4.1.2**. Cross-route tests (e.g. **`src/common/integration/*.test.tsx`**) are extra, not a substitute for colocated tests.
 
 ## Redux (RTK)
 
@@ -66,7 +66,7 @@ For **each new or substantially changed React UI file** (**`*.tsx`** — compone
 - Feature **`createSlice`** files under **`modules/<module-id>/stores/`**; register in **`store/store.ts`** (or equivalent). Middleware for logging, analytics, API error normalization as needed.
 - **Custom hooks** shared across modules: **`common/hooks/`** (or **`common/utils/`** if the team prefers). Module-only hooks stay under the owning **`modules/<id>/`**.
 - **Local state** for UI-only (modals, fields); do not put every keystroke in Redux.
-- **Tests:** mandatory tests only for **`*.tsx`** UI (§4.1.1); not for **`*.ts`** modules by default.
+- **Tests:** mandatory tests only for **`*.tsx`** UI (§14.4.1.1); not for **`*.ts`** modules by default.
 
 ## Styling (Tailwind + themes)
 
@@ -83,7 +83,7 @@ For **each new or substantially changed React UI file** (**`*.tsx`** — compone
 - **Every** new or changed **layout and component** must be **responsive**: phone, **tablet (including iPad)**, and desktop — unless the task explicitly documents a desktop-only exception.
 - Use **Tailwind breakpoints** (`sm:` / `md:` / `lg:` / …), **flex/grid**, fluid spacing, **no fixed desktop-only widths** that break narrow views. Prefer **mobile-first** base styles.
 - **Touch targets** and spacing suitable for phones/tablets; **safe areas** at screen edges when relevant.
-- **Verify** at representative widths (e.g. ~390px, ~768px, ~1024px+) before merge. See **`docs/PROJECT_GUIDELINES.md` §4.2.1**.
+- **Verify** at representative widths (e.g. ~390px, ~768px, ~1024px+) before merge. See **`docs/PROJECT_PLAN.md` §14.4.2.1**.
 
 ## Real-time (Socket.IO)
 
@@ -92,4 +92,4 @@ For **each new or substantially changed React UI file** (**`*.tsx`** — compone
 ## Tooling
 
 - Each app has **its own** ESLint/Prettier/TS config (`TASK_CHECKLIST.md`); no monorepo-root config for all apps.
-- **No deprecated APIs:** avoid deprecated React/React DOM, browser/DOM, and library APIs; prefer current documented replacements (`PROJECT_GUIDELINES.md` §1.1).
+- **No deprecated APIs:** avoid deprecated React/React DOM, browser/DOM, and library APIs; prefer current documented replacements (`docs/PROJECT_PLAN.md` §14.1).

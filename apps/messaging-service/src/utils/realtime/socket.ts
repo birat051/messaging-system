@@ -73,7 +73,7 @@ export async function attachSocketIo(
     adapterPubClient = pubClient;
     adapterSubClient = subClient;
     logger.warn(
-      'Socket.IO Redis adapter enabled — discouraged for room fan-out (rooms are in-memory per process; use RabbitMQ per replica). See PROJECT_PLAN.md §3.2.2 and docs/ENVIRONMENT.md',
+      'Socket.IO Redis adapter enabled — discouraged for room fan-out (rooms are in-memory per process; use RabbitMQ per replica). See PROJECT_PLAN.md §3.2.2 and `README.md` (Configuration)',
     );
   }
 

@@ -6,6 +6,7 @@ import { ThreadComposer } from './ThreadComposer';
 
 const attachment = vi.hoisted(() => ({
   mediaKey: null as string | null,
+  imagePreviewUrl: null as string | null,
   clearAttachment: vi.fn(),
 }));
 
@@ -13,6 +14,7 @@ vi.mock('@/common/hooks/useComposerMediaAttachment', () => ({
   useComposerMediaAttachment: () => ({
     fileInputRef: { current: null },
     fileName: attachment.mediaKey ? 'photo.png' : null,
+    imagePreviewUrl: attachment.imagePreviewUrl,
     openFilePicker: vi.fn(),
     onFileInputChange: vi.fn(),
     clearAttachment: attachment.clearAttachment,
@@ -28,7 +30,17 @@ vi.mock('@/common/hooks/useComposerMediaAttachment', () => ({
 describe('ThreadComposer', () => {
   beforeEach(() => {
     attachment.mediaKey = null;
+    attachment.imagePreviewUrl = null;
     attachment.clearAttachment.mockClear();
+  });
+
+  it('shows image preview strip when hook exposes imagePreviewUrl', () => {
+    attachment.imagePreviewUrl = 'blob:preview-test';
+    renderWithProviders(<ThreadComposer onSend={vi.fn()} />);
+    expect(screen.getByTestId('composer-image-preview-strip')).toBeInTheDocument();
+    expect(
+      screen.getByRole('img', { name: /pending attachment preview/i }),
+    ).toHaveAttribute('src', 'blob:preview-test');
   });
 
   it('submits trimmed text via onSend and clears the field', async () => {
@@ -39,7 +51,7 @@ describe('ThreadComposer', () => {
 
     const input = screen.getByRole('textbox', { name: /^message$/i });
     await user.type(input, '  Hello world  ');
-    const sendBtn = screen.getByRole('button', { name: /^send$/i });
+    const sendBtn = screen.getByRole('button', { name: /send message/i });
     expect(sendBtn).toHaveClass('min-h-11', 'touch-manipulation');
     await user.click(sendBtn);
 
@@ -55,7 +67,7 @@ describe('ThreadComposer', () => {
 
     renderWithProviders(<ThreadComposer onSend={onSend} />);
 
-    await user.click(screen.getByRole('button', { name: /^send$/i }));
+    await user.click(screen.getByRole('button', { name: /send message/i }));
 
     expect(onSend).toHaveBeenCalledWith({
       text: '',
@@ -70,10 +82,10 @@ describe('ThreadComposer', () => {
 
     renderWithProviders(<ThreadComposer onSend={onSend} />);
 
-    await user.click(screen.getByRole('button', { name: /^send$/i }));
+    await user.click(screen.getByRole('button', { name: /send message/i }));
     expect(onSend).not.toHaveBeenCalled();
 
-    const sendBtn = screen.getByRole('button', { name: /^send$/i });
+    const sendBtn = screen.getByRole('button', { name: /send message/i });
     expect(sendBtn).toBeDisabled();
   });
 
@@ -88,7 +100,9 @@ describe('ThreadComposer', () => {
     renderWithProviders(<ThreadComposer onSend={onSend} />);
 
     await user.type(screen.getByRole('textbox', { name: /^message$/i }), 'x');
-    const sendPromise = user.click(screen.getByRole('button', { name: /^send$/i }));
+    const sendPromise = user.click(
+      screen.getByRole('button', { name: /send message/i }),
+    );
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /sending/i })).toBeDisabled();
@@ -109,7 +123,7 @@ describe('ThreadComposer', () => {
     renderWithProviders(<ThreadComposer onSend={onSend} />);
 
     await user.type(screen.getByRole('textbox', { name: /^message$/i }), 'hi');
-    void user.click(screen.getByRole('button', { name: /^send$/i }));
+    void user.click(screen.getByRole('button', { name: /send message/i }));
 
     expect(
       await screen.findByRole('button', { name: /sending/i }),
@@ -117,7 +131,9 @@ describe('ThreadComposer', () => {
 
     resolveSend!();
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /^send$/i })).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: /send message/i }),
+      ).toBeInTheDocument();
     });
   });
 
@@ -128,7 +144,7 @@ describe('ThreadComposer', () => {
     renderWithProviders(<ThreadComposer onSend={onSend} />);
 
     await user.type(screen.getByRole('textbox', { name: /^message$/i }), 'hi');
-    await user.click(screen.getByRole('button', { name: /^send$/i }));
+    await user.click(screen.getByRole('button', { name: /send message/i }));
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent('Network error');

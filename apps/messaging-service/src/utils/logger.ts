@@ -27,7 +27,7 @@ export function safeErrorSerializer(err: unknown): {
 }
 
 /**
- * Root logger — JSON lines to stdout (PROJECT_GUIDELINES.md structured logging).
+ * Root logger — JSON lines to stdout (`docs/PROJECT_PLAN.md` §14 structured logging).
  */
 export const logger = pino({
   level,

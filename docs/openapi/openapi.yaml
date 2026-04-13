@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Messaging API
-  version: 0.1.20
+  version: 0.1.22
   description: |
     **Source of truth** for REST contracts between **web-client** and **messaging-service**
     (single HTTP API; there is no separate notification REST service).
@@ -30,13 +30,14 @@ info:
     **messaging-service** must stay aligned; regenerate **`apps/web-client`** types with
     `npm run generate:api`. Routes marked *planned* in summaries are not necessarily wired yet.
 
-    **Users:** `User` includes optional **profile picture** and **status** (short text).
-    At **signup** (`POST /auth/register`), only **`email`** and **`password`** are required; **`profilePicture`**
+    **Users:** `User` includes optional **profile picture** and **status** (short text), plus a unique **`username`**
+    (normalized handle) on new accounts.
+    At **signup** (`POST /auth/register`), **`email`**, **`password`**, **`username`**, and **`displayName`** are required; **`profilePicture`**
     (URL) and **`status`** are **optional** — avatar URL may come from a prior **`POST /media/upload`**
     if the client uploads before register. **Update profile** — **`PATCH /users/me`** accepts
     **`multipart/form-data`** with an optional **profile image** (`file`) plus optional **`status`** and
     **`displayName`** parts.
-    **Search** is by **email** (query), not by internal user id — see `GET /users/search`.
+    **Search** matches **substring** on **normalized email** and **username** — provide **`q`** or legacy **`email`** query — see `GET /users/search`.
 
     **Send message (schema only):** the **`SendMessageRequest`** body shape applies to **`message:send`**
     (Socket.IO) as well as the deprecated **`POST /messages`** route. **`conversationId` is optional**.
@@ -49,7 +50,7 @@ info:
 
     **E2EE public keys (user-level):** **`PUT /users/me/public-key`** registers or replaces the caller's
     **public** key material; **`POST /users/me/public-key/rotate`** increments **`keyVersion`** with a new key.
-    **`GET /users/{userId}/public-key`** fetches a peer's key for **ECIES** (see **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`**).
+    **`GET /users/{userId}/public-key`** fetches a peer's key for **ECIES** (see **`docs/PROJECT_PLAN.md` §14**).
     **Private keys** never appear in this API. **Message `body` (E2EE):** when E2EE is enabled, **`SendMessageRequest.body`**
     and **`Message.body`** may contain **opaque client ciphertext**; the server **never** decrypts. That path **depends on**
     this public-key surface and on the **Prerequisite — User keypair** work in **`docs/TASK_CHECKLIST.md`**.
@@ -59,7 +60,7 @@ info:
     Whether registration leaves users unverified, whether **`POST /auth/verify-email`** and **`POST /auth/resend-verification`**
     are part of the happy path, and whether **`EMAIL_VERIFICATION_DISABLED`** is returned for those routes when verification
     is off are determined by the **messaging-service** environment variable **`EMAIL_VERIFICATION_REQUIRED`**
-    (default **`false`**). See **`docs/ENVIRONMENT.md`** — *Email verification (`EMAIL_VERIFICATION_REQUIRED`)* — and **Feature 2**
+    (default **`false`**). See **`README.md`** (Configuration — email verification) and **Feature 2**
     in **`docs/TASK_CHECKLIST.md`**. Clients must not assume a fixed mode; use **`User.emailVerified`**, **`AuthResponse`**, and
     error **`code`** values (e.g. **`EMAIL_VERIFICATION_DISABLED`**) from responses.
 
@@ -145,7 +146,9 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
         '409':
-          description: Email already registered
+          description: >-
+            Conflict — email already registered (**`EMAIL_ALREADY_REGISTERED`**) or username taken (**`USERNAME_TAKEN`**).
+            Check **`code`** in **`ErrorResponse`**.
           content:
             application/json:
               schema:
@@ -169,7 +172,7 @@ paths:
       summary: Verify email using signed JWT from registration or resend (throttled per IP)
       description: |
         When **`EMAIL_VERIFICATION_REQUIRED`** is **`false`** on the server, returns **400** with **`ErrorResponse`**
-        **`code`** **`EMAIL_VERIFICATION_DISABLED`** — the verification flow is not used (see **`docs/ENVIRONMENT.md`**).
+        **`code`** **`EMAIL_VERIFICATION_DISABLED`** — the verification flow is not used (see **`README.md`** (Configuration section)).
       tags:
         - Auth
       requestBody:
@@ -438,7 +441,7 @@ paths:
       description: |
         **Upsert** the authenticated user's **long-term** public key (one document per user in MongoDB;
         no per-device rows). Encoding of **`publicKey`** is fixed server-side (e.g. SPKI Base64 per
-        **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`**). **Never** send a private key.
+        **`docs/PROJECT_PLAN.md` §14**). **Never** send a private key.
         On first registration, **`keyVersion`** may be omitted and assigned by the server (typically **`1`**).
       tags:
         - Users
@@ -569,18 +572,25 @@ paths:
 
   /users/search:
     get:
-      operationId: searchUsersByEmail
-      summary: Search users by email (exact match; not by opaque user id)
+      operationId: searchUsers
+      summary: Search users by email and/or username (substring match; not by opaque user id)
       description: |
-        **Privacy (MVP):** **Exact match** on the **normalized** full email address only.
-        There is **no** prefix or typeahead search — that would ease **email enumeration**
-        and needs an explicit product decision (**Feature 5** — discoverability rules).
+        **Matching:** **case-insensitive substring** on the **normalized** (trim + lowercase)
+        stored **`email`** and **`username`**. Results are ordered by **relevance** (best match on either field):
+        **exact** match first, then **prefix**, then other substring matches; ties break by **`email`**
+        ascending.
 
-        **Rate limiting:** per **client IP** in Redis (`USER_SEARCH_RATE_LIMIT_*` in
-        **`docs/ENVIRONMENT.md`**). Exceeding the limit returns **429** with **`code`**
-        **`RATE_LIMIT_EXCEEDED`**.
+        **Query:** send **`q`** (preferred) or legacy **`email`** — same matching rules; exactly one is required.
 
-        Returns display name, profile picture, and the **direct conversation id** with the
+        **Abuse controls:** query length **3–254** by default (**`USER_SEARCH_MIN_QUERY_LENGTH`** may be
+        lowered to **2** only when operators accept weaker bounds); allowed charset
+        **`[a-z0-9@._+_-]`** (includes **`_`** for username fragments); regex metacharacters are **escaped** server-side; response size is capped
+        by **`limit`** (default **20**, max **100**); MongoDB candidate scan per request is bounded
+        (**`USER_SEARCH_MAX_CANDIDATE_SCAN`**). **Rate limiting:** per **client IP** in Redis
+        (`USER_SEARCH_RATE_LIMIT_*` in **`README.md`** (Configuration section)). Exceeding the limit returns **429**
+        with **`code`** **`RATE_LIMIT_EXCEEDED`**.
+
+        Returns username, display name, profile picture, and the **direct conversation id** with the
         current user when a conversation already exists (null when none). The caller never
         receives their own row.
       tags:
@@ -588,15 +598,26 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - name: email
+        - name: q
           in: query
-          required: true
+          required: false
           schema:
             type: string
-            format: email
+            minLength: 1
+            maxLength: 254
           description: >
-            Full email address for **exact** lookup after normalization (not internal user id;
-            not a prefix).
+            Preferred search string (**trimmed**, lowercased). **Substring** match on stored **email** and **username**.
+            Use this or **`email`** (legacy alias). Allowed characters: letters, digits, **`@._+-_`**.
+        - name: email
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 254
+          description: >
+            Legacy alias for **`q`** — same behaviour. Provide **`q`** or **`email`** (not both required in OpenAPI;
+            server requires at least one).
         - $ref: '#/components/parameters/LimitQuery'
       responses:
         '200':
@@ -652,7 +673,7 @@ paths:
         **Direct 1:1** threads only — **group** conversations return **403** until group messaging is implemented.
         The caller must be a **participant**; otherwise **403**. Messages are returned **newest first**.
         **`cursor`** is opaque (from **`nextCursor`**); malformed cursors return **400**.
-        **Rate limiting:** the **global** REST per-IP limit (`GLOBAL_RATE_LIMIT_*` in **`docs/ENVIRONMENT.md`**) applies to this route; exceeding it returns **429** with **`ErrorResponse`** (**`code`** typically **`RATE_LIMIT_EXCEEDED`**).
+        **Rate limiting:** the **global** REST per-IP limit (`GLOBAL_RATE_LIMIT_*` in **`README.md`** (Configuration section)) applies to this route; exceeding it returns **429** with **`ErrorResponse`** (**`code`** typically **`RATE_LIMIT_EXCEEDED`**).
       tags:
         - Messages
       security:
@@ -746,7 +767,7 @@ paths:
         Request body must include **`body`** text and/or **`mediaKey`** (validated by Zod).
 
         **Rate limiting:** this route uses the **message-send** limits (**`MESSAGE_SEND_RATE_LIMIT_*`**, per user + IP)
-        in addition to the **global** REST per-IP limit — see **`docs/ENVIRONMENT.md`** (*Global vs per-route*). Either
+        in addition to the **global** REST per-IP limit — see **`README.md`** (Configuration section) (*Global vs per-route*). Either
         can return **429** with **`ErrorResponse`** (**`code`** **`RATE_LIMIT_EXCEEDED`**).
       tags:
         - Messages
@@ -959,6 +980,8 @@ components:
       required:
         - email
         - password
+        - username
+        - displayName
       properties:
         email:
           type: string
@@ -967,6 +990,18 @@ components:
           type: string
           format: password
           minLength: 8
+        username:
+          type: string
+          minLength: 3
+          maxLength: 30
+          pattern: '^[a-zA-Z0-9_]+$'
+          description: >-
+            Unique handle, stored lowercase; letters, digits, and underscores only (server normalizes case).
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Display name shown in the app (trimmed on the server).
         profilePicture:
           type: string
           format: uri
@@ -1136,6 +1171,12 @@ components:
         email:
           type: string
           format: email
+        username:
+          type: string
+          nullable: true
+          minLength: 3
+          maxLength: 30
+          description: Unique handle (null for legacy accounts predating usernames)
         displayName:
           type: string
           nullable: true
@@ -1144,7 +1185,7 @@ components:
           description: >-
             Present on every **`User`**. Meaning depends on deployment: when **`EMAIL_VERIFICATION_REQUIRED`** is **`true`**
             (messaging-service env), new users may be **`false`** until **`POST /auth/verify-email`** succeeds; when **`false`**,
-            registration typically sets this to **`true`** immediately. See **`docs/ENVIRONMENT.md`** — email verification.
+            registration typically sets this to **`true`** immediately. See **`README.md`** (Configuration section) — email verification.
         profilePicture:
           type: string
           format: uri
@@ -1187,7 +1228,7 @@ components:
           maxLength: 2048
           description: >
             Base64 or Base64url **SPKI** DER for **P-256** (`prime256v1`); server rejects non-P-256
-            curves and invalid DER (see **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`**).
+            curves and invalid DER (see **`docs/PROJECT_PLAN.md` §14**).
         keyVersion:
           type: integer
           minimum: 1
@@ -1232,11 +1273,15 @@ components:
       type: object
       required:
         - userId
-      description: One row from email search — includes existing direct conversation when present
+      description: One row from user search — includes existing direct conversation when present
       properties:
         userId:
           type: string
           description: Internal user id for messaging / `recipientUserId`
+        username:
+          type: string
+          nullable: true
+          description: Unique handle when set; null for legacy users
         displayName:
           type: string
           nullable: true
@@ -1299,7 +1344,7 @@ components:
       description: |
         Per-recipient **delivered** / **seen** timestamps (**Feature 12**). Map keys are **`userId`** strings.
         Exposed on **`MessageReceiptSummary.receiptsByUserId`** and via Socket.IO receipt events — **not** on **`Message`**.
-        Group **read-up-to** may also use **`conversation_reads`** — see **`docs/MESSAGE_RECEIPTS_AND_READ_STATE_DESIGN.md`**.
+        Group **read-up-to** may also use **`conversation_reads`** — see **`docs/PROJECT_PLAN.md` §14**.
       properties:
         deliveredAt:
           type: string
@@ -1329,7 +1374,7 @@ components:
           nullable: true
           description: |
             **Text or opaque E2EE payload.** Plain UTF-8 text, or client-encrypted ciphertext (e.g. envelopes described in
-            **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`**) when end-to-end encryption is enabled. The server **stores and routes**
+            **`docs/PROJECT_PLAN.md` §14**) when end-to-end encryption is enabled. The server **stores and routes**
             this value **without** decrypting. Requires user-level public-key APIs (`PUT /users/me/public-key`,
             `GET /users/{userId}/public-key`) per **Prerequisite — User keypair** in **`docs/TASK_CHECKLIST.md`**.
         mediaKey:
@@ -1437,7 +1482,7 @@ components:
           description: |
             **Message body text or opaque E2EE ciphertext** — same semantics as **`Message.body`** (server does not decrypt).
             When sending E2EE payloads, clients **depend on** user public-key directory APIs and the **Prerequisite — User keypair**
-            implementation (`docs/TASK_CHECKLIST.md`, `docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`).
+            implementation (`docs/TASK_CHECKLIST.md`, `docs/PROJECT_PLAN.md` §14).
         mediaKey:
           type: string
           nullable: true

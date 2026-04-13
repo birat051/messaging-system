@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DEFAULT_USER_SEARCH_MIN_QUERY_LENGTH } from '../config/userSearchPolicy.js';
 import { limitQuerySchema } from './limitQuery.js';
 import { parseP256SpkiPublicKeyOrThrow } from './publicKeyP256.js';
 
@@ -18,10 +19,28 @@ export type MediaUploadMimeType = (typeof MEDIA_UPLOAD_MIME_TYPES)[number];
 
 export const mediaUploadMimeEnum = z.enum(MEDIA_UPLOAD_MIME_TYPES);
 
+/** Normalized unique login handle — **`[a-z0-9_]`**, 3–30 chars (stored lowercase). */
+export const registerUsernameSchema = z
+  .string()
+  .min(1)
+  .transform((s) => s.trim().toLowerCase())
+  .pipe(
+    z
+      .string()
+      .min(3, 'username must be at least 3 characters')
+      .max(30, 'username must be at most 30 characters')
+      .regex(
+        /^[a-z0-9_]+$/,
+        'username must contain only lowercase letters, digits, and underscores',
+      ),
+  );
+
 /** `components/schemas/RegisterRequest` */
 export const registerRequestSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
+  username: registerUsernameSchema,
+  displayName: z.string().trim().min(1).max(200),
   profilePicture: z.union([z.string().url(), z.null()]).optional(),
   status: z.union([z.string().max(280), z.null()]).optional(),
 });
@@ -134,11 +153,64 @@ export const paginationQuerySchema = z.object({
   limit: limitQuerySchema,
 });
 
-/** `GET /users/search` query — use **`resolveListLimit`** on **`limit`**. */
-export const searchUsersQuerySchema = z.object({
-  email: z.string().email(),
-  limit: limitQuerySchema,
-});
+/**
+ * **`GET /users/search`** — provide **`q`** or legacy **`email`** (trimmed + lowercased); **partial** match on
+ * stored **email** and **username**. Minimum length is configurable via **`USER_SEARCH_MIN_QUERY_LENGTH`**
+ * (default **3** in **`userSearchPolicy.ts`**).
+ */
+export function createSearchUsersQuerySchema(minQueryLength: number) {
+  const minLen = Math.min(Math.max(minQueryLength, 2), 254);
+  return z
+    .object({
+      q: z.string().optional(),
+      email: z.string().optional(),
+      limit: limitQuerySchema,
+    })
+    .superRefine((data, ctx) => {
+      const merged = (data.q ?? data.email ?? '').trim();
+      if (merged.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Provide q or email query parameter',
+          path: ['q'],
+        });
+        return;
+      }
+      const lower = merged.toLowerCase();
+      if (lower.length < minLen) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `search query must be at least ${minLen} characters`,
+          path: ['q'],
+        });
+        return;
+      }
+      if (lower.length > 254) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'search query must be at most 254 characters',
+          path: ['q'],
+        });
+        return;
+      }
+      if (!/^[a-z0-9@._+_-]+$/.test(lower)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'search query contains invalid characters',
+          path: ['q'],
+        });
+      }
+    })
+    .transform((data) => ({
+      q: (data.q ?? data.email ?? '').trim().toLowerCase(),
+      limit: data.limit,
+    }));
+}
+
+/** Default schema — keep **`DEFAULT_USER_SEARCH_MIN_QUERY_LENGTH`** in sync with **`env.ts`** default. */
+export const searchUsersQuerySchema = createSearchUsersQuerySchema(
+  DEFAULT_USER_SEARCH_MIN_QUERY_LENGTH,
+);
 
 /** Path: `components/parameters/UserIdPath` */
 export const userIdPathSchema = z.object({

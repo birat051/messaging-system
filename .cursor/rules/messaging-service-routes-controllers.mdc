@@ -10,4 +10,4 @@ alwaysApply: false
 - **`src/controllers/*.ts`:** **One file per route file** (`routes/auth.ts` ↔ `controllers/auth.ts`). **`RequestHandler`** factories **`(env) => …`** when **`Env`** is required.
 - **`src/data/`:** MongoDB repos, Redis/RabbitMQ/S3 adapters, aggregates (**`conversations/`**, **`messages/`**, **`users/`**, …).
 - **`src/utils/`:** Auth helpers, email, logger, readiness, Swagger, Socket.IO (**`realtime/`**), shared rate-limit helpers, **`types/`** (e.g. Express augmentation).
-- See **`docs/PROJECT_GUIDELINES.md`** section 1.3 (Express / HTTP services).
+- See **`docs/PROJECT_PLAN.md` §14.1.3** (Express / HTTP services).

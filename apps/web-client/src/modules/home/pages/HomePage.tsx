@@ -2,6 +2,7 @@ import { Link, Navigate, useLocation } from 'react-router-dom';
 import { ThemeToggle } from '../../../common/components/ThemeToggle';
 import { useAuth } from '../../../common/hooks/useAuth';
 import { ROUTES } from '../../../routes/paths';
+import { ConnectionStatusIndicator } from '../components/ConnectionStatusIndicator';
 import { HomeConversationShell } from '../components/HomeConversationShell';
 
 export function HomePage() {
@@ -20,16 +21,14 @@ export function HomePage() {
 
   return (
     <div
-      className="w-full min-w-0 max-w-none pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))] md:pl-[max(2rem,env(safe-area-inset-left))] md:pr-[max(2rem,env(safe-area-inset-right))] md:pt-[max(2.5rem,env(safe-area-inset-top))] md:pb-[max(2.5rem,env(safe-area-inset-bottom))]"
+      data-testid="home-page-shell"
+      className="flex min-h-0 w-full min-w-0 max-w-none flex-1 flex-col overflow-hidden pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))] md:pl-[max(2rem,env(safe-area-inset-left))] md:pr-[max(2rem,env(safe-area-inset-right))] md:pt-[max(2.5rem,env(safe-area-inset-top))] md:pb-[max(2.5rem,env(safe-area-inset-bottom))]"
     >
-        <header className="mb-6 flex flex-col gap-4 sm:mb-10 sm:flex-row sm:items-center sm:justify-between">
+        <header className="mb-6 flex shrink-0 flex-col gap-4 sm:mb-10 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-foreground text-xl font-semibold tracking-tight sm:text-2xl">
               Messaging
             </h1>
-            <p className="text-muted mt-1 text-sm">
-              web-client — Vite, React, TypeScript, Tailwind
-            </p>
             {user && (
               <p className="mt-2">
                 <Link
@@ -41,9 +40,12 @@ export function HomePage() {
               </p>
             )}
           </div>
-          <ThemeToggle />
+          <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+            {user ? <ConnectionStatusIndicator /> : null}
+            <ThemeToggle />
+          </div>
         </header>
-        <main className="rounded-card border-border bg-surface shadow-card border p-4 sm:p-6">
+        <main className="border-border bg-surface shadow-card flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-card border p-4 sm:p-6">
           {user ? <HomeConversationShell /> : null}
         </main>
     </div>

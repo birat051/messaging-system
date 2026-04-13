@@ -1,5 +1,6 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type { components } from '../../../generated/api-types';
+import { isE2eeEnvelopeBody } from '@/common/crypto/messageEcies';
 import { logout } from '../../auth/stores/authSlice';
 
 export type Message = components['schemas']['Message'];
@@ -9,8 +10,15 @@ export type MessageReceiptEntry = components['schemas']['MessageReceiptEntry'];
 /** Outbound tick level for messages **you** sent (**Feature 12**). Maps to **`ReceiptTicks`** in the UI. */
 export type OutboundReceiptLevel = 'loading' | 'sent' | 'delivered' | 'seen';
 
+type UserPublicKeyResponse = components['schemas']['UserPublicKeyResponse'];
+
 export type MessagingState = {
   activeConversationId: string | null;
+  /**
+   * **Peer** directory keys from **`GET /users/{id}/public-key`** (Feature 11 / 1:1 E2EE).
+   * Used before encrypt to avoid redundant fetches after prefetch or a prior send.
+   */
+  recipientDirectoryKeyByUserId: Record<string, UserPublicKeyResponse>;
   /** Normalized message entities (deduped by **`message.id`**). */
   messagesById: Record<string, Message>;
   /** **`conversationId` → ordered message ids (oldest → newest, display order). */
@@ -29,10 +37,18 @@ export type MessagingState = {
   receiptsByMessageId: Record<string, MessageReceiptSummary>;
   sendPendingByConversationId: Record<string, boolean>;
   sendErrorByConversationId: Record<string, string | null>;
+  /**
+   * **Own** messages: plaintext typed at send time, keyed by **`message.id`** — survives REST revalidation
+   * when the server only stores the E2EE envelope.
+   */
+  senderPlaintextByMessageId: Record<string, string>;
+  /** **Peer** messages: UTF-8 plaintext after **`decryptE2eeBodyToUtf8`**, keyed by **`message.id`**. */
+  decryptedBodyByMessageId: Record<string, string>;
 };
 
 const initialState: MessagingState = {
   activeConversationId: null,
+  recipientDirectoryKeyByUserId: {},
   messagesById: {},
   messageIdsByConversationId: {},
   pendingOutgoingClientIdsByConversationId: {},
@@ -40,6 +56,8 @@ const initialState: MessagingState = {
   receiptsByMessageId: {},
   sendPendingByConversationId: {},
   sendErrorByConversationId: {},
+  senderPlaintextByMessageId: {},
+  decryptedBodyByMessageId: {},
 };
 
 function mergeReceiptSummary(
@@ -75,6 +93,52 @@ function dedupeIdsStable(ids: string[]): string[] {
   return out;
 }
 
+/** When the server ack carries ciphertext but the optimistic row had plaintext, keep plaintext in Redux. */
+function mergeOwnE2eeBodyFromOptimistic(
+  serverMsg: Message,
+  optimisticBody: string | null | undefined,
+): Message {
+  const wire = serverMsg.body ?? '';
+  if (!wire || optimisticBody == null) {
+    return serverMsg;
+  }
+  const ob = optimisticBody;
+  if (!ob.trim() || isE2eeEnvelopeBody(ob)) {
+    return serverMsg;
+  }
+  if (!isE2eeEnvelopeBody(wire)) {
+    return serverMsg;
+  }
+  return { ...serverMsg, body: ob };
+}
+
+/**
+ * After **`client:…` → server `id`**, store typing-time plaintext for **`resolveMessageDisplayBody`**
+ * and **`hydrateMessagesFromFetch`** (server row stays E2EE wire). Prefer **optimistic** non-envelope
+ * **`body`** when **`mergeOwnE2eeBodyFromOptimistic`** did not replace **`merged.body`** (e.g. empty
+ * optimistic body with media-only send, or merge early-return).
+ */
+function setSenderPlaintextAfterOptimisticMerge(
+  state: MessagingState,
+  serverMessageId: string,
+  merged: Message,
+  optimisticPrev: Message | undefined,
+): void {
+  const opt = optimisticPrev?.body;
+  const fromOptimistic =
+    opt != null &&
+    opt !== '' &&
+    !isE2eeEnvelopeBody(opt)
+      ? opt
+      : '';
+  const fromMerged =
+    merged.body && !isE2eeEnvelopeBody(merged.body) ? merged.body : '';
+  const plain = fromOptimistic || fromMerged;
+  if (plain) {
+    state.senderPlaintextByMessageId[serverMessageId] = plain;
+  }
+}
+
 /** Default **`messaging`** slice state — tests / **`renderWithProviders`**. */
 export const messagingInitialState = initialState;
 
@@ -84,6 +148,16 @@ const messagingSlice = createSlice({
   reducers: {
     setActiveConversationId(state, action: PayloadAction<string | null>) {
       state.activeConversationId = action.payload;
+    },
+    setRecipientDirectoryKey(
+      state,
+      action: PayloadAction<{ userId: string; key: UserPublicKeyResponse }>,
+    ) {
+      const id = action.payload.userId.trim();
+      if (!id) {
+        return;
+      }
+      state.recipientDirectoryKeyByUserId[id] = action.payload.key;
     },
     /**
      * Replaces the in-memory thread for **`conversationId`** from **`GET /conversations/{id}/messages`**
@@ -108,11 +182,25 @@ const messagingSlice = createSlice({
           delete state.messagesById[id];
           delete state.outboundReceiptByMessageId[id];
           delete state.receiptsByMessageId[id];
+          delete state.senderPlaintextByMessageId[id];
+          delete state.decryptedBodyByMessageId[id];
         }
       }
       state.messageIdsByConversationId[conversationId] = ordered.map((m) => m.id);
       for (const m of ordered) {
-        state.messagesById[m.id] = m;
+        let body = m.body;
+        if (
+          selfId &&
+          m.senderId === selfId &&
+          body &&
+          isE2eeEnvelopeBody(body)
+        ) {
+          const plain = state.senderPlaintextByMessageId[m.id];
+          if (plain) {
+            body = plain;
+          }
+        }
+        state.messagesById[m.id] = { ...m, body: body ?? null };
         if (selfId && m.senderId === selfId) {
           state.outboundReceiptByMessageId[m.id] = 'sent';
         }
@@ -153,23 +241,49 @@ const messagingSlice = createSlice({
 
       if (selfId && message.senderId === selfId) {
         const q = [...(state.pendingOutgoingClientIdsByConversationId[conversationId] ?? [])];
-        while (q.length > 0 && !ids.includes(q[0])) {
+        while (q.length > 0) {
+          const head = q[0];
+          if (ids.includes(head)) {
+            break;
+          }
+          if (state.messagesById[head]) {
+            break;
+          }
           q.shift();
         }
         state.pendingOutgoingClientIdsByConversationId[conversationId] = q;
 
         if (q.length > 0) {
           const optimisticId = q[0];
-          const idx = ids.indexOf(optimisticId);
-          if (idx !== -1) {
+          const optimistic = state.messagesById[optimisticId];
+          if (optimistic) {
+            const merged = mergeOwnE2eeBodyFromOptimistic(
+              message,
+              optimistic.body ?? undefined,
+            );
             delete state.messagesById[optimisticId];
-            state.messagesById[message.id] = message;
+            state.messagesById[message.id] = merged;
             delete state.outboundReceiptByMessageId[optimisticId];
             delete state.receiptsByMessageId[optimisticId];
             state.outboundReceiptByMessageId[message.id] = 'sent';
-            const next = [...ids];
-            next[idx] = message.id;
-            state.messageIdsByConversationId[conversationId] = dedupeIdsStable(next);
+            setSenderPlaintextAfterOptimisticMerge(
+              state,
+              message.id,
+              merged,
+              optimistic,
+            );
+            const idx = ids.indexOf(optimisticId);
+            if (idx !== -1) {
+              const next = [...ids];
+              next[idx] = message.id;
+              state.messageIdsByConversationId[conversationId] = dedupeIdsStable(next);
+            } else {
+              const withoutOpt = ids.filter((id) => id !== optimisticId);
+              const next = ids.includes(message.id)
+                ? withoutOpt
+                : [...withoutOpt, message.id];
+              state.messageIdsByConversationId[conversationId] = dedupeIdsStable(next);
+            }
             state.pendingOutgoingClientIdsByConversationId[conversationId] = q.slice(1);
             return;
           }
@@ -204,11 +318,17 @@ const messagingSlice = createSlice({
       );
       const ids = state.messageIdsByConversationId[conversationId] ?? [];
       const idx = ids.indexOf(optimisticId);
+      const prev = state.messagesById[optimisticId];
+      let merged = message;
+      if (prev) {
+        merged = mergeOwnE2eeBodyFromOptimistic(message, prev.body ?? undefined);
+      }
       delete state.messagesById[optimisticId];
-      state.messagesById[message.id] = message;
+      state.messagesById[message.id] = merged;
       delete state.outboundReceiptByMessageId[optimisticId];
       delete state.receiptsByMessageId[optimisticId];
       state.outboundReceiptByMessageId[message.id] = 'sent';
+      setSenderPlaintextAfterOptimisticMerge(state, message.id, merged, prev);
       if (idx === -1) {
         if (!ids.includes(message.id)) {
           state.messageIdsByConversationId[conversationId] = [...ids, message.id];
@@ -218,6 +338,13 @@ const messagingSlice = createSlice({
         next[idx] = message.id;
         state.messageIdsByConversationId[conversationId] = dedupeIdsStable(next);
       }
+    },
+    setPeerDecryptedBody(
+      state,
+      action: PayloadAction<{ messageId: string; plaintext: string }>,
+    ) {
+      state.decryptedBodyByMessageId[action.payload.messageId] =
+        action.payload.plaintext;
     },
     removeOptimisticMessage(
       state,
@@ -309,6 +436,19 @@ const messagingSlice = createSlice({
         delete state.sendErrorByConversationId[conversationId];
       }
     },
+    /**
+     * Merges **`messageId` → plaintext** loaded from **`senderPlaintextLocalStore`** after sign-in
+     * so **`hydrateMessagesFromFetch`** can overlay E2EE wire bodies with local sender copy.
+     */
+    hydrateSenderPlaintextFromDisk(
+      state,
+      action: PayloadAction<Record<string, string>>,
+    ) {
+      for (const [messageId, plaintext] of Object.entries(action.payload)) {
+        if (!messageId.trim()) continue;
+        state.senderPlaintextByMessageId[messageId] = plaintext;
+      }
+    },
     resetMessaging() {
       return initialState;
     },
@@ -320,10 +460,13 @@ const messagingSlice = createSlice({
 
 export const {
   setActiveConversationId,
+  setRecipientDirectoryKey,
   hydrateMessagesFromFetch,
+  hydrateSenderPlaintextFromDisk,
   appendMessageFromSend,
   appendIncomingMessageIfNew,
   replaceOptimisticMessage,
+  setPeerDecryptedBody,
   removeOptimisticMessage,
   mergeReceiptFanoutFromSocket,
   mergeReceiptSummariesFromFetch,

@@ -62,7 +62,7 @@ async function computeAlignment(
 /**
  * Loads the **signed-in user’s** server **user-level** public key (**GET `/users/{id}/public-key`**) and
  * compares with locally stored **SPKI** metadata (see **`storeKeyringPrivateKeyPkcs8`**).
- * For **peers’** keys before send, use **`prefetchRecipientPublicKey`** / **`fetchRecipientPublicKeyForMessaging`** — not this hook.
+ * For **peers’** keys before send, use **`prefetchRecipientPublicKey`** / **`fetchRecipientPublicKeyWithCache`** — not this hook.
  */
 export function useKeypairStatus(): {
   loading: boolean;

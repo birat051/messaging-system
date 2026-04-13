@@ -4,6 +4,7 @@ import { connectionReducer } from '../modules/app/stores/connectionSlice';
 import { authReducer } from '../modules/auth/stores/authSlice';
 import { cryptoReducer } from '../modules/crypto/stores/cryptoSlice';
 import { messagingReducer } from '../modules/home/stores/messagingSlice';
+import { senderPlaintextPersistListener } from './senderPlaintextPersistListener';
 
 export const store = configureStore({
   reducer: {
@@ -14,8 +15,7 @@ export const store = configureStore({
     messaging: messagingReducer,
   },
   middleware: (getDefaultMiddleware) =>
-    getDefaultMiddleware(),
-  // Append custom middleware with `.concat(myMiddleware)` when needed (analytics, RTK Query, etc.).
+    getDefaultMiddleware().concat(senderPlaintextPersistListener.middleware),
 });
 
 export type RootState = ReturnType<typeof store.getState>;

@@ -32,6 +32,25 @@ describe('ThreadMessageList', () => {
 
     const scroll = screen.getByTestId('thread-message-scroll');
     expect(scroll.className).toMatch(/overflow-y-auto/);
+    expect(scroll.className).toMatch(/overflow-x-hidden/);
+    expect(scroll.className).toMatch(/min-w-0/);
+  });
+
+  it('applies wrapping classes to long message body text', () => {
+    const longBody = `${'x'.repeat(200)} ${'y'.repeat(200)}`;
+    renderWithProviders(
+      <ThreadMessageList
+        messages={[
+          { id: 'long', body: longBody, isOwn: false, createdAt: T0 },
+        ]}
+      />,
+    );
+
+    const log = screen.getByRole('log', { name: /conversation messages/i });
+    const p = within(log).getByText(longBody);
+    expect(p.className).toMatch(/break-words/);
+    expect(p.className).toMatch(/whitespace-pre-wrap/);
+    expect(p.className).toMatch(/min-w-0/);
   });
 
   it('renders timestamps with machine-readable datetime', () => {
@@ -49,6 +68,26 @@ describe('ThreadMessageList', () => {
     expect(times).toHaveLength(2);
     expect(times[0]).toHaveAttribute('dateTime', T0);
     expect(times[1]).toHaveAttribute('dateTime', T1);
+  });
+
+  it('shows own row as resolved plaintext, not E2EE wire (shape after send ack + resolveMessageDisplayBody)', () => {
+    const resolvedPlain = 'Hello after simulated ack';
+    renderWithProviders(
+      <ThreadMessageList
+        messages={[
+          {
+            id: 'm-after-ack',
+            body: resolvedPlain,
+            isOwn: true,
+            createdAt: T1,
+          },
+        ]}
+      />,
+    );
+
+    const log = screen.getByRole('log', { name: /conversation messages/i });
+    expect(within(log).getByText(resolvedPlain)).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/E2EE_JSON_V1/);
   });
 
   it('renders message bodies and distinguishes own vs peer for assistive tech', () => {

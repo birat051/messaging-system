@@ -296,25 +296,27 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Search users by email (substring match on normalized email; not by opaque user id)
+         * Search users by email and/or username (substring match; not by opaque user id)
          * @description **Matching:** **case-insensitive substring** on the **normalized** (trim + lowercase)
-         *     stored **`email`**. Results are ordered by **relevance**: **exact** email match first,
-         *     then **prefix** matches, then other substring matches; ties break by **`email`**
+         *     stored **`email`** and **`username`**. Results are ordered by **relevance** (best match on either field):
+         *     **exact** match first, then **prefix**, then other substring matches; ties break by **`email`**
          *     ascending.
+         *
+         *     **Query:** send **`q`** (preferred) or legacy **`email`** — same matching rules; exactly one is required.
          *
          *     **Abuse controls:** query length **3–254** by default (**`USER_SEARCH_MIN_QUERY_LENGTH`** may be
          *     lowered to **2** only when operators accept weaker bounds); allowed charset
-         *     **`[a-z0-9@._+-]`**; regex metacharacters are **escaped** server-side; response size is capped
+         *     **`[a-z0-9@._+_-]`** (includes **`_`** for username fragments); regex metacharacters are **escaped** server-side; response size is capped
          *     by **`limit`** (default **20**, max **100**); MongoDB candidate scan per request is bounded
          *     (**`USER_SEARCH_MAX_CANDIDATE_SCAN`**). **Rate limiting:** per **client IP** in Redis
          *     (`USER_SEARCH_RATE_LIMIT_*` in **`README.md`** (Configuration section)). Exceeding the limit returns **429**
          *     with **`code`** **`RATE_LIMIT_EXCEEDED`**.
          *
-         *     Returns display name, profile picture, and the **direct conversation id** with the
+         *     Returns username, display name, profile picture, and the **direct conversation id** with the
          *     current user when a conversation already exists (null when none). The caller never
          *     receives their own row.
          */
-        get: operations["searchUsersByEmail"];
+        get: operations["searchUsers"];
         put?: never;
         post?: never;
         delete?: never;
@@ -491,6 +493,10 @@ export interface components {
             email: string;
             /** Format: password */
             password: string;
+            /** @description Unique handle, stored lowercase; letters, digits, and underscores only (server normalizes case). */
+            username: string;
+            /** @description Display name shown in the app (trimmed on the server). */
+            displayName: string;
             /**
              * Format: uri
              * @description Optional avatar URL at signup (e.g. from `POST /media/upload` before register)
@@ -572,6 +578,8 @@ export interface components {
             id: string;
             /** Format: email */
             email: string;
+            /** @description Unique handle (null for legacy accounts predating usernames) */
+            username?: string | null;
             displayName?: string | null;
             /** @description Present on every **`User`**. Meaning depends on deployment: when **`EMAIL_VERIFICATION_REQUIRED`** is **`true`** (messaging-service env), new users may be **`false`** until **`POST /auth/verify-email`** succeeds; when **`false`**, registration typically sets this to **`true`** immediately. See **`README.md`** (Configuration section) — email verification. */
             emailVerified?: boolean;
@@ -613,10 +621,12 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
-        /** @description One row from email search — includes existing direct conversation when present */
+        /** @description One row from user search — includes existing direct conversation when present */
         UserSearchResult: {
             /** @description Internal user id for messaging / `recipientUserId` */
             userId: string;
+            /** @description Unique handle when set; null for legacy users */
+            username?: string | null;
             displayName?: string | null;
             /** Format: uri */
             profilePicture?: string | null;
@@ -878,7 +888,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
-            /** @description Email already registered */
+            /** @description Conflict — email already registered (**`EMAIL_ALREADY_REGISTERED`**) or username taken (**`USERNAME_TAKEN`**). Check **`code`** in **`ErrorResponse`**. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -1365,11 +1375,13 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
-    searchUsersByEmail: {
+    searchUsers: {
         parameters: {
-            query: {
-                /** @description Partial or full email (**trimmed**, lowercased). **Substring** match on stored emails — not internal user id. Allowed characters: letters, digits, **`@._+-`**. Deployments may set **`USER_SEARCH_MIN_QUERY_LENGTH`** to **2** (see **`README.md`** (Configuration section)); clients should use at least **3** characters unless a deployment specifies otherwise. */
-                email: string;
+            query?: {
+                /** @description Preferred search string (**trimmed**, lowercased). **Substring** match on stored **email** and **username**. Use this or **`email`** (legacy alias). Allowed characters: letters, digits, **`@._+-_`**. */
+                q?: string;
+                /** @description Legacy alias for **`q`** — same behaviour. Provide **`q`** or **`email`** (not both required in OpenAPI; server requires at least one). */
+                email?: string;
                 /**
                  * @description Optional page size; **default `20`** when omitted on all paginated list endpoints that
                  *     support this parameter. Server may enforce a lower cap.

@@ -12,24 +12,35 @@ export const REGISTER_AVATAR_MAX_BYTES = 31457280;
 const EMAIL_RE =
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** Align with **`GET /users/search`** `email` query (min 3 default, max 254, charset). */
-export const USER_SEARCH_EMAIL_QUERY_MIN_LENGTH = 3;
-export const USER_SEARCH_EMAIL_QUERY_MAX_LENGTH = 254;
+/** Align with **`GET /users/search`** **`q`** query (min 3 default, max 254, charset). */
+export const USER_SEARCH_QUERY_MIN_LENGTH = 3;
+export const USER_SEARCH_QUERY_MAX_LENGTH = 254;
 
-const USER_SEARCH_EMAIL_QUERY_RE = /^[a-z0-9@._+-]+$/;
+/** @deprecated Use **`USER_SEARCH_QUERY_MIN_LENGTH`**. */
+export const USER_SEARCH_EMAIL_QUERY_MIN_LENGTH = USER_SEARCH_QUERY_MIN_LENGTH;
+/** @deprecated Use **`USER_SEARCH_QUERY_MAX_LENGTH`**. */
+export const USER_SEARCH_EMAIL_QUERY_MAX_LENGTH = USER_SEARCH_QUERY_MAX_LENGTH;
+
+/** Includes **`_`** for username fragments — align with **`GET /users/search`** server validation. */
+const USER_SEARCH_QUERY_RE = /^[a-z0-9@._+_-]+$/;
 
 /**
- * Whether **`normalized`** (trimmed, lowercased) is valid for user search.
+ * Whether **`normalized`** (trimmed, lowercased) is valid for user search (**`q`**).
  * Callers should pass **`value.trim().toLowerCase()`** after the user pauses typing (debounced).
  */
-export function isValidUserSearchEmailQuery(normalized: string): boolean {
+export function isValidUserSearchQuery(normalized: string): boolean {
   if (
-    normalized.length < USER_SEARCH_EMAIL_QUERY_MIN_LENGTH ||
-    normalized.length > USER_SEARCH_EMAIL_QUERY_MAX_LENGTH
+    normalized.length < USER_SEARCH_QUERY_MIN_LENGTH ||
+    normalized.length > USER_SEARCH_QUERY_MAX_LENGTH
   ) {
     return false;
   }
-  return USER_SEARCH_EMAIL_QUERY_RE.test(normalized);
+  return USER_SEARCH_QUERY_RE.test(normalized);
+}
+
+/** @deprecated Use **`isValidUserSearchQuery`**. */
+export function isValidUserSearchEmailQuery(normalized: string): boolean {
+  return isValidUserSearchQuery(normalized);
 }
 
 export function isValidEmail(value: string): boolean {
@@ -49,10 +60,22 @@ export function isValidHttpsOrHttpUrl(value: string): boolean {
   }
 }
 
-export type RegisterFieldKey = 'email' | 'password' | 'status' | 'profilePicture';
+export const USERNAME_MIN_LENGTH = 3;
+export const USERNAME_MAX_LENGTH = 30;
+const USERNAME_RE = /^[a-zA-Z0-9_]+$/;
+
+export type RegisterFieldKey =
+  | 'email'
+  | 'displayName'
+  | 'username'
+  | 'password'
+  | 'status'
+  | 'profilePicture';
 
 export function validateRegisterForm(input: {
   email: string;
+  displayName: string;
+  username: string;
   password: string;
   status: string;
   /** Used only when **`profileFile`** is not set (optional advanced path). */
@@ -68,6 +91,24 @@ export function validateRegisterForm(input: {
     fields.email = 'Email is required.';
   } else if (!isValidEmail(email)) {
     fields.email = 'Enter a valid email address.';
+  }
+  const displayName = input.displayName.trim();
+  if (!displayName) {
+    fields.displayName = 'Display name is required.';
+  } else if (displayName.length > DISPLAY_NAME_MAX_LENGTH) {
+    fields.displayName = `Display name must be at most ${DISPLAY_NAME_MAX_LENGTH} characters.`;
+  }
+  const username = input.username.trim();
+  if (!username) {
+    fields.username = 'Username is required.';
+  } else if (
+    username.length < USERNAME_MIN_LENGTH ||
+    username.length > USERNAME_MAX_LENGTH
+  ) {
+    fields.username = `Username must be ${USERNAME_MIN_LENGTH}–${USERNAME_MAX_LENGTH} characters.`;
+  } else if (!USERNAME_RE.test(username)) {
+    fields.username =
+      'Use only letters, digits, and underscores (no spaces).';
   }
   if (!input.password) {
     fields.password = 'Password is required.';

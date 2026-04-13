@@ -22,7 +22,7 @@ export function decodeSpkiBase64(input: string): Buffer {
 
 /**
  * Ensures **`publicKey`** is **P-256** (**`prime256v1`**) **SPKI** (DER) — the canonical wire format for
- * **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`**. Rejects RSA, other curves, and corrupt DER.
+ * **`README.md` (E2EE) / `docs/PROJECT_PLAN.md` §14**. Rejects RSA, other curves, and corrupt DER.
  */
 export function parseP256SpkiPublicKeyOrThrow(publicKey: string): void {
   let der: Buffer;

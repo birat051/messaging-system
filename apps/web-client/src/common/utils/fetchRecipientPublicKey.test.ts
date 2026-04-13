@@ -1,8 +1,11 @@
 import axios, { type AxiosError } from 'axios';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { RootState } from '@/store/store';
+import { setRecipientDirectoryKey } from '@/modules/home/stores/messagingSlice';
 import { getUserPublicKeyById } from '../api/usersApi';
 import {
   fetchRecipientPublicKeyForMessaging,
+  fetchRecipientPublicKeyWithCache,
   prefetchRecipientPublicKey,
   RECIPIENT_NO_KEY_AVAILABLE_MESSAGE,
 } from './fetchRecipientPublicKey';
@@ -136,6 +139,47 @@ describe('fetchRecipientPublicKeyForMessaging', () => {
   });
 });
 
+describe('fetchRecipientPublicKeyWithCache', () => {
+  beforeEach(() => {
+    vi.mocked(getUserPublicKeyById).mockReset();
+  });
+
+  it('returns cached key without calling the API', async () => {
+    const dispatch = vi.fn();
+    const getState = () =>
+      ({
+        messaging: {
+          recipientDirectoryKeyByUserId: { 'peer-1': sampleKey },
+        },
+      }) as unknown as RootState;
+
+    await expect(
+      fetchRecipientPublicKeyWithCache('peer-1', getState, dispatch),
+    ).resolves.toEqual(sampleKey);
+    expect(getUserPublicKeyById).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('fetches, dispatches setRecipientDirectoryKey, and returns when uncached', async () => {
+    vi.mocked(getUserPublicKeyById).mockResolvedValue(sampleKey);
+    const dispatch = vi.fn();
+    const getState = () =>
+      ({
+        messaging: {
+          recipientDirectoryKeyByUserId: {},
+        },
+      }) as unknown as RootState;
+
+    await expect(
+      fetchRecipientPublicKeyWithCache('peer-1', getState, dispatch),
+    ).resolves.toEqual(sampleKey);
+    expect(getUserPublicKeyById).toHaveBeenCalledWith('peer-1');
+    expect(dispatch).toHaveBeenCalledWith(
+      setRecipientDirectoryKey({ userId: 'peer-1', key: sampleKey }),
+    );
+  });
+});
+
 describe('prefetchRecipientPublicKey', () => {
   beforeEach(() => {
     vi.mocked(getUserPublicKeyById).mockReset();
@@ -146,22 +190,31 @@ describe('prefetchRecipientPublicKey', () => {
     vi.restoreAllMocks();
   });
 
-  it('calls getUserPublicKeyById once for a trimmed id and ignores success', () => {
-    prefetchRecipientPublicKey('  peer-1  ');
+  it('calls getUserPublicKeyById once for a trimmed id and dispatches the key', async () => {
+    const dispatch = vi.fn();
+    prefetchRecipientPublicKey(dispatch, '  peer-1  ');
     expect(getUserPublicKeyById).toHaveBeenCalledWith('peer-1');
+    await vi.waitFor(() => {
+      expect(dispatch).toHaveBeenCalledWith(
+        setRecipientDirectoryKey({ userId: 'peer-1', key: sampleKey }),
+      );
+    });
   });
 
   it('no-ops for null/empty id', () => {
-    prefetchRecipientPublicKey(null);
-    prefetchRecipientPublicKey('');
+    const dispatch = vi.fn();
+    prefetchRecipientPublicKey(dispatch, null);
+    prefetchRecipientPublicKey(dispatch, '');
     expect(getUserPublicKeyById).not.toHaveBeenCalled();
   });
 
   it('swallows rejection', async () => {
+    const dispatch = vi.fn();
     vi.mocked(getUserPublicKeyById).mockRejectedValue(axios404());
-    prefetchRecipientPublicKey('peer-1');
+    prefetchRecipientPublicKey(dispatch, 'peer-1');
     await vi.waitFor(() => {
       expect(getUserPublicKeyById).toHaveBeenCalled();
     });
+    expect(dispatch).not.toHaveBeenCalled();
   });
 });

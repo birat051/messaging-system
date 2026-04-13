@@ -5,6 +5,8 @@ export type ConversationListItem = {
   id: string;
   title: string;
   subtitle?: string;
+  /** **1–2** characters for the circular avatar; omitted rows derive from **`title`**. */
+  avatarInitials?: string;
 };
 
 export type ConversationListProps = {
@@ -79,6 +81,7 @@ export function ConversationList({
               <ConversationListRow
                 title={c.title}
                 subtitle={c.subtitle}
+                avatarInitials={c.avatarInitials}
                 isActive={c.id === selectedId}
                 onSelect={onSelect ? () => onSelect(c.id) : undefined}
               />

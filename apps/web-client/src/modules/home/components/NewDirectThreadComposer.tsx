@@ -1,9 +1,14 @@
 import { type FormEvent, useId, useState } from 'react';
+import { SendIcon } from '@/common/components/SendIcon';
 import type { components } from '@/generated/api-types';
 import { useComposerMediaAttachment } from '@/common/hooks/useComposerMediaAttachment';
 import { useSendEncryptedMessage } from '@/common/hooks/useSendEncryptedMessage';
 import { parseApiError } from '@/modules/auth/utils/apiError';
-import { ComposerAttachmentToolbar } from './ComposerAttachmentToolbar';
+import { ComposerImagePreviewStrip } from './ComposerImagePreviewStrip';
+import {
+  ComposerAttachButton,
+  ComposerAttachmentToolbar,
+} from './ComposerAttachmentToolbar';
 
 type UserSearchResult = components['schemas']['UserSearchResult'];
 
@@ -84,30 +89,48 @@ export function NewDirectThreadComposer({ recipient, onConversationIdStored }: P
         cancelUpload={attachment.cancelUpload}
         mediaKey={attachment.mediaKey}
         retryUpload={attachment.retryUpload}
+        attachButtonPlacement="external"
       />
-      <textarea
-        id="new-direct-thread-body"
-        name="body"
-        rows={3}
-        value={body}
-        onChange={(ev) => setBody(ev.target.value)}
-        placeholder="Write a message…"
-        className="border-border bg-background ring-ring focus:ring-accent/40 w-full resize-y rounded-md border px-3 py-2 text-base outline-none focus:ring-2 md:text-sm"
-        disabled={sending}
-      />
+      <ComposerImagePreviewStrip url={attachment.imagePreviewUrl} />
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <textarea
+          id="new-direct-thread-body"
+          name="body"
+          rows={3}
+          value={body}
+          onChange={(ev) => setBody(ev.target.value)}
+          placeholder="Write a message…"
+          className="border-border bg-background ring-ring focus:ring-accent/40 min-w-0 w-full flex-1 resize-y rounded-md border px-3 py-2 text-base outline-none focus:ring-2 md:text-sm"
+          disabled={sending}
+        />
+        <ComposerAttachButton
+          fileInputId={fileInputId}
+          openFilePicker={attachment.openFilePicker}
+          disabled={attachment.isUploading || sending}
+        />
+        <button
+          type="submit"
+          disabled={!canSend}
+          aria-busy={sending}
+          aria-label={sending ? 'Sending message' : 'Send message'}
+          title={sending ? 'Sending…' : 'Send message'}
+          className="bg-accent text-accent-foreground hover:bg-accent/90 focus:ring-accent/50 inline-flex min-h-11 min-w-11 shrink-0 touch-manipulation items-center justify-center rounded-md px-2.5 text-sm font-medium focus:ring-2 focus:outline-none disabled:opacity-60"
+        >
+          {sending ? (
+            <span
+              className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-current/30 border-t-current"
+              aria-hidden
+            />
+          ) : (
+            <SendIcon className="h-5 w-5" />
+          )}
+        </button>
+      </div>
       {error && (
         <p className="text-sm text-red-600 dark:text-red-400" role="alert">
           {error}
         </p>
       )}
-      <button
-        type="submit"
-        disabled={!canSend}
-        aria-busy={sending}
-        className="bg-accent text-accent-foreground hover:bg-accent/90 focus:ring-accent/50 min-h-11 touch-manipulation rounded-md px-4 text-sm font-medium focus:ring-2 focus:outline-none disabled:opacity-60"
-      >
-        {sending ? 'Sending…' : 'Send'}
-      </button>
     </form>
   );
 }

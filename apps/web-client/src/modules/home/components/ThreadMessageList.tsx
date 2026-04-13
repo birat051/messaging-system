@@ -76,15 +76,15 @@ function ThreadMessageRow({
       aria-label={m.isOwn ? 'Message from you' : 'Message from peer'}
       className={
         m.isOwn
-          ? 'flex max-w-[min(85%,20rem)] flex-col items-end gap-1 self-end'
-          : 'flex max-w-[min(85%,20rem)] flex-col items-start gap-1 self-start'
+          ? 'flex min-w-0 max-w-[min(85%,20rem)] w-full flex-col items-end gap-1 self-end'
+          : 'flex min-w-0 max-w-[min(85%,20rem)] w-full flex-col items-start gap-1 self-start'
       }
     >
       <div
         className={
           m.isOwn
-            ? 'bg-accent text-accent-foreground rounded-2xl rounded-br-md px-3 py-2 shadow-sm'
-            : 'bg-surface text-foreground border-border rounded-2xl rounded-bl-md border px-3 py-2 shadow-sm'
+            ? 'bg-accent text-accent-foreground min-w-0 max-w-full rounded-2xl rounded-br-md px-3 py-2 shadow-sm'
+            : 'bg-surface text-foreground border-border min-w-0 max-w-full rounded-2xl rounded-bl-md border px-3 py-2 shadow-sm'
         }
       >
         {bubbleParagraph(m)}
@@ -163,7 +163,7 @@ function bubbleParagraph(m: ThreadMessageItem): ReactNode {
     return null;
   }
   return (
-    <p className="text-sm whitespace-pre-wrap break-words">{m.body ?? ''}</p>
+    <p className="min-w-0 text-sm break-words whitespace-pre-wrap">{m.body ?? ''}</p>
   );
 }
 
@@ -210,7 +210,7 @@ export function ThreadMessageList({
       <div
         role="alert"
         aria-live="assertive"
-        className="border-border bg-background/40 rounded-lg border px-3 py-2 text-sm text-red-600 dark:text-red-400"
+        className="border-border bg-background/40 min-w-0 break-words rounded-lg border px-3 py-2 text-sm text-red-600 dark:text-red-400"
       >
         {errorMessage}
       </div>
@@ -243,16 +243,16 @@ export function ThreadMessageList({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div
         role="log"
         aria-label="Conversation messages"
         aria-live="polite"
         aria-busy={isValidating}
         data-testid="thread-message-scroll"
-        className="border-border bg-background/40 min-h-0 flex-1 overflow-y-auto overscroll-y-contain rounded-xl border px-2 py-3 sm:px-3"
+        className="border-border bg-background/40 min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain rounded-xl border px-2 py-3 sm:px-3"
       >
-        <div className="flex flex-col gap-3">
+        <div className="flex min-w-0 flex-col gap-3">
           {messages.map((m) => (
             <ThreadMessageRow
               key={m.id}

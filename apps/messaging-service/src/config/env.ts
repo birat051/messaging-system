@@ -1,8 +1,12 @@
 /**
- * Env schema — document every variable in `docs/ENVIRONMENT.md` (Docker Compose / local).
+ * Env schema — document every variable in `README.md` (Configuration section) (Docker Compose / local).
  */
 import { hostname } from 'node:os';
 import { z } from 'zod';
+import {
+  DEFAULT_USER_SEARCH_MAX_CANDIDATE_SCAN,
+  DEFAULT_USER_SEARCH_MIN_QUERY_LENGTH,
+} from './userSearchPolicy.js';
 
 const logLevelSchema = z.enum([
   'fatal',
@@ -39,6 +43,19 @@ const envSchema = z.object({
     .string()
     .min(1)
     .default(hostname() || 'default'),
+  /**
+   * When true, logs structured fields for each RabbitMQ → Socket.IO **`message:new`** / receipt emit
+   * (routing key, **`user:<id>`** room, message id, conversation id, recipient user id, **`skipSocketId`** if any).
+   */
+  MESSAGING_REALTIME_DELIVERY_LOGS: z.preprocess((val) => {
+    if (val === undefined || val === '') {
+      return false;
+    }
+    if (val === false || val === 0 || val === '0' || val === 'false') {
+      return false;
+    }
+    return val === true || val === 'true' || val === '1' || val === 1;
+  }, z.boolean()),
   /** Optional CORS origin for Socket.IO (omit for permissive dev; use `*` for any). */
   SOCKET_IO_CORS_ORIGIN: z.string().min(1).optional(),
   REDIS_URL: z.string().min(1).default('redis://127.0.0.1:6379'),
@@ -221,6 +238,26 @@ const envSchema = z.object({
     .default(60),
   USER_SEARCH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),
   /**
+   * Minimum **`email`** query length for **`GET /users/search`** (substring match). Default **3** limits
+   * very broad two-character scans; may be set to **2** only when you accept weaker abuse bounds.
+   */
+  USER_SEARCH_MIN_QUERY_LENGTH: z.coerce
+    .number()
+    .int()
+    .min(2)
+    .max(254)
+    .default(DEFAULT_USER_SEARCH_MIN_QUERY_LENGTH),
+  /**
+   * Max MongoDB documents read for one search (regex substring on **`users.email`**). Caps work per
+   * request regardless of **`limit`** (response size is still capped by **`limit`**).
+   */
+  USER_SEARCH_MAX_CANDIDATE_SCAN: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(5000)
+    .default(DEFAULT_USER_SEARCH_MAX_CANDIDATE_SCAN),
+  /**
    * When **`true`**, **`GET /users/{userId}/public-key`** (other than self) requires an existing **direct**
    * conversation between caller and target. When **`false`** (default), any authenticated user may
    * fetch a registered user's key (matches “may start a DM” / first encrypted message before a thread row).
@@ -302,9 +339,9 @@ const envSchema = z.object({
     .positive()
     .default(600),
   /**
-   * Global per-client-IP cap for REST **`/v1/*`** (middleware — **`docs/GLOBAL_RATE_LIMIT.md`**).
+   * Global per-client-IP cap for REST **`/v1/*`** (middleware — **`README.md`** Configuration).
    * Default **500** requests per **60** seconds ≈ **500/min** average; not calendar-aligned.
-   * **Stacks** with route-specific limits (**`REGISTER_*`**, **`USER_SEARCH_*`**, **`MESSAGE_SEND_*`**, …) — **`docs/ENVIRONMENT.md`**.
+   * **Stacks** with route-specific limits (**`REGISTER_*`**, **`USER_SEARCH_*`**, **`MESSAGE_SEND_*`**, …) — **`README.md`** (Configuration).
    */
   GLOBAL_RATE_LIMIT_WINDOW_SEC: z.coerce
     .number()
@@ -347,7 +384,7 @@ export function resetEnvCacheForTests(): void {
 }
 
 /**
- * Validates `process.env` once at startup. Exits the process on failure (PROJECT_GUIDELINES.md).
+ * Validates `process.env` once at startup. Exits the process on failure (`docs/PROJECT_PLAN.md` §14).
  */
 export function loadEnv(): Env {
   if (cached) {

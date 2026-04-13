@@ -11,12 +11,13 @@ import { HomePage } from './HomePage';
 const sendMessageSpy = vi.hoisted(() => vi.fn());
 
 vi.mock('@/common/hooks/useSendEncryptedMessage', async () => {
-  const { mockSendMessageSocketLike } = await import(
-    '@/common/test-utils/mockSendMessageForVitest'
-  );
+  const { mockSendMessageSocketLike } =
+    await import('@/common/test-utils/mockSendMessageForVitest');
   return {
     useSendEncryptedMessage: () => ({
-      sendMessage: async (payload: components['schemas']['SendMessageRequest']) => {
+      sendMessage: async (
+        payload: components['schemas']['SendMessageRequest'],
+      ) => {
         sendMessageSpy(payload);
         return mockSendMessageSocketLike(payload);
       },
@@ -53,7 +54,14 @@ describe('HomePage', () => {
 
     const searchPanel = screen.getByTestId('user-search-panel');
     expect(
-      within(searchPanel).getByRole('textbox', { name: /email text to search/i }),
+      within(searchPanel).getByRole('textbox', {
+        name: /search users/i,
+      }),
+    ).toBeInTheDocument();
+
+    const banner = screen.getByRole('banner');
+    expect(
+      within(banner).getByTestId('connection-status-indicator'),
     ).toBeInTheDocument();
   });
 
@@ -77,7 +85,9 @@ describe('HomePage', () => {
 
     const searchPanel = screen.getByTestId('user-search-panel');
     await user.type(
-      within(searchPanel).getByRole('textbox', { name: /email text to search/i }),
+      within(searchPanel).getByRole('textbox', {
+        name: /search users/i,
+      }),
       'nobody@example.com',
     );
 
@@ -111,7 +121,9 @@ describe('HomePage', () => {
 
     const searchPanel = screen.getByTestId('user-search-panel');
     await user.type(
-      within(searchPanel).getByRole('textbox', { name: /email text to search/i }),
+      within(searchPanel).getByRole('textbox', {
+        name: /search users/i,
+      }),
       'found@example.com',
     );
 
@@ -123,7 +135,9 @@ describe('HomePage', () => {
     );
 
     expect(within(searchPanel).getByText('FU')).toBeInTheDocument();
-    expect(within(searchPanel).getByText(/Conversation ID:/i)).toBeInTheDocument();
+    expect(
+      within(searchPanel).getByText(/Conversation ID:/i),
+    ).toBeInTheDocument();
   });
 
   it('debounced search: partial query matches substring of stored email', async () => {
@@ -146,7 +160,9 @@ describe('HomePage', () => {
 
     const searchPanel = screen.getByTestId('user-search-panel');
     await user.type(
-      within(searchPanel).getByRole('textbox', { name: /email text to search/i }),
+      within(searchPanel).getByRole('textbox', {
+        name: /search users/i,
+      }),
       'found',
     );
 
@@ -178,13 +194,17 @@ describe('HomePage', () => {
 
     const searchPanel = screen.getByTestId('user-search-panel');
     await user.type(
-      within(searchPanel).getByRole('textbox', { name: /email text to search/i }),
+      within(searchPanel).getByRole('textbox', {
+        name: /search users/i,
+      }),
       'newonly@example.com',
     );
 
     await waitFor(
       () => {
-        expect(within(searchPanel).getByText('New Contact')).toBeInTheDocument();
+        expect(
+          within(searchPanel).getByText('New Contact'),
+        ).toBeInTheDocument();
       },
       { timeout: 4000 },
     );
@@ -214,23 +234,33 @@ describe('HomePage', () => {
 
     const searchPanel = screen.getByTestId('user-search-panel');
     await user.type(
-      within(searchPanel).getByRole('textbox', { name: /email text to search/i }),
+      within(searchPanel).getByRole('textbox', {
+        name: /search users/i,
+      }),
       'newonly@example.com',
     );
 
     await waitFor(
       () => {
-        expect(within(searchPanel).getByText('New Contact')).toBeInTheDocument();
+        expect(
+          within(searchPanel).getByText('New Contact'),
+        ).toBeInTheDocument();
       },
       { timeout: 4000 },
     );
 
-    await user.click(within(searchPanel).getByRole('button', { name: /new contact/i }));
+    await user.click(
+      within(searchPanel).getByRole('button', { name: /new contact/i }),
+    );
 
-    const messageBox = within(searchPanel).getByRole('textbox', { name: /^message$/i });
+    const messageBox = within(searchPanel).getByRole('textbox', {
+      name: /^message$/i,
+    });
     await user.type(messageBox, 'Hello there');
 
-    await user.click(within(searchPanel).getByRole('button', { name: /^send$/i }));
+    await user.click(
+      within(searchPanel).getByRole('button', { name: /send message/i }),
+    );
 
     await waitFor(
       () => {
@@ -271,7 +301,9 @@ describe('HomePage', () => {
 
     const searchPanel = screen.getByTestId('user-search-panel');
     await user.type(
-      within(searchPanel).getByRole('textbox', { name: /email text to search/i }),
+      within(searchPanel).getByRole('textbox', {
+        name: /search users/i,
+      }),
       'found@example.com',
     );
 
@@ -282,12 +314,18 @@ describe('HomePage', () => {
       { timeout: 4000 },
     );
 
-    await user.click(within(searchPanel).getByRole('button', { name: /found user/i }));
+    await user.click(
+      within(searchPanel).getByRole('button', { name: /found user/i }),
+    );
 
-    const messageBox = within(searchPanel).getByRole('textbox', { name: /^message$/i });
+    const messageBox = within(searchPanel).getByRole('textbox', {
+      name: /^message$/i,
+    });
     await user.type(messageBox, 'Hi');
 
-    await user.click(within(searchPanel).getByRole('button', { name: /^send$/i }));
+    await user.click(
+      within(searchPanel).getByRole('button', { name: /send message/i }),
+    );
 
     await waitFor(
       () => {
@@ -304,7 +342,8 @@ describe('HomePage', () => {
       body: 'Hi',
     });
     expect(
-      (captured as { recipientUserId?: string | null } | undefined)?.recipientUserId,
+      (captured as { recipientUserId?: string | null } | undefined)
+        ?.recipientUserId,
     ).toBeUndefined();
   });
 });

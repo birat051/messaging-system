@@ -21,7 +21,7 @@ vi.mock('../crypto/ensureMessagingKeypair', () => ({
   ) => ensureUserKeypairReadyForMessaging(userId, dispatch),
 }));
 
-const fetchRecipientPublicKeyForMessaging = vi.hoisted(() => {
+const fetchRecipientPublicKeyWithCache = vi.hoisted(() => {
   const key: components['schemas']['UserPublicKeyResponse'] = {
     userId: 'peer-1',
     publicKey:
@@ -37,8 +37,11 @@ vi.mock('../utils/fetchRecipientPublicKey', async (importOriginal) => {
     await importOriginal<typeof import('../utils/fetchRecipientPublicKey')>();
   return {
     ...actual,
-    fetchRecipientPublicKeyForMessaging: (recipientUserId: string) =>
-      fetchRecipientPublicKeyForMessaging(recipientUserId),
+    fetchRecipientPublicKeyWithCache: (
+      recipientUserId: string,
+      getState: () => unknown,
+      dispatch: unknown,
+    ) => fetchRecipientPublicKeyWithCache(recipientUserId, getState, dispatch),
   };
 });
 
@@ -105,7 +108,7 @@ function hookWrapper(store: ReturnType<typeof createTestStore>) {
 describe('useSendEncryptedMessage', () => {
   beforeEach(() => {
     ensureUserKeypairReadyForMessaging.mockClear();
-    fetchRecipientPublicKeyForMessaging.mockClear();
+    fetchRecipientPublicKeyWithCache.mockClear();
     encryptUtf8ToE2eeBody.mockClear();
     socketSend.mockClear();
   });
@@ -132,7 +135,11 @@ describe('useSendEncryptedMessage', () => {
       defaultMockUser.id,
       expect.any(Function),
     );
-    expect(fetchRecipientPublicKeyForMessaging).toHaveBeenCalledWith('peer-1');
+    expect(fetchRecipientPublicKeyWithCache).toHaveBeenCalledWith(
+      'peer-1',
+      expect.any(Function),
+      expect.any(Function),
+    );
     expect(encryptUtf8ToE2eeBody).toHaveBeenCalled();
     expect(socketSend).toHaveBeenCalledWith(
       expect.objectContaining({

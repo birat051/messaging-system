@@ -1,3 +1,4 @@
+import { loadSenderPlaintextIntoRedux } from '../../../common/senderPlaintext/loadSenderPlaintextIntoRedux';
 import { refreshTokens } from '../../../common/api/authApi';
 import { getCurrentUser } from '../../../common/api/usersApi';
 import type { AppDispatch } from '../../../store/store';
@@ -26,6 +27,7 @@ export function bootstrapSessionIfNeeded(dispatch: AppDispatch): Promise<void> {
       try {
         const user = await getCurrentUser();
         dispatch(setUser(user));
+        await loadSenderPlaintextIntoRedux(dispatch, user.id);
       } catch {
         clearRefreshToken();
         dispatch(logout());

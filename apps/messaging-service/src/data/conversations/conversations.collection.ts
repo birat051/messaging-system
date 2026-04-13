@@ -18,7 +18,7 @@ export type DirectConversationDocument = {
 };
 
 /**
- * **`conversations`** collection — indexes follow **`PROJECT_GUIDELINES.md`** (access-pattern-first).
+ * **`conversations`** collection — indexes follow ****`docs/PROJECT_PLAN.md` §14**** (access-pattern-first).
  *
  * | Access pattern | Query shape | Index |
  * |----------------|-------------|--------|
