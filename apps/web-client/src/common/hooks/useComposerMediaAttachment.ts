@@ -1,0 +1,74 @@
+import { useCallback, useRef, useState, type ChangeEvent } from 'react';
+import type { UseComposerMediaAttachmentResult } from '../types/useComposerMediaAttachment-types';
+import { useMediaUpload } from './useMediaUpload';
+
+/**
+ * Hidden file input + **`POST /media/upload`** — yields **`mediaKey`** (**`key`**) for **`SendMessageRequest`**.
+ */
+export function useComposerMediaAttachment(): UseComposerMediaAttachmentResult {
+  const {
+    upload,
+    retryUpload,
+    cancel,
+    reset,
+    isUploading,
+    progress,
+    error,
+    result,
+  } = useMediaUpload();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+
+  const openFilePicker = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const onFileInputChange = useCallback(
+    async (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (!file) {
+        return;
+      }
+      setFileName(file.name);
+      reset();
+      try {
+        await upload(file);
+      } catch {
+        // **`useMediaUpload`** sets **`error`**
+      }
+    },
+    [upload, reset],
+  );
+
+  const clearAttachment = useCallback(() => {
+    cancel();
+    reset();
+    setFileName(null);
+  }, [cancel, reset]);
+
+  const retryUploadAttachment = useCallback(async () => {
+    try {
+      await retryUpload();
+    } catch {
+      // **`useMediaUpload`** sets **`error`**
+    }
+  }, [retryUpload]);
+
+  const key = result?.key?.trim();
+  const mediaKey = key ? key : null;
+
+  return {
+    fileInputRef,
+    fileName,
+    openFilePicker,
+    onFileInputChange,
+    clearAttachment,
+    mediaKey,
+    isUploading,
+    progress,
+    error,
+    cancelUpload: cancel,
+    retryUpload: retryUploadAttachment,
+  };
+}

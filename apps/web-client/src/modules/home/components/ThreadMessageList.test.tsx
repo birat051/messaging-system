@@ -73,6 +73,30 @@ describe('ThreadMessageList', () => {
     ).toBeInTheDocument();
   });
 
+  it('shows attachment fallback when body is empty but mediaKey is set and media URL env is unset', () => {
+    vi.stubEnv('VITE_S3_PUBLIC_BASE_URL', '');
+    vi.stubEnv('VITE_S3_BUCKET', '');
+    try {
+      renderWithProviders(
+        <ThreadMessageList
+          messages={[
+            {
+              id: 'm1',
+              body: '',
+              mediaKey: 'users/u1/obj.png',
+              isOwn: true,
+              createdAt: T0,
+            },
+          ]}
+        />,
+      );
+
+      expect(screen.getByText('Attachment')).toBeInTheDocument();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('shows an empty status when there are no messages and not loading', () => {
     renderWithProviders(
       <ThreadMessageList messages={[]} emptyLabel="No messages in this thread" />,

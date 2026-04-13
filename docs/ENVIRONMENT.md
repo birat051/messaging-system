@@ -138,6 +138,8 @@ Env files live under **`apps/web-client/`**. **Committed:** **`.env.development`
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `VITE_API_BASE_URL` | no | *(relative)* `/v1` on current origin in dev | REST base URL **including** `/v1`, or a path (`/v1`) when using **Vite** `server.proxy` to nginx (**`8080`**). Absolute example: `http://localhost:8080/v1`. |
+| `VITE_S3_PUBLIC_BASE_URL` | no | — | No trailing slash — same as **`messaging-service`** **`S3_PUBLIC_BASE_URL`** (e.g. MinIO **`http://localhost:9000`** in Docker). With **`VITE_S3_BUCKET`**, the client builds public URLs for **`Message.mediaKey`** so the thread can render **lazy-loaded** images. |
+| `VITE_S3_BUCKET` | no | — | Same as **`S3_BUCKET`** when using object storage. Omit either **`VITE_S3_PUBLIC_BASE_URL`** or **`VITE_S3_BUCKET`** to disable image URLs in the UI (text fallback only). |
 
 **Tokens (browser):** access JWT is **in memory** (Redux); refresh token is **`localStorage`** key **`messaging-refresh-token`**. **`POST /v1/auth/refresh`** on **401** (up to **3** attempts, **1s** between failures, then redirect to **`/login`**) — see **`apps/web-client/src/common/api/httpClient.ts`**.
 

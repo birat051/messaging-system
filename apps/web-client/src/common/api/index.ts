@@ -23,6 +23,8 @@ export {
 } from './httpMutations';
 export { sendMessage } from './messagesApi';
 export { uploadMedia } from './mediaApi';
+export type { MediaUploadResponse, UploadMediaOptions } from './mediaApi';
+export { buildMediaUploadFormData } from '../utils/buildMediaUploadFormData';
 export { API_PATHS } from './paths';
 export { swrConfigValue, swrFetcher } from './swrConfig';
 export { getHealth, getReady } from './systemApi';

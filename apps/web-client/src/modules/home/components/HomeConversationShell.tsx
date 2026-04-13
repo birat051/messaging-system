@@ -150,6 +150,7 @@ export function HomeConversationShell() {
       out.push({
         id: m.id,
         body: m.body ?? '',
+        mediaKey: m.mediaKey ?? null,
         isOwn,
         createdAt: m.createdAt,
         outboundReceipt: receipt?.state,
@@ -217,7 +218,7 @@ export function HomeConversationShell() {
     [activeConversationId, emitReceipt],
   );
 
-  const { sendText } = useSendMessage({
+  const { sendMessage } = useSendMessage({
     conversationId: activeConversationId,
     peerUserId: selectedPeerUserId,
   });
@@ -279,7 +280,7 @@ export function HomeConversationShell() {
             <div className="border-border shrink-0 space-y-2 border-t pt-2">
               <E2eeMessagingIndicator />
               <ThreadComposer
-                onSend={sendText}
+                onSend={sendMessage}
                 disabled={composerDisabled || sendPending}
                 errorMessage={sendError}
                 onExternalErrorClear={() => {

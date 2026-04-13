@@ -1,13 +1,16 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import {
   ReceiptTicks,
   describeOutboundReceiptStatus,
   type ReceiptTickState,
 } from './ReceiptTicks';
+import { ThreadMessageMedia } from './ThreadMessageMedia';
 
 export type ThreadMessageItem = {
   id: string;
   body: string;
+  /** S3 object key when the row has an attachment (see **`Message.mediaKey`**). */
+  mediaKey?: string | null;
   isOwn: boolean;
   /** ISO 8601 from the API (`Message.createdAt`). */
   createdAt: string;
@@ -84,7 +87,14 @@ function ThreadMessageRow({
             : 'bg-surface text-foreground border-border rounded-2xl rounded-bl-md border px-3 py-2 shadow-sm'
         }
       >
-        <p className="text-sm whitespace-pre-wrap break-words">{m.body}</p>
+        {bubbleParagraph(m)}
+        {m.mediaKey ? (
+          <ThreadMessageMedia
+            mediaKey={m.mediaKey}
+            messageId={m.id}
+            isOwn={m.isOwn}
+          />
+        ) : null}
       </div>
       {m.isOwn ? (
         m.outboundReceipt ? (
@@ -145,6 +155,16 @@ function formatMessageStatusTime(iso: string): string {
     dateStyle: 'medium',
     timeStyle: 'short',
   });
+}
+
+function bubbleParagraph(m: ThreadMessageItem): ReactNode {
+  const t = m.body?.trim() ?? '';
+  if (t.length === 0) {
+    return null;
+  }
+  return (
+    <p className="text-sm whitespace-pre-wrap break-words">{m.body ?? ''}</p>
+  );
 }
 
 function formatMessageTimestamp(iso: string): string {

@@ -1,7 +1,9 @@
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useId, useState } from 'react';
 import type { components } from '@/generated/api-types';
+import { useComposerMediaAttachment } from '@/common/hooks/useComposerMediaAttachment';
 import { useSendEncryptedMessage } from '@/common/hooks/useSendEncryptedMessage';
 import { parseApiError } from '@/modules/auth/utils/apiError';
+import { ComposerAttachmentToolbar } from './ComposerAttachmentToolbar';
 
 type UserSearchResult = components['schemas']['UserSearchResult'];
 
@@ -20,21 +22,35 @@ export function NewDirectThreadComposer({ recipient, onConversationIdStored }: P
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const id = useId();
+  const fileInputId = `new-direct-file-${id}`;
+
+  const attachment = useComposerMediaAttachment();
+
+  const trimmed = body.trim();
+  const mediaKey = attachment.mediaKey;
+  const canSend =
+    (trimmed.length > 0 || mediaKey !== null) &&
+    !sending &&
+    !attachment.isUploading;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    const text = body.trim();
-    if (!text || sending) return;
+    if (!canSend) {
+      return;
+    }
 
     const previous = body;
-    setBody('');
     setSending(true);
     setError(null);
     try {
       const message = await sendMessage({
         recipientUserId: recipient.userId,
-        body: text,
+        body: trimmed.length > 0 ? trimmed : undefined,
+        mediaKey: mediaKey ?? undefined,
       });
+      setBody('');
+      attachment.clearAttachment();
       onConversationIdStored(message.conversationId);
     } catch (err) {
       setBody(previous);
@@ -55,6 +71,20 @@ export function NewDirectThreadComposer({ recipient, onConversationIdStored }: P
       <label htmlFor="new-direct-thread-body" className="text-foreground text-sm font-medium">
         Message
       </label>
+      <ComposerAttachmentToolbar
+        fileInputId={fileInputId}
+        fileInputRef={attachment.fileInputRef}
+        fileName={attachment.fileName}
+        openFilePicker={attachment.openFilePicker}
+        onFileInputChange={attachment.onFileInputChange}
+        clearAttachment={attachment.clearAttachment}
+        isUploading={attachment.isUploading}
+        progress={attachment.progress}
+        error={attachment.error}
+        cancelUpload={attachment.cancelUpload}
+        mediaKey={attachment.mediaKey}
+        retryUpload={attachment.retryUpload}
+      />
       <textarea
         id="new-direct-thread-body"
         name="body"
@@ -72,7 +102,7 @@ export function NewDirectThreadComposer({ recipient, onConversationIdStored }: P
       )}
       <button
         type="submit"
-        disabled={sending || !body.trim()}
+        disabled={!canSend}
         aria-busy={sending}
         className="bg-accent text-accent-foreground hover:bg-accent/90 focus:ring-accent/50 rounded-md px-4 py-2 text-sm font-medium focus:ring-2 focus:outline-none disabled:opacity-60"
       >

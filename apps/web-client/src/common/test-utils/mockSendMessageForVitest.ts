@@ -17,7 +17,7 @@ export async function mockSendMessageSocketLike(
       conversationId: payload.conversationId.trim(),
       senderId: defaultMockUser.id,
       body: payload.body ?? null,
-      mediaKey: null,
+      mediaKey: payload.mediaKey ?? null,
       createdAt: new Date().toISOString(),
     };
   }
@@ -29,7 +29,7 @@ export async function mockSendMessageSocketLike(
     conversationId: `conv-${payload.recipientUserId}-thread`,
     senderId: defaultMockUser.id,
     body: payload.body ?? null,
-    mediaKey: null,
+    mediaKey: payload.mediaKey ?? null,
     createdAt: new Date().toISOString(),
   };
 }

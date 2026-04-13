@@ -11,6 +11,7 @@ import {
   setSendError,
   setSendPending,
 } from '@/modules/home/stores/messagingSlice';
+import type { ThreadComposerSendPayload } from '@/modules/home/types/ThreadComposer-types';
 import { useAppDispatch } from '@/store/hooks';
 
 function newOptimisticId(): string {
@@ -35,19 +36,25 @@ export function useSendMessage(options: UseSendMessageOptions) {
     peerUserId: peerUserId ?? undefined,
   });
 
-  const sendText = useCallback(
-    async (text: string) => {
+  const sendMessage = useCallback(
+    async (payload: ThreadComposerSendPayload) => {
       if (!conversationId?.trim() || !user?.id) {
         throw new Error('Not signed in');
       }
       const cid = conversationId.trim();
+      const text = payload.text.trim();
+      const mediaKey = payload.mediaKey?.trim() ?? null;
+      if (!text && !mediaKey) {
+        throw new Error('Message body or attachment is required.');
+      }
+
       const optimisticId = newOptimisticId();
       const optimisticMessage: Message = {
         id: optimisticId,
         conversationId: cid,
         senderId: user.id,
-        body: text,
-        mediaKey: null,
+        body: text.length > 0 ? text : null,
+        mediaKey,
         createdAt: new Date().toISOString(),
       };
 
@@ -58,7 +65,8 @@ export function useSendMessage(options: UseSendMessageOptions) {
       try {
         const serverMessage = await sendEncrypted({
           conversationId: cid,
-          body: text,
+          body: text.length > 0 ? text : undefined,
+          mediaKey: mediaKey ?? undefined,
         });
         dispatch(
           replaceOptimisticMessage({
@@ -80,5 +88,5 @@ export function useSendMessage(options: UseSendMessageOptions) {
     [conversationId, dispatch, mutate, sendEncrypted, user?.id],
   );
 
-  return { sendText };
+  return { sendMessage };
 }

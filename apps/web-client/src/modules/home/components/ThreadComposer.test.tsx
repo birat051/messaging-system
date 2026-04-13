@@ -1,10 +1,36 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/common/test-utils';
 import { ThreadComposer } from './ThreadComposer';
 
+const attachment = vi.hoisted(() => ({
+  mediaKey: null as string | null,
+  clearAttachment: vi.fn(),
+}));
+
+vi.mock('@/common/hooks/useComposerMediaAttachment', () => ({
+  useComposerMediaAttachment: () => ({
+    fileInputRef: { current: null },
+    fileName: attachment.mediaKey ? 'photo.png' : null,
+    openFilePicker: vi.fn(),
+    onFileInputChange: vi.fn(),
+    clearAttachment: attachment.clearAttachment,
+    mediaKey: attachment.mediaKey,
+    isUploading: false,
+    progress: null,
+    error: null,
+    cancelUpload: vi.fn(),
+    retryUpload: vi.fn(),
+  }),
+}));
+
 describe('ThreadComposer', () => {
+  beforeEach(() => {
+    attachment.mediaKey = null;
+    attachment.clearAttachment.mockClear();
+  });
+
   it('submits trimmed text via onSend and clears the field', async () => {
     const user = userEvent.setup();
     const onSend = vi.fn();
@@ -15,8 +41,25 @@ describe('ThreadComposer', () => {
     await user.type(input, '  Hello world  ');
     await user.click(screen.getByRole('button', { name: /^send$/i }));
 
-    expect(onSend).toHaveBeenCalledWith('Hello world');
+    expect(onSend).toHaveBeenCalledWith({ text: 'Hello world', mediaKey: null });
     expect(input).toHaveValue('');
+    expect(attachment.clearAttachment).toHaveBeenCalled();
+  });
+
+  it('submits mediaKey when attachment is ready and clears', async () => {
+    attachment.mediaKey = 'users/me/obj.png';
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+
+    renderWithProviders(<ThreadComposer onSend={onSend} />);
+
+    await user.click(screen.getByRole('button', { name: /^send$/i }));
+
+    expect(onSend).toHaveBeenCalledWith({
+      text: '',
+      mediaKey: 'users/me/obj.png',
+    });
+    expect(attachment.clearAttachment).toHaveBeenCalled();
   });
 
   it('does not submit or call onSend when the message is empty', async () => {

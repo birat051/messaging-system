@@ -1,7 +1,10 @@
 import { type FormEvent, useId, useState } from 'react';
+import { useComposerMediaAttachment } from '@/common/hooks/useComposerMediaAttachment';
+import type { ThreadComposerSendPayload } from '../types/ThreadComposer-types';
+import { ComposerAttachmentToolbar } from './ComposerAttachmentToolbar';
 
 export type ThreadComposerProps = {
-  onSend: (text: string) => void | Promise<void>;
+  onSend: (payload: ThreadComposerSendPayload) => void | Promise<void>;
   placeholder?: string;
   disabled?: boolean;
   /** External error (e.g. server / socket) — shown with **`submitError`** from failed **`onSend`**. */
@@ -11,8 +14,8 @@ export type ThreadComposerProps = {
 };
 
 /**
- * Message input + send — trimmed body; send disabled when empty or while **`onSend`** is in flight.
- * Surfaces **failed sends** and optional **parent-supplied** **`errorMessage`** (e.g. rate limits).
+ * Message input + send — trimmed body and/or **`mediaKey`** from **`POST /media/upload`**;
+ * send disabled when empty (no text and no uploaded attachment), while upload is in flight, or while **`onSend`** runs.
  */
 export function ThreadComposer({
   onSend,
@@ -23,25 +26,42 @@ export function ThreadComposer({
 }: ThreadComposerProps) {
   const id = useId();
   const fieldId = `thread-composer-message-${id}`;
+  const fileInputId = `thread-composer-file-${id}`;
   const [value, setValue] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  const attachment = useComposerMediaAttachment();
+
   const trimmed = value.trim();
-  const sendDisabled = disabled || submitting || trimmed.length === 0;
+  const hasContent =
+    trimmed.length > 0 || attachment.mediaKey !== null;
+  const sendDisabled =
+    disabled ||
+    submitting ||
+    attachment.isUploading ||
+    !hasContent;
 
   const displayError = errorMessage ?? submitError;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (sendDisabled) return;
+    if (sendDisabled) {
+      return;
+    }
 
     const text = trimmed;
+    const mediaKey = attachment.mediaKey;
+    if (!text && !mediaKey) {
+      return;
+    }
+
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await Promise.resolve(onSend(text));
+      await Promise.resolve(onSend({ text, mediaKey: mediaKey ?? null }));
       setValue('');
+      attachment.clearAttachment();
     } catch (e: unknown) {
       setSubmitError(
         e instanceof Error ? e.message : 'Could not send message',
@@ -61,6 +81,20 @@ export function ThreadComposer({
           {displayError}
         </p>
       ) : null}
+      <ComposerAttachmentToolbar
+        fileInputId={fileInputId}
+        fileInputRef={attachment.fileInputRef}
+        fileName={attachment.fileName}
+        openFilePicker={attachment.openFilePicker}
+        onFileInputChange={attachment.onFileInputChange}
+        clearAttachment={attachment.clearAttachment}
+        isUploading={attachment.isUploading}
+        progress={attachment.progress}
+        error={attachment.error}
+        cancelUpload={attachment.cancelUpload}
+        mediaKey={attachment.mediaKey}
+        retryUpload={attachment.retryUpload}
+      />
       <form
         className="flex flex-col gap-2 sm:flex-row sm:items-end"
         onSubmit={handleSubmit}

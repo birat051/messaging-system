@@ -1,0 +1,21 @@
+import type { ChangeEvent, RefObject } from 'react';
+
+/**
+ * Composes **`useMediaUpload`** with a hidden file input for composer attach flows.
+ */
+export type UseComposerMediaAttachmentResult = {
+  fileInputRef: RefObject<HTMLInputElement | null>;
+  /** Selected file label (name) while an attachment is in play. */
+  fileName: string | null;
+  openFilePicker: () => void;
+  onFileInputChange: (e: ChangeEvent<HTMLInputElement>) => Promise<void>;
+  clearAttachment: () => void;
+  /** **`MediaUploadResponse.key`** — maps to **`SendMessageRequest.mediaKey`**. */
+  mediaKey: string | null;
+  isUploading: boolean;
+  progress: number | null;
+  error: string | null;
+  cancelUpload: () => void;
+  /** Re-runs upload for the same file after an error (from **`useMediaUpload.retryUpload`**). */
+  retryUpload: () => Promise<void>;
+};
