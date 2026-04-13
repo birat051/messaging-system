@@ -78,7 +78,7 @@ export function ComposerAttachmentToolbar({
           disabled={isUploading}
           aria-controls={fileInputId}
           aria-label="Attach a file"
-          className="border-border text-foreground hover:bg-surface/80 focus:ring-accent/50 shrink-0 rounded-md border px-3 py-1.5 text-sm outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
+          className="border-border text-foreground hover:bg-surface/80 focus:ring-accent/50 inline-flex min-h-11 shrink-0 touch-manipulation items-center justify-center rounded-md border px-4 text-sm outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
           Attach file
         </button>
@@ -86,7 +86,7 @@ export function ComposerAttachmentToolbar({
           <button
             type="button"
             onClick={cancelUpload}
-            className="text-muted hover:text-foreground text-xs underline"
+            className="text-muted hover:text-foreground inline-flex min-h-11 touch-manipulation items-center px-1 text-sm underline"
           >
             Cancel upload
           </button>
@@ -141,7 +141,7 @@ export function ComposerAttachmentToolbar({
               onClick={() => {
                 void retryUpload();
               }}
-              className="border-border text-foreground hover:bg-surface/80 focus:ring-accent/50 shrink-0 rounded-md border px-3 py-1.5 text-sm outline-none focus:ring-2"
+              className="border-border text-foreground hover:bg-surface/80 focus:ring-accent/50 inline-flex min-h-11 shrink-0 touch-manipulation items-center justify-center rounded-md border px-4 text-sm outline-none focus:ring-2"
             >
               Retry upload
             </button>

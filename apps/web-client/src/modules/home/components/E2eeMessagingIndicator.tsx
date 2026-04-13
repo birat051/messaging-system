@@ -1,6 +1,6 @@
 /**
  * Persistent **product** cue that direct messages use **client-side encryption** (ECIES-style hybrid envelopes
- * and user-level public keys; private keys stay on device — see **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`**).
+ * and user-level public keys; private keys stay on device — see **`README.md`** / **`docs/PROJECT_PLAN.md` §14**).
  * Payloads are **opaque** on Socket.IO / RabbitMQ; the server **routes** without content visibility
  * (**`docs/PROJECT_PLAN.md`** §3). Not a substitute for Settings-based key management (there is none in the default UX).
  */

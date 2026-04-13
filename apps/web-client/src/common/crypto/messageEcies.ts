@@ -1,5 +1,5 @@
 /**
- * P-256 **ECIES** envelope for direct 1:1 message bodies (`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`).
+ * P-256 **ECIES** envelope for direct 1:1 message bodies (**`README.md`** / **`docs/PROJECT_PLAN.md` §14**).
  * **`body`** on the wire remains a UTF-8 string; opaque to the server.
  */
 

@@ -99,7 +99,7 @@ export function FollowUpThreadComposer({
           value={body}
           onChange={(ev) => setBody(ev.target.value)}
           placeholder="Write a message…"
-          className="border-border bg-background ring-ring focus:ring-accent/40 w-full resize-y rounded-md border px-3 py-2 text-sm outline-none focus:ring-2"
+          className="border-border bg-background ring-ring focus:ring-accent/40 w-full resize-y rounded-md border px-3 py-2 text-base outline-none focus:ring-2 md:text-sm"
           disabled={sending}
         />
         {error && (
@@ -111,7 +111,7 @@ export function FollowUpThreadComposer({
           type="submit"
           disabled={!canSend}
           aria-busy={sending}
-          className="bg-accent text-accent-foreground hover:bg-accent/90 focus:ring-accent/50 rounded-md px-4 py-2 text-sm font-medium focus:ring-2 focus:outline-none disabled:opacity-60"
+          className="bg-accent text-accent-foreground hover:bg-accent/90 focus:ring-accent/50 min-h-11 touch-manipulation rounded-md px-4 text-sm font-medium focus:ring-2 focus:outline-none disabled:opacity-60"
         >
           {sending ? 'Sending…' : 'Send'}
         </button>

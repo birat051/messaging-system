@@ -1,5 +1,5 @@
 /**
- * Encrypted **keyring backup** file (JSON) — recovery path for a new browser (`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md` §6.4).
+ * Encrypted **keyring backup** file (JSON) — recovery path for a new browser (`README.md` / `docs/PROJECT_PLAN.md` §14).
  * Inner PKCS#8 entries are decrypted with the **storage** passphrase, then the whole payload is wrapped with a **backup** passphrase.
  */
 

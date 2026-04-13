@@ -17,7 +17,7 @@ import { API_PATHS } from './paths';
 type AuthResponse = components['schemas']['AuthResponse'];
 
 /**
- * Single shared Axios instance for REST calls (`PROJECT_GUIDELINES.md` + task checklist).
+ * Single shared Axios instance for REST calls (**`docs/PROJECT_PLAN.md` §14** + task checklist).
  * **`baseURL`** includes **`/v1`** — use paths like **`/users/me`**, not **`/v1/users/me`**.
  * Call **`attachHttpAuth(store)`** once from **`main.tsx`** after the store exists.
  *

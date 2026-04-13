@@ -17,6 +17,8 @@ export type ConversationListProps = {
   onSelect?: (id: string) => void;
   /** Shown when not loading, no error, and `items` is empty. */
   emptyLabel?: string;
+  /** Extra classes on the root **`section`** (e.g. embedded in **`HomeConversationShell`**). */
+  className?: string;
 };
 
 /**
@@ -29,17 +31,22 @@ export function ConversationList({
   selectedId = null,
   onSelect,
   emptyLabel = 'No conversations yet',
+  className = '',
 }: ConversationListProps) {
   const headingId = useId();
   const showInitialLoad = isLoading && items.length === 0;
   const showEmpty =
     !errorMessage && !showInitialLoad && items.length === 0;
 
+  const rootClass = [
+    'border-border bg-background/40 flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border',
+    className,
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
-    <section
-      className="border-border bg-background/40 flex min-h-[8rem] flex-col rounded-lg border"
-      aria-labelledby={headingId}
-    >
+    <section className={rootClass} aria-labelledby={headingId}>
       <h2 id={headingId} className="text-foreground sr-only">
         Conversations
       </h2>
@@ -66,7 +73,7 @@ export function ConversationList({
           {emptyLabel}
         </p>
       ) : (
-        <ul className="divide-border divide-y p-1">
+        <ul className="divide-border min-h-0 flex-1 divide-y overflow-y-auto p-1.5 sm:p-2">
           {items.map((c) => (
             <li key={c.id}>
               <ConversationListRow

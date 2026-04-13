@@ -16,6 +16,7 @@ export type ReceiptEmitPayload = {
 
 /** Messages from the socket Web Worker → main thread */
 export type WorkerToMainMessage =
+  | { type: 'socket_connecting' }
   | { type: 'connected'; socketId?: string }
   | { type: 'disconnected'; reason: string }
   | { type: 'connect_error'; message: string }

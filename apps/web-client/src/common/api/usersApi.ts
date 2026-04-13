@@ -31,6 +31,10 @@ export async function getUserPublicKeyById(
   return res.data;
 }
 
+/**
+ * `GET /users/search` — **substring** match on stored emails (case-insensitive; see OpenAPI).
+ * Pass **`email`** trimmed and lowercased; length **2–254**; charset **`[a-z0-9@._+-]`**.
+ */
 export async function searchUsersByEmail(params: {
   email: string;
   limit?: components['parameters']['LimitQuery'];

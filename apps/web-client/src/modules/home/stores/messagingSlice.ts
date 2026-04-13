@@ -237,7 +237,7 @@ const messagingSlice = createSlice({
     },
     /**
      * Merges Socket.IO receipt fan-out (**`message:delivered`** / **`message:read`** / **`conversation:read`**)
-     * into **`receiptsByMessageId`** (**`docs/MESSAGE_RECEIPTS_AND_READ_STATE_DESIGN.md`**).
+     * into **`receiptsByMessageId`** (****`docs/PROJECT_PLAN.md` §14****).
      */
     mergeReceiptFanoutFromSocket(
       state,

@@ -39,7 +39,9 @@ describe('ThreadComposer', () => {
 
     const input = screen.getByRole('textbox', { name: /^message$/i });
     await user.type(input, '  Hello world  ');
-    await user.click(screen.getByRole('button', { name: /^send$/i }));
+    const sendBtn = screen.getByRole('button', { name: /^send$/i });
+    expect(sendBtn).toHaveClass('min-h-11', 'touch-manipulation');
+    await user.click(sendBtn);
 
     expect(onSend).toHaveBeenCalledWith({ text: 'Hello world', mediaKey: null });
     expect(input).toHaveValue('');

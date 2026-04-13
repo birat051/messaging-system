@@ -14,7 +14,7 @@ import { SettingsPage } from '@/modules/settings/pages/SettingsPage';
 
 /**
  * MSW **`server.use`** per test — **401**, **empty list**, **4xx errors** — with **`waitFor`** / **`findBy*`**
- * for async UI (`PROJECT_GUIDELINES` §4.1). Uses real **`httpClient`** (no **`fetch`** stub).
+ * for async UI (`docs/PROJECT_PLAN.md` §14.4.1). Uses real **`httpClient`** (no **`fetch`** stub).
  */
 function ConversationListProbe() {
   const [state, setState] = useState<

@@ -18,7 +18,7 @@ export function ConversationListRow({
   return (
     <button
       type="button"
-      className={`focus:ring-accent/40 w-full rounded-lg border px-3 py-2 text-left text-sm outline-none transition focus:ring-2 ${
+      className={`focus:ring-accent/40 flex min-h-11 w-full touch-manipulation items-start rounded-lg border px-3 py-3 text-left text-sm outline-none transition focus:ring-2 sm:px-4 ${
         isActive
           ? 'border-accent bg-accent/10 text-foreground'
           : 'border-border bg-surface hover:bg-background/80'

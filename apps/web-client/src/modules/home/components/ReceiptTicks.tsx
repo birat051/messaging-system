@@ -1,6 +1,6 @@
 /**
  * Presentational **sent → delivered → seen** ticks for outbound bubbles (**Feature 12**).
- * Semantics: **`docs/MESSAGE_RECEIPTS_AND_READ_STATE_DESIGN.md`** — **sent** (persisted), **delivered**, **seen**.
+ * Semantics: **`docs/PROJECT_PLAN.md` §14** — **sent** (persisted), **delivered**, **seen**.
  */
 export type ReceiptTickState =
   | 'loading'

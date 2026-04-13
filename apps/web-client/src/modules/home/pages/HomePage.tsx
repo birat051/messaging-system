@@ -1,17 +1,12 @@
 import { Link, Navigate, useLocation } from 'react-router-dom';
 import { ThemeToggle } from '../../../common/components/ThemeToggle';
-import { getApiBaseUrl } from '../../../common/utils/apiConfig';
 import { useAuth } from '../../../common/hooks/useAuth';
-import { usePresenceConnection } from '@/common/hooks/usePresenceConnection';
-import { presenceLabel } from '../../../common/utils/presenceLabel';
 import { ROUTES } from '../../../routes/paths';
 import { HomeConversationShell } from '../components/HomeConversationShell';
-import { UserSearchPanel } from '../components/UserSearchPanel';
 
 export function HomePage() {
   const { user, emailVerified } = useAuth();
   const location = useLocation();
-  const presence = usePresenceConnection(user?.id ?? null);
 
   if (user && emailVerified === false) {
     return (
@@ -24,10 +19,12 @@ export function HomePage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-10">
-        <header className="mb-10 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div
+      className="w-full min-w-0 max-w-none pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))] md:pl-[max(2rem,env(safe-area-inset-left))] md:pr-[max(2rem,env(safe-area-inset-right))] md:pt-[max(2.5rem,env(safe-area-inset-top))] md:pb-[max(2.5rem,env(safe-area-inset-bottom))]"
+    >
+        <header className="mb-6 flex flex-col gap-4 sm:mb-10 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-foreground text-2xl font-semibold tracking-tight">
+            <h1 className="text-foreground text-xl font-semibold tracking-tight sm:text-2xl">
               Messaging
             </h1>
             <p className="text-muted mt-1 text-sm">
@@ -37,7 +34,7 @@ export function HomePage() {
               <p className="mt-2">
                 <Link
                   to={ROUTES.settings}
-                  className="text-accent text-sm font-medium hover:underline"
+                  className="text-accent inline-flex min-h-11 items-center text-sm font-medium hover:underline"
                 >
                   Profile &amp; settings
                 </Link>
@@ -46,28 +43,8 @@ export function HomePage() {
           </div>
           <ThemeToggle />
         </header>
-        <main className="rounded-card border-border bg-surface shadow-card space-y-6 border p-6">
+        <main className="rounded-card border-border bg-surface shadow-card border p-4 sm:p-6">
           {user ? <HomeConversationShell /> : null}
-          <UserSearchPanel />
-          <p className="text-foreground">
-            Semantic tokens: <code className="text-accent">background</code>,{' '}
-            <code className="text-accent">surface</code>,{' '}
-            <code className="text-accent">accent</code> — switch theme with the
-            control above.
-          </p>
-          <dl className="text-muted space-y-1 text-sm">
-            <div>
-              <dt className="font-medium text-foreground">API base</dt>
-              <dd>
-                <code className="text-accent">VITE_API_BASE_URL</code> →{' '}
-                <code className="break-all">{getApiBaseUrl()}</code>
-              </dd>
-            </div>
-            <div>
-              <dt className="font-medium text-foreground">Socket.IO</dt>
-              <dd className="text-foreground">{presenceLabel(presence)}</dd>
-            </div>
-          </dl>
         </main>
     </div>
   );

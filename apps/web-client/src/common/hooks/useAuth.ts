@@ -10,7 +10,7 @@ import {
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 
 /**
- * Composed auth state + **`logout`** for components and other hooks (`PROJECT_GUIDELINES.md` §4.3).
+ * Composed auth state + **`logout`** for components and other hooks (`docs/PROJECT_PLAN.md` §14.4.3).
  * Login/register flows should use **`applyAuthResponse`** (`modules/auth/utils/applyAuthResponse.ts`) so refresh token is persisted.
  */
 export function useAuth() {

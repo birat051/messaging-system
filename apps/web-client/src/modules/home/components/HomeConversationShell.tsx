@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import useSWR from 'swr';
 import { listConversations } from '@/common/api';
 import { useAuth } from '@/common/hooks/useAuth';
+import { usePrefetchRecipientPublicKey } from '@/common/hooks/usePrefetchRecipientPublicKey';
 import { useSocketWorker } from '@/common/realtime/SocketWorkerProvider';
 import { parseApiError } from '@/modules/auth/utils/apiError';
 import { useConversation } from '@/modules/home/hooks/useConversation';
@@ -13,9 +14,11 @@ import {
 } from '@/modules/home/stores/messagingSelectors';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { ConversationList } from './ConversationList';
+import { ConnectionStatusIndicator } from './ConnectionStatusIndicator';
 import { E2eeMessagingIndicator } from './E2eeMessagingIndicator';
 import { ThreadComposer } from './ThreadComposer';
 import { ThreadMessageList, type ThreadMessageItem } from './ThreadMessageList';
+import { UserSearchPanel } from './UserSearchPanel';
 
 const EMPTY_MESSAGE_IDS: string[] = [];
 const EMPTY_USER_IDS: string[] = [];
@@ -89,6 +92,10 @@ export function HomeConversationShell() {
       data.items.find((c) => c.id === activeConversationId)?.peerUserId ?? null
     );
   }, [data, activeConversationId]);
+
+  usePrefetchRecipientPublicKey(
+    !isGroupThread ? selectedPeerUserId : null,
+  );
 
   const threadParticipantUserIds = useMemo(() => {
     if (!user?.id) {
@@ -245,28 +252,64 @@ export function HomeConversationShell() {
     (!isGroupThread &&
       (selectedPeerUserId == null || selectedPeerUserId === ''));
 
+  const threadTitle =
+    selectedConversation?.title?.trim() ||
+    (selectedConversation?.isGroup ? 'Group' : 'Direct message');
+
   return (
     <div
-      className="border-border bg-surface/40 flex min-h-[min(18rem,50vh)] flex-col overflow-hidden rounded-xl border md:min-h-[min(22rem,55vh)] md:flex-row"
+      className="border-border bg-surface/40 flex min-h-[min(18rem,50vh)] flex-col overflow-hidden rounded-xl border max-md:min-h-[min(88dvh,40rem)] md:h-[min(40rem,85vh)] md:min-h-[min(22rem,55vh)] md:flex-row"
       data-testid="home-conversation-shell"
     >
-      <div className="border-border md:bg-background/30 md:w-80 md:shrink-0 md:border-r">
-        <ConversationList
-          items={items}
-          isLoading={isLoading}
-          errorMessage={parsedError?.message ?? null}
-          selectedId={activeConversationId}
-          onSelect={(id) => dispatch(setActiveConversationId(id))}
-        />
+      {/* Left: search + list — full width on phone; hidden on small screens when a thread is open (master/detail). */}
+      <div
+        className={`border-border flex min-h-0 flex-col md:h-full md:w-80 md:shrink-0 md:border-r md:bg-background/30 ${
+          activeConversationId ? 'max-md:hidden' : 'w-full max-md:flex-1'
+        }`}
+      >
+        <div className="border-border shrink-0 border-b">
+          <UserSearchPanel embedInSidebar />
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-2 md:p-3">
+          <ConversationList
+            className="flex-1 rounded-none border-0 bg-transparent p-0 shadow-none"
+            items={items}
+            isLoading={isLoading}
+            errorMessage={parsedError?.message ?? null}
+            selectedId={activeConversationId}
+            onSelect={(id) => dispatch(setActiveConversationId(id))}
+          />
+        </div>
       </div>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {/* Right: thread — hidden on phone until a chat is selected; min width on md+ for readable pane. */}
+      <div
+        className={`flex min-h-0 min-w-0 flex-1 flex-col md:min-w-[min(100%,18rem)] lg:min-w-[22rem] ${
+          activeConversationId ? 'max-md:min-h-0' : 'max-md:hidden'
+        }`}
+      >
         {activeConversationId ? (
           <section
-            className="flex min-h-0 flex-1 flex-col gap-2 p-2 sm:p-3"
+            className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-hidden p-2 sm:p-3"
             role="region"
             aria-label="Conversation thread"
           >
-            <div className="min-h-0 flex-1 overflow-hidden">
+            <div className="border-border flex shrink-0 items-center gap-2 border-b pb-2 md:hidden">
+              <button
+                type="button"
+                data-testid="thread-mobile-back"
+                className="border-border text-foreground hover:bg-surface/80 focus:ring-accent/50 min-h-11 min-w-11 shrink-0 rounded-md border px-3 text-sm font-medium outline-none focus:ring-2"
+                aria-label="Back to conversations"
+                onClick={() => {
+                  dispatch(setActiveConversationId(null));
+                }}
+              >
+                ←
+              </button>
+              <span className="text-foreground min-w-0 truncate text-sm font-medium">
+                {threadTitle}
+              </span>
+            </div>
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
               <ThreadMessageList
                 messages={threadMessages}
                 isLoading={messagesLoading}
@@ -278,7 +321,10 @@ export function HomeConversationShell() {
               />
             </div>
             <div className="border-border shrink-0 space-y-2 border-t pt-2">
-              <E2eeMessagingIndicator />
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <ConnectionStatusIndicator />
+                <E2eeMessagingIndicator />
+              </div>
               <ThreadComposer
                 onSend={sendMessage}
                 disabled={composerDisabled || sendPending}

@@ -45,33 +45,37 @@ export const handlers = [
   ),
   http.get('*/v1/users/search', ({ request }) => {
     const url = new URL(request.url);
-    const email = url.searchParams.get('email')?.trim() ?? '';
+    const email = url.searchParams.get('email')?.trim().toLowerCase() ?? '';
     if (!email) {
       return HttpResponse.json(
         { code: 'INVALID_REQUEST', message: 'email required' },
         { status: 400 },
       );
     }
-    const results: UserSearchResult[] =
-      email === 'found@example.com'
-        ? [
-            {
-              userId: 'user-found-1',
-              displayName: 'Found User',
-              profilePicture: null,
-              conversationId: 'conv-7a3f9e2b-4411-4c0d-9e8a',
-            },
-          ]
-        : email === 'newonly@example.com'
-          ? [
-              {
-                userId: 'user-new-1',
-                displayName: 'New Contact',
-                profilePicture: null,
-                conversationId: null,
-              },
-            ]
-          : [];
+    /** Substring match on stored email (same idea as messaging-service). */
+    const mockByStoredEmail: Array<{ storedEmail: string; row: UserSearchResult }> = [
+      {
+        storedEmail: 'found@example.com',
+        row: {
+          userId: 'user-found-1',
+          displayName: 'Found User',
+          profilePicture: null,
+          conversationId: 'conv-7a3f9e2b-4411-4c0d-9e8a',
+        },
+      },
+      {
+        storedEmail: 'newonly@example.com',
+        row: {
+          userId: 'user-new-1',
+          displayName: 'New Contact',
+          profilePicture: null,
+          conversationId: null,
+        },
+      },
+    ];
+    const results: UserSearchResult[] = mockByStoredEmail
+      .filter(({ storedEmail }) => storedEmail.includes(email))
+      .map(({ row }) => row);
     return HttpResponse.json(results);
   }),
   http.get('*/v1/users/:userId/public-key', ({ params }) => {

@@ -1,8 +1,7 @@
 import { useCallback } from 'react';
-import { getUserPublicKeyById } from '../api/usersApi';
 import { ensureUserKeypairReadyForMessaging } from '../crypto/ensureMessagingKeypair';
 import { encryptUtf8ToE2eeBody } from '../crypto/messageEcies';
-import { parseApiError } from '@/modules/auth/utils/apiError';
+import { fetchRecipientPublicKeyForMessaging } from '../utils/fetchRecipientPublicKey';
 import type { Message, SendMessageRequest } from '../realtime/socketWorkerProtocol';
 import { useAppDispatch } from '@/store/hooks';
 import { useAuth } from './useAuth';
@@ -18,8 +17,9 @@ export type UseSendEncryptedMessageOptions = {
 
 /**
  * **`message:send`** with **ECIES** on UTF-8 **`body`** (opaque to the server).
- * Ensures the sender’s directory key exists (**automatic** generate + register + local keyring) and
- * fetches the recipient’s public key before encrypting.
+ * Ensures the sender’s directory key exists (**`ensureUserKeypairReadyForMessaging`**) and
+ * loads the recipient’s public key via **`fetchRecipientPublicKeyForMessaging`** (retries) before encrypting.
+ * **`usePrefetchRecipientPublicKey`** may warm the same GET earlier when a thread or search row is selected.
  */
 export function useSendEncryptedMessage(
   options: UseSendEncryptedMessageOptions = {},
@@ -46,6 +46,7 @@ export function useSendEncryptedMessage(
         if (!hasMedia) {
           throw new Error('Message body or mediaKey is required.');
         }
+        await ensureUserKeypairReadyForMessaging(senderId, dispatch);
         return socketSend(payload);
       }
 
@@ -60,18 +61,8 @@ export function useSendEncryptedMessage(
 
       await ensureUserKeypairReadyForMessaging(senderId, dispatch);
 
-      let recipientPk: Awaited<ReturnType<typeof getUserPublicKeyById>>;
-      try {
-        recipientPk = await getUserPublicKeyById(recipientUserId);
-      } catch (e) {
-        const p = parseApiError(e);
-        if (p.httpStatus === 404) {
-          throw new Error(
-            'The recipient has not registered an encryption key yet. They must use the app on a secure context so a key can be created.',
-          );
-        }
-        throw e;
-      }
+      const recipientPk =
+        await fetchRecipientPublicKeyForMessaging(recipientUserId);
 
       const encryptedBody = await encryptUtf8ToE2eeBody(
         bodyText,

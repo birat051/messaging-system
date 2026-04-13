@@ -116,6 +116,32 @@ export function isTransientHttpRetryableError(err: unknown): boolean {
   return false;
 }
 
+/**
+ * **4xx** responses (except **404** / **429**) from **`GET /users/{id}/public-key`** — fail immediately
+ * without backoff (no point retrying **400** / **403** for the same id).
+ */
+export function isRecipientPublicKeyNonRetryableClientError(
+  err: unknown,
+): boolean {
+  if (!axios.isAxiosError(err)) {
+    return false;
+  }
+  const status = err.response?.status;
+  if (status === undefined) {
+    return false;
+  }
+  if (status === 404 || status === 429) {
+    return false;
+  }
+  if (status >= 500) {
+    return false;
+  }
+  if (status >= 400 && status < 500) {
+    return true;
+  }
+  return false;
+}
+
 /** **`POST /auth/login`** — **401** invalid credentials vs **403** email not verified (`EMAIL_NOT_VERIFIED`). */
 export type LoginFailureKind =
   | 'invalid_credentials'

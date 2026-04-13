@@ -125,3 +125,30 @@ export type PresenceConnectionStatus =
   | { kind: 'connected'; socketId?: string }
   | { kind: 'disconnected'; reason: string }
   | { kind: 'error'; message: string };
+
+/** Collapsed Socket.IO lifecycle for UI (signed-in session only). */
+export type SocketIoLifecycle = 'connecting' | 'connected' | 'disconnected';
+
+/**
+ * Maps full presence status to **`connecting` | `connected` | `disconnected`** (**`idle`** is not a socket phase — callers use **`userId`**).
+ * **`error`** is treated as **`disconnected`** (connection not usable).
+ */
+export function mapPresenceToSocketLifecycle(
+  status: PresenceConnectionStatus,
+): SocketIoLifecycle {
+  switch (status.kind) {
+    case 'idle':
+      return 'disconnected';
+    case 'connecting':
+      return 'connecting';
+    case 'connected':
+      return 'connected';
+    case 'disconnected':
+    case 'error':
+      return 'disconnected';
+    default: {
+      const _exhaustive: never = status;
+      return _exhaustive;
+    }
+  }
+}

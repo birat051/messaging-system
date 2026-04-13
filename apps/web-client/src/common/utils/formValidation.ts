@@ -12,6 +12,26 @@ export const REGISTER_AVATAR_MAX_BYTES = 31457280;
 const EMAIL_RE =
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** Align with **`GET /users/search`** `email` query (min 3 default, max 254, charset). */
+export const USER_SEARCH_EMAIL_QUERY_MIN_LENGTH = 3;
+export const USER_SEARCH_EMAIL_QUERY_MAX_LENGTH = 254;
+
+const USER_SEARCH_EMAIL_QUERY_RE = /^[a-z0-9@._+-]+$/;
+
+/**
+ * Whether **`normalized`** (trimmed, lowercased) is valid for user search.
+ * Callers should pass **`value.trim().toLowerCase()`** after the user pauses typing (debounced).
+ */
+export function isValidUserSearchEmailQuery(normalized: string): boolean {
+  if (
+    normalized.length < USER_SEARCH_EMAIL_QUERY_MIN_LENGTH ||
+    normalized.length > USER_SEARCH_EMAIL_QUERY_MAX_LENGTH
+  ) {
+    return false;
+  }
+  return USER_SEARCH_EMAIL_QUERY_RE.test(normalized);
+}
+
 export function isValidEmail(value: string): boolean {
   const s = value.trim();
   if (!s) return false;

@@ -5,6 +5,7 @@ import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import { SWRConfig } from 'swr';
 import { appReducer } from '../../modules/app/stores/appSlice';
+import { connectionReducer } from '../../modules/app/stores/connectionSlice';
 import { authReducer } from '../../modules/auth/stores/authSlice';
 import { cryptoReducer } from '../../modules/crypto/stores/cryptoSlice';
 import {
@@ -17,6 +18,7 @@ import { ThemeProvider } from '../theme/ThemeProvider';
 
 const defaultRootState: RootState = {
   app: { bootstrapped: true },
+  connection: { presenceStatus: { kind: 'idle' } },
   auth: { user: null, accessToken: null },
   crypto: {
     keyRegistered: false,
@@ -35,6 +37,10 @@ function mergeRootState(partial?: Partial<RootState>): RootState {
   }
   return {
     app: { ...defaultRootState.app, ...partial.app },
+    connection: {
+      ...defaultRootState.connection,
+      ...partial.connection,
+    },
     auth: {
       user:
         partial.auth?.user !== undefined
@@ -57,6 +63,7 @@ export function createTestStore(preloadedState?: Partial<RootState>) {
   return configureStore({
     reducer: {
       app: appReducer,
+      connection: connectionReducer,
       auth: authReducer,
       crypto: cryptoReducer,
       messaging: messagingReducer,
@@ -74,7 +81,7 @@ export type RenderWithProvidersOptions = Omit<RenderOptions, 'wrapper'> & {
 
 /**
  * **`BrowserRouter`**-equivalent **`MemoryRouter`** + Redux **`Provider`** + **`ThemeProvider`** + **`SWRConfig`**
- * (deduping off) — per **`PROJECT_GUIDELINES.md`** §4.1 + **`TASK_CHECKLIST.md`** integration harness.
+ * (deduping off) — per **`docs/PROJECT_PLAN.md` §14.4.1** + **`TASK_CHECKLIST.md`** integration harness.
  */
 export function renderWithProviders(
   ui: ReactElement,

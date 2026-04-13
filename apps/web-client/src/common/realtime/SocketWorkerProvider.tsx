@@ -16,6 +16,7 @@ import {
 } from '@/modules/home/stores/messagingSlice';
 import { useAppDispatch } from '@/store/hooks';
 import { useSWRConfig } from 'swr';
+import { setPresenceStatus } from '@/modules/app/stores/connectionSlice';
 import {
   createSocketWorkerBridge,
   type PresenceConnectionStatus,
@@ -64,6 +65,9 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
     const uid = userId.trim();
     const bridge = createSocketWorkerBridge((msg) => {
       switch (msg.type) {
+        case 'socket_connecting':
+          setStatus({ kind: 'connecting' });
+          break;
         case 'connected':
           setStatus({ kind: 'connected', socketId: msg.socketId });
           break;
@@ -157,6 +161,10 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
+
+  useEffect(() => {
+    dispatch(setPresenceStatus(status));
+  }, [dispatch, status]);
 
   const value = useMemo(
     () => ({ status, sendMessage, emitReceipt }),

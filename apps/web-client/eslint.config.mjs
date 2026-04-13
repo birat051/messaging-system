@@ -5,7 +5,7 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 import tseslint from 'typescript-eslint';
 import prettier from 'eslint-config-prettier';
 
-// REST boundary: UI and app shell must not use httpClient / httpMutations / axios for REST — see src/common/api/README.md.
+// REST boundary: UI and app shell must not use httpClient / httpMutations / axios for REST — see docs/PROJECT_PLAN.md §14.4.
 const REST_BOUNDARY_MESSAGE =
   'Import REST through `src/common/api` feature modules (`authApi`, `usersApi`, `API_PATHS`, `swrFetcher`, barrel `common/api/index.ts`) — not `httpClient`, `httpMutations`, or low-level `http*` helpers from the barrel.';
 

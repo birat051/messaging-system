@@ -128,7 +128,7 @@ export function UserSearchResultList({
                     rowRefs.current[index - 1]?.focus();
                   }
                 }}
-                className={`border-border bg-background/80 focus-visible:ring-ring flex w-full gap-3 rounded-lg border p-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${
+                className={`border-border bg-background/80 focus-visible:ring-ring flex min-h-11 w-full touch-manipulation items-center gap-3 rounded-lg border p-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${
                   isSelected ? 'ring-accent ring-2 ring-offset-2 ring-offset-background' : ''
                 }`}
               >

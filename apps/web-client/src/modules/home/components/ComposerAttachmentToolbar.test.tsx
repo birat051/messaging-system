@@ -25,6 +25,13 @@ function base(): ComposerAttachmentToolbarProps {
 }
 
 describe('ComposerAttachmentToolbar', () => {
+  it('uses a touch-sized Attach control', () => {
+    renderWithProviders(<ComposerAttachmentToolbar {...base()} />);
+
+    const attach = screen.getByRole('button', { name: /attach a file/i });
+    expect(attach).toHaveClass('min-h-11', 'touch-manipulation');
+  });
+
   it('shows a determinate progress bar and label while uploading', () => {
     renderWithProviders(
       <ComposerAttachmentToolbar

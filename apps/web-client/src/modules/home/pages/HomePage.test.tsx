@@ -24,10 +24,6 @@ vi.mock('@/common/hooks/useSendEncryptedMessage', async () => {
   };
 });
 
-vi.mock('@/common/hooks/usePresenceConnection', () => ({
-  usePresenceConnection: () => ({ kind: 'idle' as const }),
-}));
-
 describe('HomePage', () => {
   beforeEach(() => {
     sendMessageSpy.mockClear();
@@ -55,13 +51,13 @@ describe('HomePage', () => {
     const settings = screen.getByRole('link', { name: /profile & settings/i });
     expect(settings).toHaveAttribute('href', ROUTES.settings);
 
-    const searchPanel = screen.getAllByTestId('user-search-panel')[0];
+    const searchPanel = screen.getByTestId('user-search-panel');
     expect(
-      within(searchPanel).getByRole('textbox', { name: /email address to search/i }),
+      within(searchPanel).getByRole('textbox', { name: /email text to search/i }),
     ).toBeInTheDocument();
   });
 
-  it('debounced search: shows empty result after valid email', async () => {
+  it('debounced search: shows empty result when no stored email contains the query', async () => {
     const user = userEvent.setup();
 
     renderWithProviders(
@@ -79,16 +75,16 @@ describe('HomePage', () => {
       },
     );
 
-    const searchPanel = screen.getAllByTestId('user-search-panel')[0];
+    const searchPanel = screen.getByTestId('user-search-panel');
     await user.type(
-      within(searchPanel).getByRole('textbox', { name: /email address to search/i }),
+      within(searchPanel).getByRole('textbox', { name: /email text to search/i }),
       'nobody@example.com',
     );
 
     await waitFor(
       () => {
         expect(
-          within(searchPanel).getByText(/no user found with that email/i),
+          within(searchPanel).getByText(/no users match that search text/i),
         ).toBeInTheDocument();
       },
       { timeout: 4000 },
@@ -113,9 +109,9 @@ describe('HomePage', () => {
       },
     );
 
-    const searchPanel = screen.getAllByTestId('user-search-panel')[0];
+    const searchPanel = screen.getByTestId('user-search-panel');
     await user.type(
-      within(searchPanel).getByRole('textbox', { name: /email address to search/i }),
+      within(searchPanel).getByRole('textbox', { name: /email text to search/i }),
       'found@example.com',
     );
 
@@ -128,6 +124,38 @@ describe('HomePage', () => {
 
     expect(within(searchPanel).getByText('FU')).toBeInTheDocument();
     expect(within(searchPanel).getByText(/Conversation ID:/i)).toBeInTheDocument();
+  });
+
+  it('debounced search: partial query matches substring of stored email', async () => {
+    const user = userEvent.setup();
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+      </Routes>,
+      {
+        route: '/',
+        preloadedState: {
+          auth: {
+            user: { ...defaultMockUser, emailVerified: true },
+            accessToken: 'test-token',
+          },
+        },
+      },
+    );
+
+    const searchPanel = screen.getByTestId('user-search-panel');
+    await user.type(
+      within(searchPanel).getByRole('textbox', { name: /email text to search/i }),
+      'found',
+    );
+
+    await waitFor(
+      () => {
+        expect(within(searchPanel).getByText('Found User')).toBeInTheDocument();
+      },
+      { timeout: 4000 },
+    );
   });
 
   it('debounced search: shows no-conversation hint when conversationId is absent', async () => {
@@ -148,9 +176,9 @@ describe('HomePage', () => {
       },
     );
 
-    const searchPanel = screen.getAllByTestId('user-search-panel')[0];
+    const searchPanel = screen.getByTestId('user-search-panel');
     await user.type(
-      within(searchPanel).getByRole('textbox', { name: /email address to search/i }),
+      within(searchPanel).getByRole('textbox', { name: /email text to search/i }),
       'newonly@example.com',
     );
 
@@ -184,9 +212,9 @@ describe('HomePage', () => {
       },
     );
 
-    const searchPanel = screen.getAllByTestId('user-search-panel')[0];
+    const searchPanel = screen.getByTestId('user-search-panel');
     await user.type(
-      within(searchPanel).getByRole('textbox', { name: /email address to search/i }),
+      within(searchPanel).getByRole('textbox', { name: /email text to search/i }),
       'newonly@example.com',
     );
 
@@ -241,9 +269,9 @@ describe('HomePage', () => {
       },
     );
 
-    const searchPanel = screen.getAllByTestId('user-search-panel')[0];
+    const searchPanel = screen.getByTestId('user-search-panel');
     await user.type(
-      within(searchPanel).getByRole('textbox', { name: /email address to search/i }),
+      within(searchPanel).getByRole('textbox', { name: /email text to search/i }),
       'found@example.com',
     );
 

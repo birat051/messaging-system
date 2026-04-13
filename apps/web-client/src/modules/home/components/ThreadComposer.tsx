@@ -119,14 +119,14 @@ export function ThreadComposer({
                 onExternalErrorClear?.();
               }
             }}
-            className="border-border bg-background ring-ring focus:ring-accent/40 w-full resize-y rounded-md border px-3 py-2 text-sm outline-none focus:ring-2"
+            className="border-border bg-background ring-ring focus:ring-accent/40 w-full resize-y rounded-md border px-3 py-2 text-base outline-none focus:ring-2 md:text-sm"
           />
         </div>
         <button
           type="submit"
           disabled={sendDisabled}
           aria-busy={submitting}
-          className="bg-accent text-accent-foreground hover:bg-accent/90 focus:ring-accent/50 shrink-0 rounded-md px-4 py-2 text-sm font-medium outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
+          className="bg-accent text-accent-foreground hover:bg-accent/90 focus:ring-accent/50 min-h-11 min-w-[5.5rem] shrink-0 touch-manipulation rounded-md px-4 text-sm font-medium outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {submitting ? 'Sending…' : 'Send'}
         </button>

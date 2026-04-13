@@ -1,5 +1,5 @@
 /**
- * P-256 **ECDH** long-term keypair for **ECIES** directory keys (`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md` §3.1).
+ * P-256 **ECDH** long-term keypair for **ECIES** directory keys (**`README.md`** / **`docs/PROJECT_PLAN.md` §14** §3.1).
  * Uses **`SubtleCrypto`** only — no private key material leaves the client except via explicit export helpers for local storage.
  */
 

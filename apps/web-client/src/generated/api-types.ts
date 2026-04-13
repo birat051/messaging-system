@@ -67,7 +67,7 @@ export interface paths {
         /**
          * Verify email using signed JWT from registration or resend (throttled per IP)
          * @description When **`EMAIL_VERIFICATION_REQUIRED`** is **`false`** on the server, returns **400** with **`ErrorResponse`**
-         *     **`code`** **`EMAIL_VERIFICATION_DISABLED`** — the verification flow is not used (see **`docs/ENVIRONMENT.md`**).
+         *     **`code`** **`EMAIL_VERIFICATION_DISABLED`** — the verification flow is not used (see **`README.md`** (Configuration section)).
          */
         post: operations["verifyEmail"];
         delete?: never;
@@ -217,7 +217,7 @@ export interface paths {
          * Register or replace the current user's E2EE public key
          * @description **Upsert** the authenticated user's **long-term** public key (one document per user in MongoDB;
          *     no per-device rows). Encoding of **`publicKey`** is fixed server-side (e.g. SPKI Base64 per
-         *     **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`**). **Never** send a private key.
+         *     **`docs/PROJECT_PLAN.md` §14**). **Never** send a private key.
          *     On first registration, **`keyVersion`** may be omitted and assigned by the server (typically **`1`**).
          */
         put: operations["putMyPublicKey"];
@@ -296,14 +296,19 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Search users by email (exact match; not by opaque user id)
-         * @description **Privacy (MVP):** **Exact match** on the **normalized** full email address only.
-         *     There is **no** prefix or typeahead search — that would ease **email enumeration**
-         *     and needs an explicit product decision (**Feature 5** — discoverability rules).
+         * Search users by email (substring match on normalized email; not by opaque user id)
+         * @description **Matching:** **case-insensitive substring** on the **normalized** (trim + lowercase)
+         *     stored **`email`**. Results are ordered by **relevance**: **exact** email match first,
+         *     then **prefix** matches, then other substring matches; ties break by **`email`**
+         *     ascending.
          *
-         *     **Rate limiting:** per **client IP** in Redis (`USER_SEARCH_RATE_LIMIT_*` in
-         *     **`docs/ENVIRONMENT.md`**). Exceeding the limit returns **429** with **`code`**
-         *     **`RATE_LIMIT_EXCEEDED`**.
+         *     **Abuse controls:** query length **3–254** by default (**`USER_SEARCH_MIN_QUERY_LENGTH`** may be
+         *     lowered to **2** only when operators accept weaker bounds); allowed charset
+         *     **`[a-z0-9@._+-]`**; regex metacharacters are **escaped** server-side; response size is capped
+         *     by **`limit`** (default **20**, max **100**); MongoDB candidate scan per request is bounded
+         *     (**`USER_SEARCH_MAX_CANDIDATE_SCAN`**). **Rate limiting:** per **client IP** in Redis
+         *     (`USER_SEARCH_RATE_LIMIT_*` in **`README.md`** (Configuration section)). Exceeding the limit returns **429**
+         *     with **`code`** **`RATE_LIMIT_EXCEEDED`**.
          *
          *     Returns display name, profile picture, and the **direct conversation id** with the
          *     current user when a conversation already exists (null when none). The caller never
@@ -351,7 +356,7 @@ export interface paths {
          * @description **Direct 1:1** threads only — **group** conversations return **403** until group messaging is implemented.
          *     The caller must be a **participant**; otherwise **403**. Messages are returned **newest first**.
          *     **`cursor`** is opaque (from **`nextCursor`**); malformed cursors return **400**.
-         *     **Rate limiting:** the **global** REST per-IP limit (`GLOBAL_RATE_LIMIT_*` in **`docs/ENVIRONMENT.md`**) applies to this route; exceeding it returns **429** with **`ErrorResponse`** (**`code`** typically **`RATE_LIMIT_EXCEEDED`**).
+         *     **Rate limiting:** the **global** REST per-IP limit (`GLOBAL_RATE_LIMIT_*` in **`README.md`** (Configuration section)) applies to this route; exceeding it returns **429** with **`ErrorResponse`** (**`code`** typically **`RATE_LIMIT_EXCEEDED`**).
          */
         get: operations["listMessages"];
         put?: never;
@@ -415,7 +420,7 @@ export interface paths {
          *     Request body must include **`body`** text and/or **`mediaKey`** (validated by Zod).
          *
          *     **Rate limiting:** this route uses the **message-send** limits (**`MESSAGE_SEND_RATE_LIMIT_*`**, per user + IP)
-         *     in addition to the **global** REST per-IP limit — see **`docs/ENVIRONMENT.md`** (*Global vs per-route*). Either
+         *     in addition to the **global** REST per-IP limit — see **`README.md`** (Configuration section) (*Global vs per-route*). Either
          *     can return **429** with **`ErrorResponse`** (**`code`** **`RATE_LIMIT_EXCEEDED`**).
          */
         post: operations["sendMessage"];
@@ -568,7 +573,7 @@ export interface components {
             /** Format: email */
             email: string;
             displayName?: string | null;
-            /** @description Present on every **`User`**. Meaning depends on deployment: when **`EMAIL_VERIFICATION_REQUIRED`** is **`true`** (messaging-service env), new users may be **`false`** until **`POST /auth/verify-email`** succeeds; when **`false`**, registration typically sets this to **`true`** immediately. See **`docs/ENVIRONMENT.md`** — email verification. */
+            /** @description Present on every **`User`**. Meaning depends on deployment: when **`EMAIL_VERIFICATION_REQUIRED`** is **`true`** (messaging-service env), new users may be **`false`** until **`POST /auth/verify-email`** succeeds; when **`false`**, registration typically sets this to **`true`** immediately. See **`README.md`** (Configuration section) — email verification. */
             emailVerified?: boolean;
             /**
              * Format: uri
@@ -587,7 +592,7 @@ export interface components {
         };
         /** @description Register or replace the caller's public key — **never** include a private key; unknown properties are rejected */
         PutPublicKeyRequest: {
-            /** @description Base64 or Base64url **SPKI** DER for **P-256** (`prime256v1`); server rejects non-P-256 curves and invalid DER (see **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`**). */
+            /** @description Base64 or Base64url **SPKI** DER for **P-256** (`prime256v1`); server rejects non-P-256 curves and invalid DER (see **`docs/PROJECT_PLAN.md` §14**). */
             publicKey: string;
             /** @description Optional on first put; server may assign **1** when omitted */
             keyVersion?: number;
@@ -643,7 +648,7 @@ export interface components {
         /**
          * @description Per-recipient **delivered** / **seen** timestamps (**Feature 12**). Map keys are **`userId`** strings.
          *     Exposed on **`MessageReceiptSummary.receiptsByUserId`** and via Socket.IO receipt events — **not** on **`Message`**.
-         *     Group **read-up-to** may also use **`conversation_reads`** — see **`docs/MESSAGE_RECEIPTS_AND_READ_STATE_DESIGN.md`**.
+         *     Group **read-up-to** may also use **`conversation_reads`** — see **`docs/PROJECT_PLAN.md` §14**.
          */
         MessageReceiptEntry: {
             /**
@@ -667,7 +672,7 @@ export interface components {
             senderId: string;
             /**
              * @description **Text or opaque E2EE payload.** Plain UTF-8 text, or client-encrypted ciphertext (e.g. envelopes described in
-             *     **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`**) when end-to-end encryption is enabled. The server **stores and routes**
+             *     **`docs/PROJECT_PLAN.md` §14**) when end-to-end encryption is enabled. The server **stores and routes**
              *     this value **without** decrypting. Requires user-level public-key APIs (`PUT /users/me/public-key`,
              *     `GET /users/{userId}/public-key`) per **Prerequisite — User keypair** in **`docs/TASK_CHECKLIST.md`**.
              */
@@ -719,7 +724,7 @@ export interface components {
             /**
              * @description **Message body text or opaque E2EE ciphertext** — same semantics as **`Message.body`** (server does not decrypt).
              *     When sending E2EE payloads, clients **depend on** user public-key directory APIs and the **Prerequisite — User keypair**
-             *     implementation (`docs/TASK_CHECKLIST.md`, `docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`).
+             *     implementation (`docs/TASK_CHECKLIST.md`, `docs/PROJECT_PLAN.md` §14).
              */
             body?: string;
             /** @description From prior upload response */
@@ -1363,7 +1368,7 @@ export interface operations {
     searchUsersByEmail: {
         parameters: {
             query: {
-                /** @description Full email address for **exact** lookup after normalization (not internal user id; not a prefix). */
+                /** @description Partial or full email (**trimmed**, lowercased). **Substring** match on stored emails — not internal user id. Allowed characters: letters, digits, **`@._+-`**. Deployments may set **`USER_SEARCH_MIN_QUERY_LENGTH`** to **2** (see **`README.md`** (Configuration section)); clients should use at least **3** characters unless a deployment specifies otherwise. */
                 email: string;
                 /**
                  * @description Optional page size; **default `20`** when omitted on all paginated list endpoints that

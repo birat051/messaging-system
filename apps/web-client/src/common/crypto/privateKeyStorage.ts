@@ -2,7 +2,7 @@
  * Persist **PKCS#8** private key material in **IndexedDB** only — **never** sent to the server.
  *
  * **Default:** passphrase-wrapped using **PBKDF2-HMAC-SHA256** (OWASP-aligned iteration count) + **AES-256-GCM**
- * (`privateKeyWrap.ts`). **Option A** (see **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`** §6.3): multiple
+ * (`privateKeyWrap.ts`). **Option A** (see **`README.md`** / **`docs/PROJECT_PLAN.md` §14** §6.3): multiple
  * **`keyVersion`** rows per user (**keyring**) so older ciphertext remains decryptable after rotation.
  *
  * Call **`assertSecureContextForPrivateKeyOps`** (or rely on these functions) before persisting in the browser.

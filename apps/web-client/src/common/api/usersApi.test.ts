@@ -26,6 +26,7 @@ import {
   getUserPublicKeyById,
   putMyPublicKey,
   rotateMyPublicKey,
+  searchUsersByEmail,
   updateCurrentUserProfile,
 } from './usersApi';
 
@@ -48,6 +49,26 @@ describe('usersApi (vi.mock httpClient)', () => {
 
     expect(get).toHaveBeenCalledTimes(1);
     expect(get).toHaveBeenCalledWith(API_PATHS.users.publicKeyById('peer-1'));
+  });
+
+  it('GET /users/search passes normalized email query and optional limit', async () => {
+    get.mockResolvedValue({
+      data: [
+        {
+          userId: 'u1',
+          displayName: 'A',
+          profilePicture: null,
+          conversationId: null,
+        },
+      ],
+    });
+
+    await searchUsersByEmail({ email: 'found', limit: 10 });
+
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith(API_PATHS.users.search, {
+      params: { email: 'found', limit: 10 },
+    });
   });
 
   it('GET current user uses API_PATHS.users.me', async () => {

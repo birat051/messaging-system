@@ -46,6 +46,10 @@ function connectSocket(msg: Extract<MainToWorkerMessage, { type: 'connect' }>): 
     autoConnect: true,
   });
 
+  socket.io.on('reconnect_attempt', () => {
+    post({ type: 'socket_connecting' });
+  });
+
   socket.on('connect', () => {
     post({ type: 'connected', socketId: socket?.id });
     startHeartbeat();

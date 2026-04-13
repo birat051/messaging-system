@@ -101,6 +101,9 @@ describe('HomeConversationShell', () => {
     ).toBeInTheDocument();
 
     expect(
+      await within(shell).findByTestId('connection-status-indicator'),
+    ).toBeInTheDocument();
+    expect(
       await within(shell).findByTestId('e2ee-messaging-indicator'),
     ).toBeInTheDocument();
     expect(

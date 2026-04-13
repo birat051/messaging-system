@@ -1,6 +1,6 @@
 /**
  * **`SubtleCrypto`** and meaningful key material handling require a **secure context**
- * (`https:` or `http://localhost` / `http://127.0.0.1`). See **`docs/USER_KEYPAIR_AND_E2EE_DESIGN.md`**
+ * (`https:` or `http://localhost` / `http://127.0.0.1`). See **`README.md`** / **`docs/PROJECT_PLAN.md` §14**
  * (client private key storage) and MDN **`window.isSecureContext`**.
  */
 

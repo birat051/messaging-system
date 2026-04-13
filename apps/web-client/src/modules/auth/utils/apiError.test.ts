@@ -2,6 +2,7 @@ import axios from 'axios';
 import { describe, expect, it } from 'vitest';
 import {
   isRateLimitedError,
+  isRecipientPublicKeyNonRetryableClientError,
   isTransientHttpRetryableError,
   parseApiError,
 } from './apiError';
@@ -138,5 +139,34 @@ describe('isTransientHttpRetryableError', () => {
 
   it('returns false for non-axios errors', () => {
     expect(isTransientHttpRetryableError(new Error('x'))).toBe(false);
+  });
+});
+
+describe('isRecipientPublicKeyNonRetryableClientError', () => {
+  it('returns true for 400 and false for 404 / 429 / 5xx / network', () => {
+    const mk = (status: number) =>
+      new axios.AxiosError(
+        'fail',
+        'ERR_BAD_REQUEST',
+        undefined,
+        undefined,
+        {
+          status,
+          statusText: '',
+          data: {},
+          headers: {},
+          config: {} as never,
+        },
+      );
+
+    expect(isRecipientPublicKeyNonRetryableClientError(mk(400))).toBe(true);
+    expect(isRecipientPublicKeyNonRetryableClientError(mk(404))).toBe(false);
+    expect(isRecipientPublicKeyNonRetryableClientError(mk(429))).toBe(false);
+    expect(isRecipientPublicKeyNonRetryableClientError(mk(503))).toBe(false);
+    expect(
+      isRecipientPublicKeyNonRetryableClientError(
+        new axios.AxiosError('net', 'ERR_NETWORK'),
+      ),
+    ).toBe(false);
   });
 });

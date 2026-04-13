@@ -10,7 +10,9 @@ describe('ConversationListRow', () => {
       <ConversationListRow title="Ada" subtitle="Last message preview" />,
     );
 
-    expect(screen.getByRole('button', { name: /ada/i })).toBeInTheDocument();
+    const row = screen.getByRole('button', { name: /ada/i });
+    expect(row).toBeInTheDocument();
+    expect(row).toHaveClass('min-h-11', 'touch-manipulation');
     expect(screen.getByText('Last message preview')).toBeInTheDocument();
   });
 

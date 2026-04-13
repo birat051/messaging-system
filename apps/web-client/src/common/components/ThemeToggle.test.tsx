@@ -20,6 +20,7 @@ describe('ThemeToggle', () => {
 
     const btn = screen.getByRole('button', { name: /switch to dark theme/i });
     expect(btn).toHaveAttribute('aria-pressed', 'false');
+    expect(btn).toHaveClass('min-h-11', 'touch-manipulation');
     expect(screen.getByText('Light')).toBeInTheDocument();
 
     await user.click(btn);

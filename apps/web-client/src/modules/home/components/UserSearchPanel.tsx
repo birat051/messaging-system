@@ -2,8 +2,12 @@ import { useEffect, useId, useState } from 'react';
 import useSWR from 'swr';
 import type { components } from '@/generated/api-types';
 import { searchUsersByEmail } from '@/common/api/usersApi';
+import { usePrefetchRecipientPublicKey } from '@/common/hooks/usePrefetchRecipientPublicKey';
 import { useDebouncedValue } from '@/common/hooks/useDebouncedValue';
-import { isValidEmail } from '@/common/utils/formValidation';
+import {
+  isValidUserSearchEmailQuery,
+  USER_SEARCH_EMAIL_QUERY_MIN_LENGTH,
+} from '@/common/utils/formValidation';
 import { parseApiError } from '@/modules/auth/utils/apiError';
 import { FollowUpThreadComposer } from './FollowUpThreadComposer';
 import { NewDirectThreadComposer } from './NewDirectThreadComposer';
@@ -11,7 +15,8 @@ import { UserSearchResultList } from './UserSearchResultList';
 
 type UserSearchResult = components['schemas']['UserSearchResult'];
 
-const SEARCH_DEBOUNCE_MS = 400;
+/** Pause between keystrokes before calling **`GET /users/search`** (substring match on email). */
+export const SEARCH_DEBOUNCE_MS = 400;
 
 function threadLabelFor(user: UserSearchResult): string {
   const name = user.displayName?.trim();
@@ -19,10 +24,17 @@ function threadLabelFor(user: UserSearchResult): string {
   return `User ${user.userId.slice(0, 8)}`;
 }
 
+export type UserSearchPanelProps = {
+  /**
+   * When **`true`**, styles for the left sidebar (no outer card border — sits under search in **`HomeConversationShell`**).
+   */
+  embedInSidebar?: boolean;
+};
+
 /**
- * Debounced email field → **`GET /users/search`** — loading / empty / error states (exact match on server).
+ * Debounced search field → **`GET /users/search`** — loading / empty / error states (partial email match on server).
  */
-export function UserSearchPanel() {
+export function UserSearchPanel({ embedInSidebar = false }: UserSearchPanelProps) {
   const id = useId();
   const headingId = `user-search-heading-${id}`;
   const inputId = `user-search-email-${id}`;
@@ -32,19 +44,20 @@ export function UserSearchPanel() {
   /** Persisted from **`message:send`** ack **`Message.conversationId`** after the first send in a new thread. */
   const [storedConversationId, setStoredConversationId] = useState<string | null>(null);
 
-  const debouncedEmail = useDebouncedValue(email.trim(), SEARCH_DEBOUNCE_MS);
-  const canSearch = isValidEmail(debouncedEmail);
+  const debouncedTrimmed = useDebouncedValue(email.trim(), SEARCH_DEBOUNCE_MS);
+  const normalizedQuery = debouncedTrimmed.toLowerCase();
+  const canSearch = isValidUserSearchEmailQuery(normalizedQuery);
 
   useEffect(() => {
     setSelectedRecipient(null);
-  }, [debouncedEmail]);
+  }, [normalizedQuery]);
 
   useEffect(() => {
     setStoredConversationId(null);
   }, [selectedRecipient?.userId]);
 
   const { data, error, isLoading, isValidating } = useSWR(
-    canSearch ? (['users-search', debouncedEmail] as const) : null,
+    canSearch ? (['users-search', normalizedQuery] as const) : null,
     ([, q]) => searchUsersByEmail({ email: q }),
     { revalidateOnFocus: false },
   );
@@ -52,10 +65,16 @@ export function UserSearchPanel() {
   const showLoading = canSearch && (isLoading || isValidating);
   const parsedError = error ? parseApiError(error) : null;
 
+  usePrefetchRecipientPublicKey(selectedRecipient?.userId);
+
   return (
     <section
       data-testid="user-search-panel"
-      className="border-border bg-background/50 space-y-3 rounded-lg border p-4"
+      className={
+        embedInSidebar
+          ? 'space-y-3 p-3 sm:p-4'
+          : 'border-border bg-background/50 space-y-3 rounded-lg border p-4'
+      }
       aria-labelledby={headingId}
     >
       <h2 id={headingId} className="text-foreground text-sm font-medium">
@@ -63,30 +82,45 @@ export function UserSearchPanel() {
       </h2>
       <div>
         <label htmlFor={inputId} className="sr-only">
-          Email address to search
+          Email text to search (partial match)
         </label>
         <input
           id={inputId}
-          type="email"
+          type="text"
+          inputMode="email"
           autoComplete="off"
-          placeholder="name@example.com"
+          placeholder="e.g. ann, @company.com, or full address"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="border-border bg-background ring-ring focus:ring-accent/40 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2"
+          className="border-border bg-background ring-ring focus:ring-accent/40 min-h-11 w-full rounded-md border px-3 py-2 text-base outline-none focus:ring-2 md:text-sm"
         />
         <p className="text-muted mt-1 text-xs">
-          Exact match only — pause typing; search runs after you stop for a moment.
+          Matches any part of a stored email. Pause typing; search runs after you stop for a moment.
         </p>
       </div>
 
       <div aria-live="polite" className="min-h-[1.5rem] text-sm">
         {!email.trim() && (
-          <p className="text-muted">Enter a full email address to search.</p>
+          <p className="text-muted">
+            Enter at least {USER_SEARCH_EMAIL_QUERY_MIN_LENGTH} characters (letters, digits, and
+            @._+-).
+          </p>
         )}
 
-        {email.trim() && !canSearch && (
+        {email.trim() &&
+          !canSearch &&
+          normalizedQuery.length < USER_SEARCH_EMAIL_QUERY_MIN_LENGTH && (
           <p className="text-muted" role="status">
-            Enter a valid email address.
+            Enter at least {USER_SEARCH_EMAIL_QUERY_MIN_LENGTH} characters to search (partial email
+            is fine).
+          </p>
+        )}
+
+        {email.trim() &&
+          !canSearch &&
+          normalizedQuery.length >= USER_SEARCH_EMAIL_QUERY_MIN_LENGTH && (
+          <p className="text-muted" role="status">
+            Use only letters, digits, and @._+-.
           </p>
         )}
 
@@ -104,7 +138,7 @@ export function UserSearchPanel() {
 
         {canSearch && !showLoading && !parsedError && data && data.length === 0 && (
           <p className="text-muted" role="status">
-            No user found with that email.
+            No users match that search text.
           </p>
         )}
 
