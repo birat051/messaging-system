@@ -13,7 +13,7 @@ This repository uses **exactly three** Markdown documents: **`README.md`** (this
 | **Data** | MongoDB (primary store), Redis (presence / hot paths), RabbitMQ (post-persist routing), S3-compatible object storage (MinIO in development) |
 | **Real time** | Socket.IO server on **messaging-service** (chat, signaling channel, notification transport) |
 
-Architecture, scaling, and algorithms: **[`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md)**. Task tracking: **[`docs/TASK_CHECKLIST.md`](docs/TASK_CHECKLIST.md)**. **How to build** (TypeScript, React, MongoDB, tests): **`docs/PROJECT_PLAN.md` §14**. **Direct-message E2EE** (public vs private keys, local durability vs wire ciphertext, `messageEcies` / **`E2EE_JSON_V1`**): **`docs/PROJECT_PLAN.md` §7.1**.
+Architecture, scaling, and algorithms: **[`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md)**. Task tracking: **[`docs/TASK_CHECKLIST.md`](docs/TASK_CHECKLIST.md)**. **How to build** (TypeScript, React, MongoDB, tests): **`docs/PROJECT_PLAN.md` §14**. **E2EE multi-device encryption** (hybrid model, per-device keys, message key distribution, send/receive flow, new device key re-sharing): **`docs/PROJECT_PLAN.md` §7.1**.
 
 ---
 
@@ -175,27 +175,27 @@ sequenceDiagram
 
 ## End-to-end encryption (messaging)
 
-Message **payloads** on the wire and at rest are **opaque to the server** when E2EE is enabled: clients encrypt with the recipient’s **registered public key** (P-256); **private keys** stay on the client (IndexedDB, secure context). The service stores ciphertext and routes delivery; it does **not** hold user private keys. Details of key lifecycle and wrapping live in **`docs/PROJECT_PLAN.md` §14** and **`apps/web-client/src/common/crypto/`**.
+Message **payloads** on the wire and at rest are **opaque to the server**: each device holds a unique key pair; a random symmetric **message key** encrypts the payload once, then is encrypted separately per recipient device using their public keys. The server stores the single ciphertext plus a per-device map of encrypted message keys — it never holds private keys or plaintext. Full protocol, send/receive flow, and new-device key re-sharing diagrams: **`docs/PROJECT_PLAN.md` §7.1**.
 
 ```mermaid
 flowchart LR
-  subgraph clientA [Sender client]
+  subgraph clientA [Sender device A1]
     SKa[Private key — local only]
-    PKb[Recipient public key — from API]
+    MK[msgKey = random 256-bit]
   end
   subgraph svc [messaging-service]
     REST[REST / Socket.IO]
-    DB[(MongoDB ciphertext)]
+    DB[(MongoDB: ciphertext + encryptedKeys per device)]
   end
-  subgraph clientB [Recipient client]
+  subgraph clientB [Recipient device B1]
     SKb[Private key — local only]
     PT[Plaintext in UI]
   end
-  SKa -->|ECIES encrypt| REST
-  PKb -->|fetch| REST
+  MK -->|AES encrypt payload| REST
+  SKa -->|Enc msgKey per device| REST
   REST --> DB
-  DB -->|deliver| clientB
-  SKb -->|decrypt| PT
+  DB -->|deliver ciphertext + encKey| clientB
+  SKb -->|Dec msgKey → Dec payload| PT
 ```
 
 ---
