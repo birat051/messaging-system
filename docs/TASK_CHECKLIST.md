@@ -28,7 +28,7 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 - [ ] **Smoke — call:** 1:1 call happy path (or documented skip)
 - [ ] **Feature 2a (optional):** guest path — **button → small dedicated guest page** (**username**); **guest ↔ guest** messaging only; **not** merged with **register** (see **Feature 2a** caveats)
 - [ ] **Socket.IO** status visible (**connecting** / **connected** / **disconnected**)
-- [ ] _(If E2EE in scope)_ **User keypair** prerequisite + **1:1** ciphertext on wire/at rest + **Feature 1 (B)** **E2EE messaging indicator** in chat (not Settings) — **not** the full **Feature 11** group/spec backlog (see **Feature 11** scope note)
+- [ ] _(If E2EE in scope)_ **Prerequisite — User keypair** (per-device key pair + device registration) + **Feature 11** per-device hybrid send/receive (AES-256-GCM + `encryptedMessageKeys` map) + **Feature 1 (B)** E2EE indicator in chat; **Feature 13** multi-device sync covers new-device key re-sharing — not required for single-device MVP but must not be broken by Feature 11 work
 - [ ] _(If receipts in scope)_ **Feature 12** **sent** / **delivered** / **seen** end-to-end
 
 > **Out of MVP scope (deprioritized):** per-user **DND** / notification **mute** / quiet hours — not scheduled for the bounded MVP; see **Feature 7 — Post-MVP (DND)** below.
@@ -41,29 +41,29 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 **Prerequisite:** **User keypair** (generate, store, maintain) should be complete before relying on encrypted **Feature 1** / **Feature 8** traffic; this section extends that with **message envelopes**, **group** strategies, and transport alignment.
 
-**Cryptography note (terminology):** In standard asymmetric encryption, **plaintext is encrypted with the recipient’s public key** and **decrypted with the recipient’s private key**. The **sender’s private key** is used to **sign** (authenticity), verified with the **sender’s public key**. Use **hybrid encryption** (e.g. AES-GCM for the message body + asymmetric wrap of the content key) for performance and large payloads. Document the chosen algorithms (e.g. RSA-OAEP / ECDH + AES-GCM), key sizes, and threat model in `docs/`.
+**Cryptography note (hybrid model):** Each device generates a unique **P-256 ECDH key pair**. Encryption uses **AES-256-GCM** for the message payload (keyed by a random per-message symmetric key) and **ECIES / ECDH + AES-KW** to wrap that message key for each recipient device. The server stores one ciphertext plus a `encryptedMessageKeys: { deviceId → wrappedKey }` map — it never sees the symmetric message key or plaintext. See **`docs/PROJECT_PLAN.md` §7.1** for the full protocol and flow diagrams.
 
-**Key model (fixed for this project):** **Private keys are client-only** — never uploaded to or stored on the server. **Public keys are user-level only** — exactly **one logical public key per user** (plus optional **key version** for rotation); **no per-device** public keys or key records.
+**Key model (per-device hybrid):** **Private keys are device-only** — generated in-browser, stored in IndexedDB, never sent to the server. **Each device registers its own public key** (`userId + deviceId → publicKey`); the server stores a device key registry per user. Senders fetch **all active device public keys** for a recipient (plus their own other devices) and wrap the message key for each device individually. See **`docs/PROJECT_PLAN.md` §7.1**.
 
 ### (A) Infra, backend & deployment
 
-- [ ] **Threat model and design doc**: server stores **ciphertext** and **user public keys** only; **private keys never leave clients**; document in `docs/`
-- [ ] **Public keys (user-level)**: schema `userId` → public key material (and optional `keyVersion`, `updatedAt` for rotation); **no device dimension**; unique index on `userId` (+ version if multi-version history is kept)
-- [ ] **APIs**: register/rotate/revoke **the user’s** public key; fetch other users’ public keys by `userId` for encrypting to them (authz: only participants may fetch keys needed for a conversation)
-- [ ] **1:1 messages**: persist encrypted payload + metadata (algorithm id, key version, IV/nonce if not embedded); server never receives or stores private keys
-- [ ] **Group messaging**: choose and implement a **group key strategy** using **each member’s user-level public key** only — e.g. per-message symmetric content key wrapped for each member; document tradeoffs (fan-out, rotation, joins/leaves)
-- [ ] **Socket.IO / RabbitMQ**: payloads remain opaque bytes to the broker; no plaintext logging; document encrypted message envelope in **OpenAPI** / `docs` as needed (no shared TS package)
-- [ ] **OpenAPI**: document encrypted message shapes (opaque base64/binary fields, headers for algo version)
-- [ ] **Operational**: user-level key rotation policy; **documented** recovery for **new browser / lost local storage** (restore from backup — not a server “device” concept); **no** requirement for a user-facing **Settings** backup UI (see **Prerequisite — Product direction**)
+- [ ] **Threat model and design doc**: server stores **ciphertext** and **per-device public keys** only; symmetric message key is wrapped per-device and stored alongside ciphertext; **private keys never leave devices**; document algorithms (P-256 ECDH + AES-256-GCM), device key lifecycle, and threat model in `docs/PROJECT_PLAN.md` §7.1
+- [ ] **Device public key registry**: schema `(userId, deviceId)` → `publicKey` (SPKI base64), `createdAt`, `updatedAt`; compound unique index on `(userId, deviceId)`; index on `userId` alone for listing all devices of a user; replace any prior user-level-only key collection
+- [ ] **APIs (device keys)**: `POST /users/me/devices` — register new device public key (issues `deviceId`); `GET /users/:userId/devices/public-keys` — list all active device public keys for a user (authz: only conversation participants); `DELETE /users/me/devices/:deviceId` — revoke a device; update **OpenAPI** + **Zod** in the same PR
+- [ ] **Message persistence (new schema)**: `body` = AES-256-GCM ciphertext (base64); `encryptedMessageKeys: { [deviceId]: string }` — one entry per device that should be able to read the message; `iv` (or embed in body); algorithm tag; server stores both fields opaquely, never decrypts
+- [ ] **Group messaging**: per-message hybrid model — generate message key, encrypt body once with AES-256-GCM, wrap key for **every device of every member** (including sender devices); `encryptedMessageKeys` fan-out grows with total device count, not member count; document join/leave key re-wrapping strategy
+- [ ] **Socket.IO / RabbitMQ**: deliver `{ body, encryptedMessageKeys, iv }` envelope opaquely; no plaintext logging; document updated message envelope in **OpenAPI** + `docs`
+- [ ] **OpenAPI**: update `Message` schema — add `encryptedMessageKeys` (`additionalProperties: string`), `iv`; document `body` as AES-256-GCM ciphertext; bump spec version; `npm run generate:api`
+- [ ] **Operational**: device key revocation flow; recovery for lost device (access via another trusted device — see **Feature 13 — Multi-device key sync**); **no** user-facing Settings encryption management UI
 
 ### (B) Web-client, UI, tests & state management
 
-- [ ] **Crypto module** (`web-client`): use **Web Crypto API** and/or audited library (e.g. libsodium via WASM); **unit tests** for encrypt/decrypt/sign/verify helpers (vectors, no real private keys in repo); extend helpers built in **Prerequisite — User keypair** as needed for message payloads
-- [ ] **Key lifecycle (non-Settings):** production needs met **without** a **Settings → encryption** flow—automatic or silent key registration, backup/rotate only where **documented** or **support**, not as primary UI; **message-thread** inline states only when needed (e.g. “cannot decrypt”)—not rotation banners in **Settings**
-- [x] **1:1 flow**: before send, fetch recipient’s **user-level** public key (cached in Redux), encrypt (hybrid per **`README.md`** and **`docs/PROJECT_PLAN.md` §14**), send ciphertext; on receive, decrypt with local private key; handle missing/wrong keys with **inline** / thread-level UX if needed
-- [ ] **Group flow**: for each outgoing group message, build content key, encrypt message, wrap key for **each current member’s** public key (per design in (A)); on receive, unwrap and decrypt; handle member add/remove vs key rotation
-- [ ] **Redux / hooks**: `usePublicKey`, `useEncryptMessage`, `useDecryptMessage`; cache peers’ public keys with invalidation on rotation
-- [ ] **Tests first** (`*.tsx`): **E2EE indicator** in chat (see **Feature 1 (B)**); any “encryption unavailable” or decrypt-failure UI in **thread** context—not **Settings**
+- [ ] **Crypto module** (`web-client`): extend **`src/common/crypto/`** — add `generateMessageKey()` (AES-256-GCM, 256-bit random), `encryptMessageBody(messageKey, plaintext)` → `{ ciphertext, iv }`, `decryptMessageBody(messageKey, ciphertext, iv)` → `plaintext`, `wrapMessageKey(messageKey, devicePublicKey)` → `encryptedKey`, `unwrapMessageKey(encryptedKey, devicePrivateKey)` → `messageKey`; **unit tests** with deterministic test vectors; no real private keys in repo
+- [ ] **Key lifecycle (non-Settings):** automatic device key generation + registration on first login; silent re-registration if key missing; message-thread inline states only for errors (e.g. “this device cannot decrypt this message” if `encryptedMessageKeys` has no entry for `myDeviceId`)
+- [ ] **1:1 flow (per-device hybrid)**: before send — (1) fetch all device public keys for recipient **and** sender’s own other devices via `GET /users/:userId/devices/public-keys`; (2) `generateMessageKey()`; (3) `encryptMessageBody(messageKey, plaintext)` → `{ ciphertext, iv }`; (4) for each device key: `wrapMessageKey(messageKey, devicePublicKey)` → build `encryptedMessageKeys` map; (5) send `{ body: ciphertext, iv, encryptedMessageKeys }`; on receive — (6) look up `encryptedMessageKeys[myDeviceId]`, (7) `unwrapMessageKey(entry, myPrivateKey)` → `messageKey`, (8) `decryptMessageBody(messageKey, body, iv)` → plaintext; handle missing device entry with inline UX
+- [ ] **Group flow**: same per-device wrapping; fetch all device public keys for all group members; build `encryptedMessageKeys` with one entry per device; on receive, same 6-8 steps; handle member join/leave by updating key entries for future messages
+- [ ] **Redux / hooks**: `useDevicePublicKeys(userId)` — cached device key list per user with invalidation; `useEncryptMessage` — wraps generate + encrypt + wrap-per-device; `useDecryptMessage` — wraps lookup + unwrap + decrypt; cache device key lists in Redux to avoid re-fetching per message
+- [ ] **Tests first** (`*.tsx`): **E2EE indicator** in chat thread (unchanged UX); “cannot decrypt” inline state when `encryptedMessageKeys[myDeviceId]` absent; encrypt/decrypt round-trip unit tests in `src/common/crypto/`
 
 ---
 
@@ -816,38 +816,99 @@ When **Feature 1** messaging and later features land, also run the **Definition 
 
 **Order:** Complete this section **before** implementing **ciphertext** in **Feature 1** (if MVP requires E2EE from the first message). If you ship **plaintext** messaging first, still complete this early so Feature 1 can switch to encrypted payloads without rework. Aligns with **Feature 11** (full wire protocol and group wrapping); this prerequisite focuses on **lifecycle** only.
 
-**Key model:** **Private keys client-only**; **one public key per user** on the server (optional `keyVersion` for rotation). See terminology in **Feature 11**.
+**Key model (updated — per-device):** **Private keys are device-only** — each device generates its own P-256 key pair, stores the private key in IndexedDB, and registers its public key with the server under `(userId, deviceId)`. There is **no single user-level public key**; the server holds a device key registry per user. See **Feature 11** and **`docs/PROJECT_PLAN.md` §7.1**.
 
 ### Prerequisite — Product direction (E2EE UX)
 
-The **default product** does **not** expose a **Settings** (or similar) screen for **encryption / key backup / rotate / key status**—end users should **not** have to “manage keys” in the UI. Satisfy **`README.md`** and **`docs/PROJECT_PLAN.md` §14** (ECIES-style hybrid encryption, user-level public keys, client-only private keys) and **`docs/PROJECT_PLAN.md`** (opaque message payloads on **Socket.IO** / **RabbitMQ**, server never sees plaintext content) **without** that surface: e.g. **automatic** keypair generation + public-key registration after login, recovery/rotation only via **documented** or **support** paths—not a first-class settings flow. **Chat** UX instead carries a **small, persistent** indicator that **messages are end-to-end encrypted** (see **Feature 1 (B)** and **Feature 11 (B)**). Code that added a Settings encryption block may remain for **dev** or be removed; it is **not** part of the default user journey.
+The **default product** does **not** expose a **Settings** (or similar) screen for **encryption / key backup / rotate / key status**—end users should **not** have to “manage keys” in the UI. Satisfy **`docs/PROJECT_PLAN.md` §7.1** (per-device hybrid encryption, device public key registry, client-only private keys) and the **opaque message payloads** principle (server routes `{ ciphertext, encryptedMessageKeys }` without decrypting) **without** a key-management surface: **automatic** device key generation + registration on first login; device sync via **Feature 13**; recovery/rotation only via documented paths. **Chat** UX carries a **small, persistent** indicator that messages are end-to-end encrypted (see **Feature 1 (B)** and **Feature 11 (B)**).
 
 ### (A) Infra, backend & deployment
 
-- [x] **Design doc** in `docs/`: algorithms (e.g. ECDH + AES-GCM hybrid, or chosen suite), key sizes, threat model, rotation rules; server never stores private keys — **`README.md`** and **`docs/PROJECT_PLAN.md` §14**
-- [x] **MongoDB:** collection shape — `userId` → **public key** material, optional `keyVersion`, `updatedAt`; indexes on `userId`; **no device-level** rows — **`user_public_keys`**, **`UserPublicKeyDocument`**, **`ensureUserPublicKeyIndexes`**
-- [x] **OpenAPI:** paths + schemas for key register / rotate / **`GET` by `userId`**
-- [x] **Routes + Zod:** implement handlers; **authz** on **`GET`** (e.g. only peers who may message)
+- [ ] **Design doc:** update **`docs/PROJECT_PLAN.md` §7.1** — per-device hybrid model (AES-256-GCM for payload + ECDH key wrapping per device), `deviceId` lifecycle (register on first login, revoke on logout/device removal), threat model; server never stores private keys or unencrypted message keys
+- [ ] **MongoDB (device key registry):** replace user-level schema; new collection — compound key `(userId, deviceId)` → `publicKey` (SPKI base64), `createdAt`, `updatedAt`; unique compound index `(userId, deviceId)`; index on `userId` for listing all devices; update **`UserPublicKeyDocument`** + **`ensureUserPublicKeyIndexes`** in **`src/data/userPublicKeys/`**
+- [ ] **OpenAPI (device key APIs):** `POST /v1/users/me/devices` (register device public key, server assigns or confirms `deviceId`); `GET /v1/users/:userId/devices/public-keys` (list all active device public keys, authz: participants only); `DELETE /v1/users/me/devices/:deviceId` (revoke device key); update `Message` schema with `encryptedMessageKeys` map + `iv`; bump spec; `npm run generate:api`
+- [ ] **Routes + Zod:** implement device key handlers (replacing old user-level routes); Zod schemas for register body + response; **authz** on `GET /users/:userId/devices/public-keys` (conversation participants only)
 - [x] **Validation:** reject malformed keys; max payload size; rate-limit key updates
 - [x] **Audit / security:** no private key fields in any schema; structured logs must never print key material
-- [x] **Operational:** document user-initiated **rotation** (new version) and impact on decrypting old messages (product decision) — **`README.md`** and **`docs/PROJECT_PLAN.md` §14** §6.3–6.4
+- [ ] **Operational:** document device revocation (call `DELETE` on logout); recovery for lost-device via **Feature 13 — Multi-device key sync**; update **`README.md`** and **`docs/PROJECT_PLAN.md` §7.1**
 
 ### (B) Web-client, UI, tests & state management
 
-- [x] **Generate**: after **authenticated** session exists, generate keypair in-browser via **Web Crypto API** (or audited lib—**libsodium** / WASM if using X25519); **unit tests** with known test vectors only (no real secrets in repo) — **`src/common/crypto/keypair.ts`** (`generateP256EcdhKeyPair`, SPKI/PKCS8 export); **`useGenerateUserKeypair`** gates on **`useAuth().isAuthenticated`**; **`src/common/crypto/keypair.test.ts`** (OpenSSL fixture PKCS8/SPKI vectors + size checks); **`setupTests.ts`** polyfills **`crypto.subtle`** under jsdom
-- [x] **Store private key securely**: never send to server; persist **wrapped** private key in **IndexedDB** (or equivalent), optionally encrypted with a key derived from a **user passphrase** (PBKDF2 / Argon2 with secure parameters); document secure-context (HTTPS) requirement — **`src/common/crypto/privateKeyStorage.ts`** (IndexedDB `messaging-client-crypto`), **`privateKeyWrap.ts`** (PBKDF2-SHA256 default **310k** + AES-256-GCM), **`encoding.ts`**, **`secureContext.ts`**; dev-only plaintext store gated by **`import.meta.env.DEV`**; **`README.md`** and **`docs/PROJECT_PLAN.md` §14** §2.1 + **`README.md`** (Configuration section) pointer; Vitest uses **`fake-indexeddb`** + Node **`webcrypto`** in **`setupTests.ts`**
-- [x] **Upload public key**: call API to register/update **user-level** public key; handle success/failure and retry; **Redux** slice or `crypto` slice for `keyRegistered`, `keyVersion` — **`usersApi.putMyPublicKey`** / **`rotateMyPublicKey`**; **`retryAsync`** in **`cryptoSlice`** thunks **`uploadPublicKey`** / **`rotatePublicKey`**; **`useRegisterPublicKey`**; store **`crypto`** reducer
-- [x] **Maintain** (technical building blocks): **backup** export (encrypted file or documented recovery path); **restore** flow for new browser; **rotate** path → new keypair → **`POST /v1/users/me/public-key/rotate`**; default product rule: **retain old private keys** in a local keyring (**Option A** — **`README.md`** and **`docs/PROJECT_PLAN.md` §14** §6.3–6.4); **`privateKeyStorage`** keyring + **`keyringBackup.ts`**; hooks **`useKeypairStatus`**, **`useKeypairMaintenance`** (backup / restore / rotate), **`getUserPublicKeyById`**, **`registeredPublicKeySpki`** on **`crypto` slice** — no Settings UI (removed)
-- [x] **Hooks**: `useKeypairStatus`, `useRegisterPublicKey`, `useRestorePrivateKey` (names illustrative); **`common/hooks`** + unit tests where applicable
-- [x] **Remove encryption / key-management UI from Settings** (not part of **`docs/PROJECT_PLAN.md`** — **`settings/`** module is profile/account per **§10.1** layout; E2EE is **automatic / chat / programmatic**, not a Settings surface):
-  - [x] **Interim shipped:** production **`SettingsPage`** did not render **`EncryptionSettingsSection`** in non-**`DEV`** builds — previously gated by **`showEncryptionSettingsUi()`** (removed)
-  - [x] Remove **`showEncryptionSettingsUi.ts`** and **all** **`EncryptionSettingsSection`** wiring from **`SettingsPage.tsx`** (including **dev** — no encryption block on Settings at all)
-  - [x] Delete **`EncryptionSettingsSection.tsx`**, **`EncryptionBackupPrompt.tsx`**, **`EncryptionSetupWizard.tsx`** under **`modules/settings/components/`** (removed from repo — not moved to **`src/dev/`**; programmatic hooks remain in **`common/`**)
-  - [x] Remove colocated tests: **`EncryptionSettingsSection*.test.tsx`**, **`EncryptionSetupWizard.test.tsx`**, **`EncryptionBackupPrompt.test.tsx`**, **`SettingsPage.encryptionVisibility.test.tsx`** — **`useKeypairStatus`**, **`useKeypairMaintenance`**, **`useRestorePrivateKey`** remain testable via **`common/`** hooks
-  - [x] **Audit** copy and routes: **`grep`** / UI strings so **Settings** has **no** “encryption”, “key backup”, “rotate key”, or fingerprint flows; **`SettingsPage.test.tsx`** stays profile-only — **`modules/settings`** has no matches; **`ROUTES.settings`** → **`SettingsPage`** profile form only; regression test asserts no forbidden substrings in **`SettingsPage`** output
-  - [x] **Verify** programmatic E2EE unchanged: **`crypto` slice**, **`ensureUserKeypairReadyForMessaging`**, **`useSendEncryptedMessage`**, optional **`useDevEnsureMessagingKeys`** — **no** import from **`modules/settings`** for key lifecycle — **`grep`** clean; **`keyLifecycleImportPolicy.test.ts`** asserts source files contain no **`modules/settings`** import paths
-- [x] **Integration checkpoint:** first encrypted test payload can be sent from **Feature 1** composer with **automatic** key setup (no user “encryption setup” wizard); **dev-only** manual hooks acceptable for bring-up — **`useSendEncryptedMessage`** (`encryptUtf8ToE2eeBody` **E2EE_JSON_V1**, **`ensureUserKeypairReadyForMessaging`** + device-scoped passphrase); **`FollowUpThreadComposer`** requires **`peerUserId`**; optional **`useDevEnsureMessagingKeys`** for bring-up without sending
+- [ ] **Generate (device-scoped):** on first authenticated session on this device, generate P-256 key pair via Web Crypto API (`generateP256EcdhKeyPair`); assign stable `deviceId` (UUID, persisted in IndexedDB alongside private key); register via `POST /v1/users/me/devices`; store `deviceId` in `cryptoSlice`; gate on `useAuth().isAuthenticated`; unit tests with test vectors unchanged in **`keypair.ts`** / **`keypair.test.ts`**
+- [x] **Store private key securely:** never send to server; persist wrapped private key in IndexedDB (keyed by `deviceId`), encrypted with PBKDF2-derived key + AES-256-GCM; **`privateKeyStorage.ts`**, **`privateKeyWrap.ts`**, **`secureContext.ts`** — mechanism unchanged, scoped by `deviceId`
+- [ ] **Register device public key:** call `POST /v1/users/me/devices` on session bootstrap if no `deviceId` in IndexedDB or server returns 404 for known `deviceId`; persist returned `deviceId`; update `cryptoSlice` — replace `putMyPublicKey` / `rotateMyPublicKey` with `registerDevice` thunk + `useRegisterDevice` hook
+- [ ] **Maintain (device lifecycle):** on logout optionally call `DELETE /v1/users/me/devices/:deviceId`; retain private key in IndexedDB for recovery; update `useKeypairMaintenance`; see **Feature 13** for multi-device sync
+- [ ] **Hooks:** update `useKeypairStatus` (check `deviceId` present + registered on server), rename `useRegisterPublicKey` → `useRegisterDevice`, update `useRestorePrivateKey` (restore from IndexedDB by `deviceId`); remove stale `putMyPublicKey` / `rotateMyPublicKey` from `usersApi`
+- [x] **Remove encryption / key-management UI from Settings** (profile/account only per **§10.1**; E2EE is automatic and programmatic):
+  - [x] All `EncryptionSettingsSection`, `EncryptionBackupPrompt`, `EncryptionSetupWizard` components and tests removed
+  - [x] `showEncryptionSettingsUi.ts` removed; Settings page is profile-only
+  - [x] Programmatic crypto hooks (`cryptoSlice`, `ensureUserKeypairReadyForMessaging`, `useSendEncryptedMessage`) remain in `common/` with no `modules/settings` imports — `keyLifecycleImportPolicy.test.ts` asserts clean
+- [ ] **Integration checkpoint (per-device):** first encrypted message can be sent with automatic device key setup; sender fetches all recipient device public keys, wraps message key per device, sends `{ body: ciphertext, iv, encryptedMessageKeys }`; recipient decrypts using `encryptedMessageKeys[myDeviceId]` + private key; no “encryption setup” wizard in UI
 
 ---
 
-_Checklist version: 7.2 — **Reordered:** outstanding sections first (by unchecked count); **Shipped** sections at end; closed parent checkboxes for web-client skeleton, **`common/`/`modules/`** migration, product polish, read receipts, E2EE sender-plaintext Option A, global REST rate limit._
+## Feature 13 — Multi-device key sync
+
+**Goal:** When a user adds a new device (or reinstalls the app on an existing device), that device can gain access to **past message history** without re-encrypting any stored ciphertext. An existing trusted device re-encrypts the stored per-message keys for the new device and uploads only those key entries. The original ciphertext is **never modified**.
+
+**Protocol reference:** **`docs/PROJECT_PLAN.md` §7.1 — New Device Sync Flow (Key Re-sharing)**.
+
+**Prerequisite:** **Prerequisite — User keypair** and **Feature 11** per-device hybrid model must be in place first.
+
+---
+
+### (A) Infra, backend & deployment
+
+- [ ] **Device registration API (bootstrap):** `POST /v1/users/me/devices` — new device submits its public key (`pubKey`, SPKI base64) and optionally a `deviceLabel` (e.g. "Chrome on MacBook"); server assigns `deviceId` (UUID), stores `(userId, deviceId, pubKey, createdAt)`; returns `{ deviceId }`; **authz:** requires valid session JWT; **Zod** + **OpenAPI** in same PR
+- [ ] **Device list API:** `GET /v1/users/me/devices` — authenticated user lists their own registered devices (`deviceId`, `deviceLabel`, `createdAt`, `lastSeenAt`); used by existing trusted device to confirm new device is pending sync; **OpenAPI** + **Zod**
+- [ ] **Sync trigger (server-side state):** when a new device is registered (`POST /v1/users/me/devices`), emit a Socket.IO event `device:sync_requested` to `user:<userId>` room so existing connected devices receive it immediately; payload `{ newDeviceId, newDevicePublicKey }`; no RabbitMQ fan-out required (same-user notification, ephemeral)
+- [ ] **Message keys fetch API (for syncing device):** `GET /v1/users/me/sync/message-keys?afterMessageId=&limit=` — returns a paginated list of `{ messageId, encryptedMessageKey }` entries for the **caller's own `deviceId`** (existing trusted device); used by trusted device to fetch its encrypted copies of message keys in batches for re-encryption; **authz:** caller must be an active device of the user; cursor-based pagination; **Zod** + **OpenAPI**
+- [ ] **Batch key upload API (for new device):** `POST /v1/users/me/sync/message-keys` — body `{ targetDeviceId, keys: [{ messageId, encryptedMessageKey }] }`; inserts or upserts `encryptedMessageKeys[targetDeviceId]` on each message document (MongoDB `$set` on nested field path); **authz:** caller (`sourceDeviceId` from JWT) must be an existing registered device of the same user; **idempotent** (re-uploading same `messageId + targetDeviceId` key is safe); rate-limit per user per window; **Zod** + **OpenAPI**
+- [ ] **Device revocation API:** `DELETE /v1/users/me/devices/:deviceId` — removes device from registry; **does not** delete `encryptedMessageKeys[deviceId]` entries on messages (data hygiene vs storage tradeoff — document decision); **authz:** only the owning user; **OpenAPI** + **Zod**
+- [ ] **OpenAPI:** document all Feature 13 endpoints; add `SyncMessageKeyEntry`, `BatchKeyUploadRequest`, `DeviceListResponse` schemas; bump spec version; `npm run generate:api`
+- [ ] **MongoDB:** confirm `messages.encryptedMessageKeys` field supports sparse per-device entries (`{ [deviceId]: base64 }`); index on `conversationId + createdAt` already exists (used by sync pagination); no new collection needed
+- [ ] **Rate limits:** per-user rate limit on `POST /v1/users/me/sync/message-keys` (batch upload) — e.g. `DEVICE_SYNC_RATE_LIMIT_*` env vars; document in **`README.md`** (Configuration section)
+
+---
+
+### (B) Web-client, UI, tests & state management
+
+#### New device — onboarding state
+
+- [ ] **Device bootstrap detection:** on session restore / login, after `POST /v1/users/me/devices` returns a `deviceId` that has **no** conversation history decryptable (all `encryptedMessageKeys` lack an entry for `myDeviceId`), enter **"new device, awaiting sync"** state in `cryptoSlice` (`syncState: 'pending' | 'in_progress' | 'complete' | 'idle'`)
+- [ ] **New device pending UI (`NewDeviceSyncBanner`):** full-width banner (or blocking modal for first login) — **"This is a new device. Open the app on another device you trust to sync your message history."**; shows list of other registered devices (from `GET /v1/users/me/devices`) so the user knows which device to approve from; **tests first** (`*.tsx`) — renders pending state, lists other devices, shows spinner when sync in progress
+- [ ] **New device can send / receive new messages immediately** — only past message history is locked; banner persists until sync completes; new incoming messages with `encryptedMessageKeys[myDeviceId]` decrypt normally
+
+#### Existing trusted device — approving sync
+
+- [ ] **`device:sync_requested` Socket.IO handler:** in `socketWorker.ts`, listen for `device:sync_requested`; `postMessage` to main thread as `{ type: 'device_sync_requested', payload: { newDeviceId, newDevicePublicKey } }`; `SocketWorkerProvider` dispatches to Redux `cryptoSlice`
+- [ ] **Incoming sync request UI (`DeviceSyncApprovalBanner`):** toast or persistent banner on existing device — **"A new device is requesting access to your message history. Approve to sync encrypted keys."** — with **Approve** and **Dismiss** buttons; **tests first** (`*.tsx`) — renders banner, Approve triggers sync, Dismiss hides it; **no private key is ever sent to the server or the new device** — only re-encrypted message keys
+- [ ] **Sync orchestrator hook (`useDeviceKeySync`):** triggered on **Approve**; steps:
+  - [ ] Fetch `newDevicePublicKey` from payload (already in event; verify matches `GET /v1/users/me/devices` listing)
+  - [ ] Paginate `GET /v1/users/me/sync/message-keys` (batches of 100 or configurable); for each batch:
+    - [ ] For each `{ messageId, encryptedMessageKey }`: `unwrapMessageKey(encryptedMessageKey, myPrivateKey)` → `messageKey`; `wrapMessageKey(messageKey, newDevicePubKey)` → `newEncryptedKey`
+    - [ ] Accumulate `{ messageId, encryptedMessageKey: newEncryptedKey }` entries
+    - [ ] `POST /v1/users/me/sync/message-keys` with `{ targetDeviceId: newDeviceId, keys: [...] }`
+  - [ ] On completion dispatch `syncCompleted(newDeviceId)` to `cryptoSlice`; show success toast on existing device
+  - [ ] **Tests (unit):** `useDeviceKeySync` — mock `GET` pagination + crypto operations + `POST` batches; assert correct key-wrapping calls; assert no private key leaves the client
+
+#### New device — post-sync access
+
+- [ ] **Post-sync message decryption:** after sync completes (polled via `GET /v1/users/me/devices` status or Socket.IO `device:sync_complete` event from server after batch upload), new device re-fetches conversation message list; each message now has `encryptedMessageKeys[myDeviceId]`; decrypt via standard `unwrapMessageKey` + `decryptMessageBody`; `syncState` transitions to `'complete'`; banner dismissed
+- [ ] **`device:sync_complete` Socket.IO event (server → new device):** server emits after `POST /v1/users/me/sync/message-keys` batch upload completes (or after a threshold of messages covered); new device `socketWorker` forwards to main thread → `cryptoSlice` `syncCompleted`; allows immediate re-fetch without polling
+
+#### Redux state
+
+- [ ] **`cryptoSlice` additions:** `deviceId: string | null`, `registeredOnServer: boolean`, `syncState: 'idle' | 'pending' | 'in_progress' | 'complete'`, `pendingSyncFromDeviceId: string | null`, `pendingSyncFromDevicePublicKey: string | null`; actions: `deviceRegistered`, `syncRequested`, `syncStarted`, `syncCompleted`, `syncDismissed`; selectors: `selectSyncState`, `selectPendingSync`
+- [ ] **Persisted `deviceId`:** store `deviceId` in IndexedDB (alongside private key in `privateKeyStorage.ts`) so it survives page reload; load on session restore before `registerDevice` check
+
+#### Tests
+
+- [ ] **`NewDeviceSyncBanner.test.tsx`:** renders pending state; shows other device list; Approve triggers `useDeviceKeySync`; Dismiss updates Redux `syncDismissed`
+- [ ] **`DeviceSyncApprovalBanner.test.tsx`:** renders when `pendingSync` is set; Approve calls sync hook; Dismiss clears state; banner absent in `syncState: 'idle'`
+- [ ] **`useDeviceKeySync.test.ts`:** mock API pagination (`GET` returns two pages); mock crypto (`unwrapMessageKey`, `wrapMessageKey`); assert `POST` batch calls with correct `targetDeviceId` + re-wrapped keys; assert `syncCompleted` dispatched; assert no network call leaks private key bytes
+- [ ] **Integration:** end-to-end smoke — device A sends message, device B (new) registers, device A approves sync, device B decrypts historical message — manual checklist or `MESSAGING_INTEGRATION=1` extension
+
+---
+
+_Checklist version: 8.0 — **Architecture migration:** Feature 11 + Prerequisite keypair updated for per-device hybrid E2EE (AES-256-GCM + per-device key wrapping, `encryptedMessageKeys` map on messages); Feature 13 added (multi-device key sync — new device registration, sync request/approval flow, batch key re-encryption, UI); prior `[x]` items that implemented the old user-level-key model reopened as `[ ]`._

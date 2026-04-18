@@ -189,30 +189,160 @@ Short-lived access **without** full Feature 2 registration (email, password, ver
 - **Guest-only search directory:** for a **guest** caller, **`GET /v1/users/search`** (and any **user directory** used to pick someone for a new DM) **returns only other guests** (e.g. **`isGuest: true`**). **Registered users must not appear** in guest search results, so guests can start threads **only** with other guests found in that sandbox.
 - **No guest → registered messaging:** any description implying guests “search and DM registered users” is **superseded** — guests do **not** use the full user directory to contact registered accounts; **registration** is the path to that graph. Implementation tasks: **`docs/TASK_CHECKLIST.md`** Feature 2a.
 
-### 7.1 End-to-end encryption (direct messages — web-client)
+### 7.1 End-to-End Encrypted Multi-Device Messaging
 
-This subsection documents **where keys live**, how **local UI** relates to **wire** payloads, and points to the implementation. It applies to **1:1** text bodies encrypted with **`E2EE_JSON_V1:`** in the web client.
+This system implements end-to-end encryption (E2EE) with seamless multi-device support using a hybrid cryptographic model.
 
-1. **Public vs private key placement**  
-   - **Public** key (SPKI Base64) is stored **server-side** for **directory lookup** — MongoDB and **`GET /v1/users/{userId}/public-key`** — so senders can fetch a peer’s key before encrypting.  
-   - **Private** key material **never** belongs in MongoDB or any server database. It stays in the **browser keyring** (IndexedDB; encrypted at rest with a device-scoped passphrase). Anyone with server DB access must **not** be able to decrypt message contents.
+Each user device generates a unique public-private key pair. When a message is sent, the client generates a random symmetric **message key** to encrypt the message payload. This message key is then encrypted separately for each recipient device (including the sender’s other devices) using their public keys.
 
-2. **Local durability vs wire-only**  
-   - The **`Message.body`** string on the wire is **opaque** to the service: for E2EE direct text, the client produces a blob with prefix **`E2EE_JSON_V1:`** (see implementation below). That ciphertext is encrypted to the **recipient’s** public key.  
-   - The **sender’s** private key **cannot** decrypt that blob (ECIES is one-way to the recipient). After a **full reload**, **`GET /conversations/{id}/messages`** therefore returns **ciphertext** for **your own** sends as well; **reconstructing “what I typed”** requires **local persistence** of sender plaintext (e.g. IndexedDB keyed by **`messageId`**, merged on hydrate) — the same **pattern** native apps use with an **encrypted local message database**, not “decrypt server storage as the sender.”  
-   - **Recipients** decrypt inbound bodies with **`decryptE2eeBodyToUtf8`** and their **private** key.
+The server stores:
 
-3. **Code reference — `messageEcies` / `E2EE_JSON_V1`**  
-   - Implementation: [`apps/web-client/src/common/crypto/messageEcies.ts`](../apps/web-client/src/common/crypto/messageEcies.ts).  
-   - Wire prefix: **`E2EE_BODY_PREFIX`** (`E2EE_JSON_V1:`) plus JSON **`E2eeEnvelopeV1`** (algorithm, ephemeral public key, salt, IV, ciphertext Base64). **Encrypt:** `encryptUtf8ToE2eeBody`; **decrypt:** `decryptE2eeBodyToUtf8`.
+* A single encrypted message (ciphertext)
+* A mapping of encrypted message keys per device
 
-4. **Sender-facing UI, Redux, and persistence (web-client)**  
-   - **Display:** Thread and list previews resolve **`Message.body`** through **`resolveMessageDisplayBody`** ([`apps/web-client/src/modules/home/utils/messageDisplayBody.ts`](../apps/web-client/src/modules/home/utils/messageDisplayBody.ts)). **Recipients** see plaintext from **`decryptE2eeBodyToUtf8`** via **`decryptedBodyByMessageId`**, or an ellipsis while decrypt is pending. **Senders** must **not** render the raw **`E2EE_JSON_V1:`** string from REST/MongoDB as the bubble text: that blob is ciphertext to the peer. The UI uses **`senderPlaintextByMessageId[messageId]`** (plaintext captured at send / merged from the optimistic row). If that map has no entry yet for an own E2EE row, the UI shows an **ellipsis** (`…`), not the wire body.  
-   - **Redux:** [`apps/web-client/src/modules/home/stores/messagingSlice.ts`](../apps/web-client/src/modules/home/stores/messagingSlice.ts) — **`replaceOptimisticMessage`** (socket **`message:send`** ack) and **`appendIncomingMessageIfNew`** ( **`message:new`** ) reconcile **`client:…`** optimistic ids to the server **`message.id`**, merge plaintext from the optimistic row into **`messagesById`** where needed, and populate **`senderPlaintextByMessageId`**. Pending-outgoing queue pruning **must not** drop a **`client:…`** id while **`messagesById[client:…]`** still exists (stale **`messageIds`** list). **`hydrateMessagesFromFetch`** may overlay own E2EE wire bodies with **`senderPlaintextByMessageId`** when revalidating from **`GET /conversations/{id}/messages`**.  
-   - **Persistence:** [`senderPlaintextPersistListener`](../apps/web-client/src/store/senderPlaintextPersistListener.ts) write-throughs **`senderPlaintextByMessageId`** to IndexedDB after those reducers; [`loadSenderPlaintextIntoRedux`](../apps/web-client/src/common/senderPlaintext/loadSenderPlaintextIntoRedux.ts) loads the map after sign-in so hydrate can overlay after **reload**.
+This design ensures:
 
-5. **Cloud backup (footnote)**  
-   Optional **cloud backup** of chat history (as in some consumer messengers) is a **separate product and security decision** from core **E2EE on the wire**: backups may use different encryption or not meet the same threat model. **Do not conflate** with directory keys + **`E2EE_JSON_V1`** above.
+* Messages are encrypted only once (efficient)
+* Access control is managed via per-device encrypted keys (scalable)
+* The server never has access to plaintext data
+
+#### Multi-device Sync
+
+When a new device is added, it cannot decrypt past messages by default. To enable access:
+
+An existing trusted device decrypts stored message keys using its private key and re-encrypts them for the new device. These updated encrypted keys are stored on the server without modifying the original message ciphertext.
+
+This approach:
+
+* Avoids re-encrypting full message history
+* Minimizes bandwidth and computation
+* Preserves strict end-to-end encryption guarantees
+
+#### Key Principles
+
+* **Messages are immutable**
+* **Access is dynamically extendable via key distribution**
+* **Server acts only as a relay and storage layer**
+
+This architecture is inspired by modern secure messaging systems such as Signal and WhatsApp.
+
+#### Message Send / Receive Flow
+
+```
+┌──────────────────────┐
+│ Sender Device (A1)   │
+└─────────┬────────────┘
+          │
+          │ 1. Fetch recipient device public keys
+          ▼
+┌──────────────────────────────┐
+│ Server returns:              │
+│ B1.pub, B2.pub, A2.pub...    │
+└─────────┬────────────────────┘
+          │
+          │ 2. Generate message key
+          ▼
+┌──────────────────────────────┐
+│ msgKey = random(256-bit)     │
+└─────────┬────────────────────┘
+          │
+          │ 3. Encrypt message
+          ▼
+┌──────────────────────────────┐
+│ ciphertext = AES(msgKey,msg) │
+└─────────┬────────────────────┘
+          │
+          │ 4. Encrypt msgKey per device
+          ▼
+┌──────────────────────────────┐
+│ encKey_B1 = Enc(msgKey,B1)   │
+│ encKey_B2 = Enc(msgKey,B2)   │
+│ encKey_A2 = Enc(msgKey,A2)   │
+└─────────┬────────────────────┘
+          │
+          │ 5. Send to server
+          ▼
+┌──────────────────────────────┐
+│ Store:                       │
+│ ciphertext                   │
+│ encryptedKeys{deviceId:key}  │
+└─────────┬────────────────────┘
+          │
+          │ 6. Deliver to devices
+          ▼
+┌──────────────────────────────┐
+│ Receiver Device (B1/B2)      │
+└─────────┬────────────────────┘
+          │
+          │ 7. Decrypt msgKey
+          ▼
+┌──────────────────────────────┐
+│ msgKey = Dec(encKey, priv)   │
+└─────────┬────────────────────┘
+          │
+          │ 8. Decrypt message
+          ▼
+┌──────────────────────────────┐
+│ message = AES⁻¹(msgKey)      │
+└──────────────────────────────┘
+```
+
+#### New Device Sync Flow (Key Re-sharing)
+
+```
+┌──────────────────────┐
+│ New Device (A2)      │
+└─────────┬────────────┘
+          │
+          │ 1. Generate keypair
+          ▼
+┌──────────────────────────────┐
+│ pubA2, privA2                │
+└─────────┬────────────────────┘
+          │
+          │ 2. Register pubA2
+          ▼
+┌──────────────────────────────┐
+│ Server stores device         │
+└─────────┬────────────────────┘
+          │
+          │ 3. Trigger sync request
+          ▼
+┌──────────────────────┐
+│ Existing Device (A1) │
+└─────────┬────────────┘
+          │
+          │ 4. Fetch message metadata
+          ▼
+┌──────────────────────────────┐
+│ messageId + encKey[A1]       │
+└─────────┬────────────────────┘
+          │
+          │ 5. For each message:
+          ▼
+┌──────────────────────────────┐
+│ msgKey = Dec(encKey[A1])     │
+│ newKey = Enc(msgKey, pubA2)  │
+└─────────┬────────────────────┘
+          │
+          │ 6. Batch send new keys
+          ▼
+┌──────────────────────────────┐
+│ [{messageId, encKey_A2}]     │
+└─────────┬────────────────────┘
+          │
+          │ 7. Server updates
+          ▼
+┌──────────────────────────────┐
+│ encryptedKeys[A2] = newKey   │
+└─────────┬────────────────────┘
+          │
+          │ 8. A2 fetches messages
+          ▼
+┌──────────────────────────────┐
+│ Decrypt via privA2           │
+└──────────────────────────────┘
+```
 
 ---
 
