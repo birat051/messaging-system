@@ -15,6 +15,7 @@ export const defaultMockUser: User = {
   emailVerified: true,
   status: 'Hello',
   profilePicture: null,
+  guest: false,
 };
 
 /**
@@ -72,6 +73,7 @@ export const handlers = [
           displayName: 'Found User',
           profilePicture: null,
           conversationId: 'conv-7a3f9e2b-4411-4c0d-9e8a',
+          guest: false,
         },
       },
       {
@@ -83,6 +85,7 @@ export const handlers = [
           displayName: 'New Contact',
           profilePicture: null,
           conversationId: null,
+          guest: false,
         },
       },
     ];

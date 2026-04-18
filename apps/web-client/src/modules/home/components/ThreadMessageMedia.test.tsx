@@ -1,9 +1,31 @@
 import { describe, expect, it, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/common/test-utils';
 import { ThreadMessageMedia } from './ThreadMessageMedia';
 
 describe('ThreadMessageMedia', () => {
+  it('uses previewUrlOverride when public URL env is not configured', () => {
+    vi.stubEnv('VITE_S3_PUBLIC_BASE_URL', '');
+    vi.stubEnv('VITE_S3_BUCKET', '');
+    try {
+      renderWithProviders(
+        <ThreadMessageMedia
+          mediaKey="users/1/a.png"
+          messageId="m-blob"
+          isOwn
+          previewUrlOverride="blob:local-preview"
+        />,
+      );
+      const img = screen.getByRole('img', {
+        name: /image attachment you sent/i,
+      });
+      expect(img).toHaveAttribute('src', 'blob:local-preview');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('shows text fallback when public URL env is not configured', () => {
     vi.stubEnv('VITE_S3_PUBLIC_BASE_URL', '');
     vi.stubEnv('VITE_S3_BUCKET', '');
@@ -38,6 +60,55 @@ describe('ThreadMessageMedia', () => {
       expect(img).toHaveAttribute('loading', 'lazy');
       expect(img).toHaveAttribute('decoding', 'async');
       expect(img.getAttribute('src')).toContain('photo.png');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('opens an optional lightbox dialog and closes from the Close control', async () => {
+    const user = userEvent.setup();
+    vi.stubEnv('VITE_S3_PUBLIC_BASE_URL', 'http://localhost:9000');
+    vi.stubEnv('VITE_S3_BUCKET', 'messaging-media');
+    try {
+      renderWithProviders(
+        <ThreadMessageMedia
+          mediaKey="users/1/photo.png"
+          messageId="m-lb"
+          isOwn
+        />,
+      );
+      await user.click(
+        screen.getByRole('button', { name: /image attachment you sent/i }),
+      );
+      expect(
+        screen.getByRole('dialog', { name: /image preview/i }),
+      ).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: /^close$/i }));
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('renders only an inline img when lightbox is disabled', () => {
+    vi.stubEnv('VITE_S3_PUBLIC_BASE_URL', 'http://localhost:9000');
+    vi.stubEnv('VITE_S3_BUCKET', 'messaging-media');
+    try {
+      renderWithProviders(
+        <ThreadMessageMedia
+          mediaKey="users/1/photo.png"
+          messageId="m-nolb"
+          isOwn={false}
+          lightboxEnabled={false}
+        />,
+      );
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      const img = screen.getByRole('img', {
+        name: /image attachment from the other person/i,
+      });
+      expect(img).toHaveAttribute('loading', 'lazy');
     } finally {
       vi.unstubAllEnvs();
     }

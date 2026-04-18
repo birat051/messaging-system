@@ -1,7 +1,10 @@
 import type { components } from '../../generated/api-types';
+import type { ParsedNotificationPayload } from './socketNotificationPayload';
 
 export type SendMessageRequest = components['schemas']['SendMessageRequest'];
 export type Message = components['schemas']['Message'];
+
+export type { ParsedNotificationPayload } from './socketNotificationPayload';
 
 /** Inbound receipt emits — **`messageReceiptPayloadSchema`** on **`messaging-service`**. */
 export type ReceiptEmitSocketEvent =
@@ -14,13 +17,19 @@ export type ReceiptEmitPayload = {
   conversationId: string;
 };
 
+export type WebRtcSignalingEmitEvent =
+  | 'webrtc:offer'
+  | 'webrtc:answer'
+  | 'webrtc:candidate';
+
 /** Messages from the socket Web Worker → main thread */
 export type WorkerToMainMessage =
   | { type: 'socket_connecting' }
   | { type: 'connected'; socketId?: string }
   | { type: 'disconnected'; reason: string }
   | { type: 'connect_error'; message: string }
-  | { type: 'notification'; payload: unknown }
+  /** **`payload.kind`** — **`message`** \| **`call_incoming`** (parsed in **`socketWorker`**). */
+  | { type: 'notification'; payload: ParsedNotificationPayload }
   | { type: 'message_new'; payload: unknown }
   | { type: 'message_delivered'; payload: unknown }
   | { type: 'message_read'; payload: unknown }
@@ -35,6 +44,21 @@ export type WorkerToMainMessage =
       type: 'receipt_emit_ack';
       requestId: string;
       ack: unknown;
+    }
+  | {
+      type: 'webrtc_emit_ack';
+      requestId: string;
+      ack: unknown;
+    }
+  | {
+      type: 'presence_get_last_seen_ack';
+      requestId: string;
+      ack: unknown;
+    }
+  | {
+      type: 'webrtc_inbound';
+      event: WebRtcSignalingEmitEvent;
+      payload: unknown;
     };
 
 /** Main thread → worker */
@@ -56,5 +80,17 @@ export type MainToWorkerMessage =
       requestId: string;
       event: ReceiptEmitSocketEvent;
       payload: ReceiptEmitPayload;
+    }
+  | {
+      type: 'webrtc_emit';
+      requestId: string;
+      event: WebRtcSignalingEmitEvent;
+      payload: unknown;
+    }
+  | {
+      type: 'presence_get_last_seen';
+      requestId: string;
+      /** User id to resolve last-seen for (server **`resolveLastSeenForUser`**). */
+      targetUserId: string;
     }
   | { type: 'disconnect' };

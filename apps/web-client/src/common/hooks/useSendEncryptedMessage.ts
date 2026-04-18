@@ -5,6 +5,7 @@ import { encryptUtf8ToE2eeBody } from '../crypto/messageEcies';
 import { fetchRecipientPublicKeyWithCache } from '../utils/fetchRecipientPublicKey';
 import type { Message, SendMessageRequest } from '../realtime/socketWorkerProtocol';
 import { useAppDispatch } from '@/store/hooks';
+import type { RootState } from '@/store/store';
 import { useAuth } from './useAuth';
 import { useSocketWorkerSendMessage } from './useSocketWorkerSendMessage';
 
@@ -65,7 +66,7 @@ export function useSendEncryptedMessage(
 
       const recipientPk = await fetchRecipientPublicKeyWithCache(
         recipientUserId,
-        () => store.getState(),
+        () => store.getState() as RootState,
         dispatch,
       );
 

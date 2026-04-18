@@ -11,6 +11,8 @@ export type ThreadMessageItem = {
   body: string;
   /** S3 object key when the row has an attachment (see **`Message.mediaKey`**). */
   mediaKey?: string | null;
+  /** Client-only optimistic preview (**`blob:`** or API **`url`**) until public URL from **`mediaKey`** is available. */
+  mediaPreviewUrl?: string | null;
   isOwn: boolean;
   /** ISO 8601 from the API (`Message.createdAt`). */
   createdAt: string;
@@ -93,6 +95,7 @@ function ThreadMessageRow({
             mediaKey={m.mediaKey}
             messageId={m.id}
             isOwn={m.isOwn}
+            previewUrlOverride={m.mediaPreviewUrl ?? null}
           />
         ) : null}
       </div>

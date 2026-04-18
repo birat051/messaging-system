@@ -14,6 +14,7 @@ export const API_PATHS = {
     logout: '/auth/logout',
     forgotPassword: '/auth/forgot-password',
     resetPassword: '/auth/reset-password',
+    guest: '/auth/guest',
   },
   users: {
     me: '/users/me',

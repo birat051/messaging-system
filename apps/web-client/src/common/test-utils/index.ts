@@ -1,2 +1,5 @@
 export { createTestStore, renderWithProviders } from './renderWithProviders';
-export type { RenderWithProvidersOptions } from './renderWithProviders';
+export type {
+  PreloadedRootState,
+  RenderWithProvidersOptions,
+} from './renderWithProviders';

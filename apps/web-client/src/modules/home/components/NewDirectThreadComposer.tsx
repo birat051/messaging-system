@@ -1,9 +1,12 @@
 import { type FormEvent, useId, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { SendIcon } from '@/common/components/SendIcon';
 import type { components } from '@/generated/api-types';
+import { useAuth } from '@/common/hooks/useAuth';
 import { useComposerMediaAttachment } from '@/common/hooks/useComposerMediaAttachment';
 import { useSendEncryptedMessage } from '@/common/hooks/useSendEncryptedMessage';
 import { parseApiError } from '@/modules/auth/utils/apiError';
+import { ROUTES } from '@/routes/paths';
 import { ComposerImagePreviewStrip } from './ComposerImagePreviewStrip';
 import {
   ComposerAttachButton,
@@ -23,6 +26,7 @@ type Props = {
  * On success the parent unmounts this and shows **`FollowUpThreadComposer`**.
  */
 export function NewDirectThreadComposer({ recipient, onConversationIdStored }: Props) {
+  const { user } = useAuth();
   const { sendMessage } = useSendEncryptedMessage();
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
@@ -66,6 +70,11 @@ export function NewDirectThreadComposer({ recipient, onConversationIdStored }: P
   }
 
   const label = recipient.displayName?.trim() || `User ${recipient.userId.slice(0, 8)}`;
+
+  const showGuestRegisterHint =
+    user?.guest === true &&
+    error !== null &&
+    /guests can only message other guests/i.test(error);
 
   return (
     <form
@@ -127,9 +136,22 @@ export function NewDirectThreadComposer({ recipient, onConversationIdStored }: P
         </button>
       </div>
       {error && (
-        <p className="text-sm text-red-600 dark:text-red-400" role="alert">
-          {error}
-        </p>
+        <div className="space-y-2">
+          <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+            {error}
+          </p>
+          {showGuestRegisterHint ? (
+            <p className="text-muted text-xs">
+              <Link
+                to={ROUTES.register}
+                className="text-accent font-medium underline-offset-4 hover:underline"
+              >
+                Register
+              </Link>{' '}
+              to message registered users and use the full directory.
+            </p>
+          ) : null}
+        </div>
       )}
     </form>
   );

@@ -10,7 +10,7 @@ import {
   readRefreshToken,
   writeRefreshToken,
 } from '../../modules/auth/utils/authStorage';
-import { navigateToLogin } from '../../routes/navigation';
+import { navigateToGuestEntry, navigateToLogin } from '../../routes/navigation';
 import type { AppDispatch, RootState } from '../../store/store';
 import { API_PATHS } from './paths';
 
@@ -62,7 +62,13 @@ async function performRefresh(
         throw new Error('missing access token');
       }
       const user = store.getState().auth.user;
-      dispatch(setSession({ user, accessToken: access }));
+      dispatch(
+        setSession({
+          user,
+          accessToken: access,
+          accessTokenExpiresAt: data.expiresAt ?? null,
+        }),
+      );
       if (data.refreshToken) {
         writeRefreshToken(data.refreshToken);
       }
@@ -96,9 +102,14 @@ async function refreshWithMutex(store: Store<RootState>): Promise<void> {
 
 function clearSessionAndLogin(store: Store<RootState>): void {
   const dispatch = store.dispatch as AppDispatch;
+  const wasGuest = store.getState().auth.user?.guest === true;
   clearRefreshToken();
   dispatch(logout());
-  navigateToLogin();
+  if (wasGuest) {
+    navigateToGuestEntry();
+  } else {
+    navigateToLogin();
+  }
 }
 
 export function attachHttpAuth(store: Store<RootState>): void {

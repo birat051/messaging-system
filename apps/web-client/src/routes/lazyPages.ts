@@ -5,8 +5,20 @@ export const HomePage = lazy(() =>
   import('@/modules/home/pages/HomePage').then((m) => ({ default: m.HomePage })),
 );
 
+export const LandingPage = lazy(() =>
+  import('@/modules/auth/pages/LandingPage').then((m) => ({
+    default: m.LandingPage,
+  })),
+);
+
 export const LoginPage = lazy(() =>
   import('@/modules/auth/pages/LoginPage').then((m) => ({ default: m.LoginPage })),
+);
+
+export const GuestEntryPage = lazy(() =>
+  import('@/modules/auth/pages/GuestEntryPage').then((m) => ({
+    default: m.GuestEntryPage,
+  })),
 );
 
 export const RegisterPage = lazy(() =>

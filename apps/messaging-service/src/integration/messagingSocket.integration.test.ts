@@ -23,10 +23,12 @@ import {
 } from 'vitest';
 import { io as clientIo, type Socket as ClientSocket } from 'socket.io-client';
 import type { Server as SocketIoServer } from 'socket.io';
+import type { Env } from '../config/env.js';
 
 const enabled = process.env.MESSAGING_INTEGRATION === '1';
 
 describe.skipIf(!enabled)('integration: A→B Socket.IO + RabbitMQ', () => {
+  let testEnv: Env;
   let httpServer: HttpServer | undefined;
   let io: SocketIoServer | undefined;
   let baseUrl: string;
@@ -72,6 +74,9 @@ describe.skipIf(!enabled)('integration: A→B Socket.IO + RabbitMQ', () => {
     const { ensureConversationReadsIndexes } = await import(
       '../data/conversationReads/conversation_reads.collection.js'
     );
+    const { ensureUserIndexes } = await import(
+      '../data/users/users.collection.js'
+    );
     const { connectRedis, disconnectRedis: dr } = await import(
       '../data/redis/redis.js'
     );
@@ -87,8 +92,10 @@ describe.skipIf(!enabled)('integration: A→B Socket.IO + RabbitMQ', () => {
     setMessagingSocketIoServer = rabbitmq.setMessagingSocketIoServer;
 
     const env = loadEnv();
+    testEnv = env;
     await connectMongo();
     const db = getDb();
+    await ensureUserIndexes(db);
     await ensureConversationIndexes(db);
     await ensureMessageIndexes(db);
     await ensureConversationReadsIndexes(db);
@@ -191,7 +198,7 @@ describe.skipIf(!enabled)('integration: A→B Socket.IO + RabbitMQ', () => {
       const { sendMessageForUser } = await import(
         '../data/messages/sendMessage.js'
       );
-      await sendMessageForUser(userA.id, {
+      await sendMessageForUser(testEnv, userA.id, {
         recipientUserId: userB.id,
         body: 'hello-integration',
       });
@@ -241,7 +248,7 @@ describe.skipIf(!enabled)('integration: A→B Socket.IO + RabbitMQ', () => {
         '../data/messages/sendMessage.js',
       );
       const opaqueBody = 'E2EE_JSON_V1:eyJhbGciOiJub25lIn0';
-      await sendMessageForUser(userA.id, {
+      await sendMessageForUser(testEnv, userA.id, {
         recipientUserId: userB.id,
         body: opaqueBody,
       });
@@ -349,7 +356,7 @@ describe.skipIf(!enabled)('integration: A→B Socket.IO + RabbitMQ', () => {
       const { sendMessageForUser } = await import(
         '../data/messages/sendMessage.js'
       );
-      const msg = await sendMessageForUser(userA.id, {
+      const msg = await sendMessageForUser(testEnv, userA.id, {
         recipientUserId: userB.id,
         body: 'receipt-test',
       });

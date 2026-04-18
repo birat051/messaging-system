@@ -6,12 +6,22 @@ import { MemoryRouter } from 'react-router-dom';
 import { SWRConfig } from 'swr';
 import { appReducer } from '../../modules/app/stores/appSlice';
 import { connectionReducer } from '../../modules/app/stores/connectionSlice';
+import { presenceReducer } from '../../modules/app/stores/presenceSlice';
 import { authReducer } from '../../modules/auth/stores/authSlice';
 import { cryptoReducer } from '../../modules/crypto/stores/cryptoSlice';
+import {
+  notificationsInitialState,
+  notificationsReducer,
+} from '../../modules/app/stores/notificationsSlice';
+import {
+  callInitialState,
+  callReducer,
+} from '../../modules/home/stores/callSlice';
 import {
   messagingInitialState,
   messagingReducer,
 } from '../../modules/home/stores/messagingSlice';
+import type { AuthState } from '../../modules/auth/stores/authSlice';
 import type { RootState } from '../../store/store';
 import { senderPlaintextPersistListener } from '../../store/senderPlaintextPersistListener';
 import { ToastProvider } from '../components/toast/ToastProvider';
@@ -20,7 +30,8 @@ import { ThemeProvider } from '../theme/ThemeProvider';
 const defaultRootState: RootState = {
   app: { bootstrapped: true },
   connection: { presenceStatus: { kind: 'idle' } },
-  auth: { user: null, accessToken: null },
+  presence: { byUserId: {} },
+  auth: { user: null, accessToken: null, accessTokenExpiresAt: null },
   crypto: {
     keyRegistered: false,
     keyVersion: null,
@@ -30,9 +41,16 @@ const defaultRootState: RootState = {
     error: null,
   },
   messaging: messagingInitialState,
+  call: callInitialState,
+  notifications: notificationsInitialState,
 };
 
-function mergeRootState(partial?: Partial<RootState>): RootState {
+/** **`Partial<RootState>`** does not deeply partial **`auth`**; tests may omit **`accessTokenExpiresAt`**. */
+export type PreloadedRootState = Omit<Partial<RootState>, 'auth'> & {
+  auth?: Partial<AuthState>;
+};
+
+function mergeRootState(partial?: PreloadedRootState): RootState {
   if (!partial) {
     return defaultRootState;
   }
@@ -42,32 +60,38 @@ function mergeRootState(partial?: Partial<RootState>): RootState {
       ...defaultRootState.connection,
       ...partial.connection,
     },
-    auth: {
-      user:
-        partial.auth?.user !== undefined
-          ? partial.auth.user
-          : defaultRootState.auth.user,
-      accessToken:
-        partial.auth?.accessToken !== undefined
-          ? partial.auth.accessToken
-          : defaultRootState.auth.accessToken,
+    presence: {
+      ...defaultRootState.presence,
+      ...partial.presence,
     },
+    auth: { ...defaultRootState.auth, ...partial.auth },
     crypto: { ...defaultRootState.crypto, ...partial.crypto },
     messaging: {
       ...defaultRootState.messaging,
       ...partial.messaging,
     },
+    call: {
+      ...defaultRootState.call,
+      ...partial.call,
+    },
+    notifications: {
+      ...defaultRootState.notifications,
+      ...partial.notifications,
+    },
   };
 }
 
-export function createTestStore(preloadedState?: Partial<RootState>) {
+export function createTestStore(preloadedState?: PreloadedRootState) {
   return configureStore({
     reducer: {
       app: appReducer,
       connection: connectionReducer,
+      presence: presenceReducer,
       auth: authReducer,
       crypto: cryptoReducer,
       messaging: messagingReducer,
+      call: callReducer,
+      notifications: notificationsReducer,
     },
     preloadedState: mergeRootState(preloadedState),
     middleware: (getDefaultMiddleware) =>
@@ -79,7 +103,7 @@ export type RenderWithProvidersOptions = Omit<RenderOptions, 'wrapper'> & {
   /** Initial history entry (e.g. **`/settings`**) — wrap **`ui`** in **`Routes`** when using route params. */
   route?: string;
   /** Merged into the default **`RootState`**. */
-  preloadedState?: Partial<RootState>;
+  preloadedState?: PreloadedRootState;
 };
 
 /**

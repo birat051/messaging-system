@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { Filter } from 'mongodb';
 import { MongoServerError } from 'mongodb';
 import { getDb } from '../../data/db/mongo.js';
 import { hashPassword } from './password.js';
@@ -95,6 +96,59 @@ export class DuplicateUsernameError extends Error {
   }
 }
 
+export type CreateGuestUserInput = {
+  username: string;
+  displayName?: string | null;
+};
+
+/**
+ * Inserts a **guest** row — **no** **`email`** field (sparse unique index allows many guests).
+ * **`passwordHash`** is an unusable Argon2 hash (guests never password-login).
+ */
+export async function createGuestUser(
+  input: CreateGuestUserInput,
+  options: { guestDataExpiresAt?: Date },
+): Promise<UserDocument> {
+  const username = normalizeUsername(input.username);
+  const now = new Date();
+  const passwordHash = await hashPassword(randomUUID());
+  const displayTrim =
+    input.displayName !== undefined && input.displayName !== null
+      ? String(input.displayName).trim()
+      : '';
+  const doc: UserDocument = {
+    id: randomUUID(),
+    username,
+    passwordHash,
+    displayName: displayTrim.length > 0 ? displayTrim : null,
+    profilePicture: null,
+    status: null,
+    emailVerified: true,
+    isGuest: true,
+    refreshTokenVersion: 0,
+    lastSeenAt: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  if (options.guestDataExpiresAt !== undefined) {
+    doc.guestDataExpiresAt = options.guestDataExpiresAt;
+  }
+
+  try {
+    await getDb().collection<UserDocument>(USERS_COLLECTION).insertOne(doc);
+  } catch (err: unknown) {
+    if (err instanceof MongoServerError && err.code === 11000) {
+      const kp = err.keyPattern as Record<string, unknown> | undefined;
+      if (kp && 'username' in kp) {
+        throw new DuplicateUsernameError(username);
+      }
+      throw err;
+    }
+    throw err;
+  }
+  return doc;
+}
+
 export async function findUserByEmail(
   email: string,
 ): Promise<UserDocument | null> {
@@ -110,7 +164,7 @@ export async function findUserByEmail(
  */
 export type UserSearchRow = Pick<
   UserDocument,
-  'id' | 'email' | 'username' | 'displayName' | 'profilePicture'
+  'id' | 'email' | 'username' | 'displayName' | 'profilePicture' | 'isGuest'
 >;
 
 /**
@@ -123,21 +177,24 @@ export async function findUsersBySearchSubstringMatch(params: {
   normalizedNeedle: string;
   excludeUserId: string;
   maxCandidates: number;
+  /** When **`true`**, only users with **`isGuest: true`** (guest sandbox). Used for **`GET /users/search`** when the caller is a guest. */
+  guestDirectoryOnly?: boolean;
 }): Promise<UserSearchRow[]> {
   const escaped = escapeRegexLiteral(params.normalizedNeedle);
   const regex = new RegExp(escaped, 'i');
+  const filter: Filter<UserDocument> = {
+    id: { $ne: params.excludeUserId },
+    $or: [
+      { email: { $regex: regex } },
+      { username: { $regex: regex } },
+    ],
+  };
+  if (params.guestDirectoryOnly === true) {
+    filter.isGuest = true;
+  }
   const docs = await getDb()
     .collection<UserDocument>(USERS_COLLECTION)
-    .find(
-      {
-        id: { $ne: params.excludeUserId },
-        $or: [
-          { email: { $regex: regex } },
-          { username: { $regex: regex } },
-        ],
-      },
-      { projection: { passwordHash: 0 } },
-    )
+    .find(filter, { projection: { passwordHash: 0 } })
     .limit(params.maxCandidates)
     .toArray();
 
@@ -147,6 +204,7 @@ export async function findUsersBySearchSubstringMatch(params: {
     username: d.username,
     displayName: d.displayName,
     profilePicture: d.profilePicture ?? null,
+    isGuest: d.isGuest,
   }));
 }
 

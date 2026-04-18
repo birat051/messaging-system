@@ -74,6 +74,11 @@ type Props = {
   /** Selected row for composer / keyboard highlight */
   selectedUserId: string | null;
   onSelectUser: (user: UserSearchResult) => void;
+  /**
+   * When the directory is **guest-scoped** (viewer is a guest), sr-only list region and badges reflect
+   * guest-only hits (`UserSearchResult.guest`).
+   */
+  isGuestDirectory?: boolean;
 };
 
 /**
@@ -85,6 +90,7 @@ export function UserSearchResultList({
   idPrefix,
   selectedUserId,
   onSelectUser,
+  isGuestDirectory = false,
 }: Props) {
   const listHeadingId = `${idPrefix}-results-heading`;
   const navHintId = `${idPrefix}-results-keyboard-hint`;
@@ -93,7 +99,7 @@ export function UserSearchResultList({
   return (
     <div className="space-y-2">
       <h3 id={listHeadingId} className="sr-only">
-        Search results
+        {isGuestDirectory ? 'Guest search results' : 'Search results'}
       </h3>
       <p id={navHintId} className="sr-only">
         When a result is focused, use arrow up and arrow down to move between results.
@@ -142,6 +148,12 @@ export function UserSearchResultList({
                 <div className="min-w-0 flex-1">
                   <p id={nameId} className="text-foreground font-medium">
                     {name}
+                    {isGuestDirectory && user.guest ? (
+                      <>
+                        {' '}
+                        <span className="text-muted font-normal">(Guest)</span>
+                      </>
+                    ) : null}
                   </p>
                   <p id={hintId} className="mt-0.5 text-xs">
                     <span className="text-foreground/90 font-mono text-[11px] tracking-tight">

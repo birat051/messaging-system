@@ -21,13 +21,13 @@ export function rankUsersBySearchRelevance<T extends UserSearchRow>(
     if (b.score !== a.score) {
       return b.score - a.score;
     }
-    return a.r.email.localeCompare(b.r.email);
+    return (a.r.email ?? '').localeCompare(b.r.email ?? '');
   });
   return scored.map((s) => s.r);
 }
 
 function scoreSearchRow(row: UserSearchRow, needle: string): number {
-  const emailScore = scoreSubstringField(row.email, needle);
+  const emailScore = scoreSubstringField(row.email ?? '', needle);
   const u = row.username;
   const usernameScore = u ? scoreSubstringField(u, needle) : 0;
   return Math.max(emailScore, usernameScore);
@@ -56,7 +56,7 @@ export function rankUsersByEmailRelevance<T extends { email: string }>(
     if (b.score !== a.score) {
       return b.score - a.score;
     }
-    return a.r.email.localeCompare(b.r.email);
+    return (a.r.email ?? '').localeCompare(b.r.email ?? '');
   });
   return scored.map((s) => s.r);
 }
@@ -69,9 +69,14 @@ export function rankUsersByEmailRelevance<T extends { email: string }>(
  *
  * **Limits:** per-IP Redis rate limit; **`limit`** caps response size; **`maxCandidateScanCap`**
  * bounds MongoDB work (see **`USER_SEARCH_MAX_CANDIDATE_SCAN`**).
+ *
+ * **Guest callers:** when **`callerIsGuest`** is **`true`**, results are **guest accounts only** (**`isGuest: true`**);
+ * registered users never appear (Feature 2a sandbox directory).
  */
 export async function searchUsersForCaller(params: {
   callerUserId: string;
+  /** When **`true`**, MongoDB query restricts to **`isGuest: true`** rows only. */
+  callerIsGuest?: boolean;
   /** Trimmed + lowercased by Zod. */
   query: string;
   /** Effective page size (**`LimitQuery`**). */
@@ -89,6 +94,7 @@ export async function searchUsersForCaller(params: {
     normalizedNeedle: needle,
     excludeUserId: params.callerUserId,
     maxCandidates,
+    guestDirectoryOnly: params.callerIsGuest === true,
   });
 
   const ranked = rankUsersBySearchRelevance<UserSearchRow>(candidates, needle);
@@ -106,6 +112,7 @@ export async function searchUsersForCaller(params: {
         displayName: u.displayName,
         profilePicture: u.profilePicture ?? null,
         conversationId,
+        guest: u.isGuest === true,
       };
     }),
   );

@@ -5,12 +5,13 @@ import type { UserApiShape, UserPublicApiShape } from './users.types.js';
 export function toUserApiShape(doc: UserDocument): UserApiShape {
   return {
     id: doc.id,
-    email: doc.email,
+    email: doc.email ?? null,
     username: doc.username ?? null,
     displayName: doc.displayName,
     emailVerified: doc.emailVerified,
     profilePicture: doc.profilePicture ?? null,
     status: doc.status ?? null,
+    guest: doc.isGuest === true,
   };
 }
 
@@ -21,5 +22,6 @@ export function toUserPublicShape(doc: UserDocument): UserPublicApiShape {
     displayName: doc.displayName,
     profilePicture: doc.profilePicture ?? null,
     status: doc.status ?? null,
+    guest: doc.isGuest === true,
   };
 }

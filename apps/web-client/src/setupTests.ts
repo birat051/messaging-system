@@ -34,6 +34,27 @@ afterAll(() => {
   server.close();
 });
 
+/**
+ * jsdom’s **`HTMLDialogElement`** may omit **`showModal`** — **`ThreadMessageMedia`** lightbox uses it in the browser.
+ */
+if (typeof HTMLDialogElement !== 'undefined') {
+  const proto = HTMLDialogElement.prototype as HTMLDialogElement & {
+    showModal?: () => void;
+    close?: () => void;
+  };
+  if (typeof proto.showModal !== 'function') {
+    proto.showModal = function showModal(this: HTMLDialogElement) {
+      this.setAttribute('open', '');
+    };
+  }
+  if (typeof proto.close !== 'function') {
+    proto.close = function close(this: HTMLDialogElement) {
+      this.removeAttribute('open');
+      this.dispatchEvent(new Event('close', { bubbles: false }));
+    };
+  }
+}
+
 /** Deterministic theme resolution in tests (avoid `prefers-color-scheme` flakiness). */
 Object.defineProperty(window, 'matchMedia', {
   writable: true,

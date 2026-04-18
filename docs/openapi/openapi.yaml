@@ -1,13 +1,19 @@
 openapi: 3.0.3
 info:
   title: Messaging API
-  version: 0.1.22
+  version: 0.1.35
   description: |
     **Source of truth** for REST contracts between **web-client** and **messaging-service**
     (single HTTP API; there is no separate notification REST service).
 
-    **Real-time behaviour** — chat, call signaling, and **in-tab notification events** — uses
-    **Socket.IO** on **messaging-service**, not additional REST resources here. The server emits
+    **Real-time behaviour** — chat, **WebRTC signaling** (1:1), and **in-tab notification events** — uses
+    **Socket.IO** on **messaging-service**, not additional REST resources here. **WebRTC** uses inbound events
+    **`webrtc:offer`**, **`webrtc:answer`**, **`webrtc:candidate`** with ack; the server relays to the peer’s
+    **`user:<userId>`** room (same **`fromUserId`** / **`callId`** / SDP or ICE fields — **`src/utils/realtime/webrtcSocketHandlers.ts`**).
+    Peers must be allowed as direct-messaging pairs (**guest ↔ guest** or **registered ↔ registered** only).
+    **STUN** / **TURN** for media connectivity are **not** configured via this REST API — use **web-client** env
+    (**`VITE_WEBRTC_*`**, **`getWebRtcIceServers()`**) and **`README.md`** (WebRTC: ports and ICE); optional **coturn**
+    in **`infra/docker-compose.yml`** (**`--profile turn`**). The server emits
     **`notification`** with a JSON body discriminated by **`kind`** (`message` \| `call_incoming`);
     see **`docs/PROJECT_PLAN.md`** §8 (and §3.3). The web-client runs
     **`socket.io-client` in a Web Worker** and forwards events to the UI; that is a client
@@ -25,6 +31,12 @@ info:
     namespace by emitting **`message:new`** with a JSON body matching **`Message`** (same fields as **`POST /messages`**
     **`201`** / **`message:send`** ack). Clients joined to the per-user room **`user:<userId>`** receive copies routed
     via the broker (`PROJECT_PLAN.md` §3.2); this is not a REST operation and is described here for contract alignment only.
+    For **in-tab toasts**, the server also emits **`notification`** with **`kind: message`** (see **`docs/PROJECT_PLAN.md`** §8.3)
+    to the recipient’s **`user:<userId>`** room after **`message:new`** (not for the sender’s **`skipSocketId`** echo).
+    **`kind: call_incoming`** is emitted to **`user:<calleeUserId>`** after **`webrtc:offer`** is relayed, via the same
+    RabbitMQ topic exchange (**`message.call.user.<calleeUserId>`** routing) as chat (**`docs/PROJECT_PLAN.md`** §8.4).
+    **MVP:** the server does not suppress events per-user (no server-side DND); the **web-client** uses **`kind`** to choose
+    **alert audio** (e.g. message vs incoming call). **Group** threads (when implemented) may use **`group:<groupId>`** for the same envelope; clients **`join`** that room for group threads.
 
     All paths below are served under the **`/v1`** prefix (see `servers`). Implementations in
     **messaging-service** must stay aligned; regenerate **`apps/web-client`** types with
@@ -37,7 +49,8 @@ info:
     if the client uploads before register. **Update profile** — **`PATCH /users/me`** accepts
     **`multipart/form-data`** with an optional **profile image** (`file`) plus optional **`status`** and
     **`displayName`** parts.
-    **Search** matches **substring** on **normalized email** and **username** — provide **`q`** or legacy **`email`** query — see `GET /users/search`.
+    **Search** matches **substring** on **normalized email** and **username** — provide **`q`** or legacy **`email`** query — see `GET /users/search`. **Guest** sessions (**`User.guest === true`**) only see **other guests** in search results; registered accounts never appear.
+    **Guest privilege ceiling:** **`PATCH /users/me`**, **`POST /auth/verify-email`**, and **`POST /auth/reset-password`** return **403** **`GUEST_ACTION_FORBIDDEN`** for guest accounts; full signup remains **`POST /auth/register`**.
 
     **Send message (schema only):** the **`SendMessageRequest`** body shape applies to **`message:send`**
     (Socket.IO) as well as the deprecated **`POST /messages`** route. **`conversationId` is optional**.
@@ -173,6 +186,7 @@ paths:
       description: |
         When **`EMAIL_VERIFICATION_REQUIRED`** is **`false`** on the server, returns **400** with **`ErrorResponse`**
         **`code`** **`EMAIL_VERIFICATION_DISABLED`** — the verification flow is not used (see **`README.md`** (Configuration section)).
+        If the token resolves to a **guest** account, returns **403** **`GUEST_ACTION_FORBIDDEN`**.
       tags:
         - Auth
       requestBody:
@@ -190,6 +204,12 @@ paths:
                 $ref: '#/components/schemas/VerifyEmailResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '403':
+          description: Guest account — email verification not applicable (**`GUEST_ACTION_FORBIDDEN`**)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '429':
           description: Too many verification attempts
           content:
@@ -240,6 +260,75 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /auth/guest:
+    post:
+      operationId: createGuestSession
+      summary: Create a guest session (planned — not yet implemented when enabled)
+      description: |
+        **On/off** is controlled by **`guestSessionsEnabled`** in MongoDB **`system_config`** (singleton), merged with env
+        **`GUEST_SESSIONS_ENABLED`** via effective runtime config (see **`README.md`** — Runtime configuration). When disabled,
+        returns **403** with **`code`** **`GUEST_SESSIONS_DISABLED`** before body validation. When enabled, creates a guest **`User`** row (no email; optional MongoDB TTL via **`guestDataExpiresAt`** when **`guestDataTtlEnabled`** is true in **`system_config`** / env).
+
+        **Rate limits (Redis):** per client IP (**`GUEST_AUTH_RATE_LIMIT_*`**); when **`X-Client-Fingerprint`** is sent, an additional
+        per-fingerprint bucket applies so one IP cannot rotate unlimited guest identities and one fingerprint cannot bypass IP caps alone.
+
+        Success body is **`GuestAuthResponse`**: tokens, **`user`** with **`guest: true`**, **`expiresIn`** (seconds),
+        and **`expiresAt`** (ISO 8601 absolute access expiry). Access JWT payload includes **`guest: true`**. Guest sessions use
+        **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** and **`GUEST_REFRESH_TOKEN_TTL_SECONDS`** (see **`README.md`** — Configuration;
+        defaults **1800** s = **30 minutes** each); opaque refresh token Redis **`EX`** matches guest refresh TTL.
+      tags:
+        - Auth
+      parameters:
+        - name: X-Client-Fingerprint
+          in: header
+          required: false
+          description: >-
+            Optional stable client id (e.g. device/install). When present, **`POST /auth/guest`** is also rate-limited per hashed
+            fingerprint (**`GUEST_AUTH_RATE_LIMIT_MAX_PER_FINGERPRINT`**) in addition to per-IP.
+          schema:
+            type: string
+            maxLength: 512
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuestRequest'
+      responses:
+        '200':
+          description: >-
+            Guest session created (GuestAuthResponse). user.guest is true; access JWT includes a guest claim.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GuestAuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          description: Guest sessions disabled by runtime configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Username already taken (**`USERNAME_TAKEN`**)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Too many guest session attempts (**`RATE_LIMIT_EXCEEDED`**) — per IP and/or per **`X-Client-Fingerprint`**
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Auth signing not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /auth/login:
     post:
       operationId: login
@@ -274,6 +363,10 @@ paths:
     post:
       operationId: refreshTokens
       summary: Rotate refresh token and issue new access token
+      description: |
+        For **registered** users, access and refresh TTLs follow **`ACCESS_TOKEN_TTL_SECONDS`** and **`REFRESH_TOKEN_TTL_SECONDS`**.
+        For **guest** users (`User.isGuest`), the server uses **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** and **`GUEST_REFRESH_TOKEN_TTL_SECONDS`**
+        (defaults **30 minutes** each; see **`README.md`**).
       tags:
         - Auth
       requestBody:
@@ -366,6 +459,8 @@ paths:
     post:
       operationId: resetPassword
       summary: Set new password using JWT from forgot-password email
+      description: |
+        If the reset token targets a **guest** account, returns **403** **`GUEST_ACTION_FORBIDDEN`** (guests cannot set a password).
       tags:
         - Auth
       requestBody:
@@ -379,6 +474,12 @@ paths:
           description: Password updated; all refresh tokens invalidated server-side
         '400':
           $ref: '#/components/responses/BadRequest'
+        '403':
+          description: Guest account — password reset not applicable (**`GUEST_ACTION_FORBIDDEN`**)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '503':
           description: Auth signing not configured
           content:
@@ -412,6 +513,8 @@ paths:
         text, optional **displayName**. At least one part should be supplied; omitted fields are left
         unchanged. Server stores the image via the same pipeline as **`POST /media/upload`** (S3 key
         on user document + public URL in **`profilePicture`**).
+
+        **Not available for guest sessions** — use **`POST /auth/register`** for a full account. Guests receive **403** **`GUEST_ACTION_FORBIDDEN`**.
       tags:
         - Users
       security:
@@ -433,6 +536,12 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Guest session — profile update not allowed (**`GUEST_ACTION_FORBIDDEN`**)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /users/me/public-key:
     put:
@@ -586,11 +695,16 @@ paths:
         lowered to **2** only when operators accept weaker bounds); allowed charset
         **`[a-z0-9@._+_-]`** (includes **`_`** for username fragments); regex metacharacters are **escaped** server-side; response size is capped
         by **`limit`** (default **20**, max **100**); MongoDB candidate scan per request is bounded
-        (**`USER_SEARCH_MAX_CANDIDATE_SCAN`**). **Rate limiting:** per **client IP** in Redis
-        (`USER_SEARCH_RATE_LIMIT_*` in **`README.md`** (Configuration section)). Exceeding the limit returns **429**
-        with **`code`** **`RATE_LIMIT_EXCEEDED`**.
+        (**`USER_SEARCH_MAX_CANDIDATE_SCAN`**).
 
-        Returns username, display name, profile picture, and the **direct conversation id** with the
+        **Guest directory (Feature 2a):** when the bearer identifies a **guest** (`User.guest` / JWT `guest` claim),
+        the server applies **`isGuest: true`** in the user query — **registered users never appear** in results.
+        **`q`** / **`email`** / **`limit`** behave the same; only the result set is restricted. **Rate limiting:** guest
+        callers use **`GUEST_USER_SEARCH_RATE_LIMIT_*`** (separate Redis key **`ratelimit:users-search:guest-ip:*`**,
+        typically stricter **`MAX`** than registered **`USER_SEARCH_RATE_LIMIT_*`**). Registered callers use
+        **`USER_SEARCH_RATE_LIMIT_*`**. **429** **`RATE_LIMIT_EXCEEDED`** when either cap is exceeded.
+
+        Returns username, display name, profile picture, **`guest`** flag, and the **direct conversation id** with the
         current user when a conversation already exists (null when none). The caller never
         receives their own row.
       tags:
@@ -766,6 +880,9 @@ paths:
         **`recipientUserId`**. **Group** threads return **403** until group messaging is implemented.
         Request body must include **`body`** text and/or **`mediaKey`** (validated by Zod).
 
+        **Guest sandbox:** direct sends require **both** participants to be **guests** or **both** to be **registered** —
+        guest ↔ registered pairs return **403** with **`code`** **`GUEST_MESSAGING_FORBIDDEN`** (same rule on Socket.IO **`message:send`**).
+
         **Rate limiting:** this route uses the **message-send** limits (**`MESSAGE_SEND_RATE_LIMIT_*`**, per user + IP)
         in addition to the **global** REST per-IP limit — see **`README.md`** (Configuration section) (*Global vs per-route*). Either
         can return **429** with **`ErrorResponse`** (**`code`** **`RATE_LIMIT_EXCEEDED`**).
@@ -791,7 +908,13 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
-          $ref: '#/components/responses/Forbidden'
+          description: >-
+            Group thread not supported, or **guest ↔ registered** messaging blocked (**`GUEST_MESSAGING_FORBIDDEN`** —
+            only guest↔guest or registered↔registered direct threads).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
           $ref: '#/components/responses/NotFound'
         '429':
@@ -1013,6 +1136,54 @@ components:
           maxLength: 280
           description: Optional short status line at signup
 
+    GuestRequest:
+      type: object
+      required:
+        - username
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 30
+          pattern: '^[a-zA-Z0-9_]+$'
+          description: >-
+            Unique handle for the guest session; stored lowercase (same rules as register **`username`**).
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Optional; may match or differ from **`username`** (trimmed on the server).
+
+    GuestAuthResponse:
+      type: object
+      required:
+        - accessToken
+        - refreshToken
+        - user
+        - tokenType
+        - expiresIn
+        - expiresAt
+      properties:
+        accessToken:
+          type: string
+          description: >-
+            HS256 access JWT; includes a boolean **`guest`** custom claim (true for guest sessions)
+        refreshToken:
+          type: string
+          description: Opaque refresh token (Redis); TTL matches **`GUEST_REFRESH_TOKEN_TTL_SECONDS`** for guests
+        user:
+          $ref: '#/components/schemas/User'
+        tokenType:
+          type: string
+          example: Bearer
+        expiresIn:
+          type: integer
+          description: Access token lifetime in seconds (same window as **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** for guests)
+        expiresAt:
+          type: string
+          format: date-time
+          description: Absolute UTC expiry of the access token (for UI countdown)
+
     VerifyEmailRequest:
       type: object
       required:
@@ -1158,19 +1329,30 @@ components:
         expiresIn:
           type: integer
           nullable: true
-          description: null when accessToken is null; otherwise access token lifetime in seconds
+          description: >-
+            null when accessToken is null; otherwise access token lifetime in seconds. Guest sessions use
+            **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** (default **1800**); registered users use **`ACCESS_TOKEN_TTL_SECONDS`**.
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: >-
+            null when accessToken is null. When present (e.g. guest **`POST /auth/refresh`**), absolute UTC expiry of the
+            access token — same semantics as **`GuestAuthResponse.expiresAt`**.
 
     User:
       type: object
       required:
         - id
-        - email
+        - guest
       properties:
         id:
           type: string
         email:
           type: string
           format: email
+          nullable: true
+          description: Null for guest accounts (no email stored)
         username:
           type: string
           nullable: true
@@ -1196,11 +1378,16 @@ components:
           nullable: true
           maxLength: 280
           description: Short user-defined status line
+        guest:
+          type: boolean
+          description: >-
+            True for temporary guest sandbox accounts (POST /auth/guest); false for full registrations.
 
     UserPublic:
       type: object
       required:
         - id
+        - guest
       properties:
         id:
           type: string
@@ -1273,6 +1460,7 @@ components:
       type: object
       required:
         - userId
+        - guest
       description: One row from user search — includes existing direct conversation when present
       properties:
         userId:
@@ -1293,6 +1481,9 @@ components:
           type: string
           nullable: true
           description: Direct conversation id between searcher and this user if it exists; null if first contact
+        guest:
+          type: boolean
+          description: Whether this row is a guest sandbox user (directory filtering for guest callers)
 
     Conversation:
       type: object

@@ -3,7 +3,7 @@ import { useSWRConfig } from 'swr';
 import { useSendEncryptedMessage } from '@/common/hooks/useSendEncryptedMessage';
 import { useAuth } from '@/common/hooks/useAuth';
 import { parseApiError } from '@/modules/auth/utils/apiError';
-import type { Message } from '@/modules/home/stores/messagingSlice';
+import type { StoredMessage } from '@/modules/home/stores/messagingSlice';
 import {
   appendMessageFromSend,
   removeOptimisticMessage,
@@ -44,18 +44,20 @@ export function useSendMessage(options: UseSendMessageOptions) {
       const cid = conversationId.trim();
       const text = payload.text.trim();
       const mediaKey = payload.mediaKey?.trim() ?? null;
+      const mediaPreviewUrl = payload.mediaPreviewUrl?.trim() ?? null;
       if (!text && !mediaKey) {
         throw new Error('Message body or attachment is required.');
       }
 
       const optimisticId = newOptimisticId();
-      const optimisticMessage: Message = {
+      const optimisticMessage: StoredMessage = {
         id: optimisticId,
         conversationId: cid,
         senderId: user.id,
         body: text.length > 0 ? text : null,
         mediaKey,
         createdAt: new Date().toISOString(),
+        ...(mediaPreviewUrl ? { mediaPreviewUrl } : {}),
       };
 
       dispatch(appendMessageFromSend({ conversationId: cid, message: optimisticMessage }));

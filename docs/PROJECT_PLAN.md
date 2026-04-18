@@ -6,6 +6,26 @@ Build a **scalable messaging web application** with a **React** client and **one
 
 **Notifications:** There is **no separate notification-service** and **no Redis Streams** for notification fan-out. **Typed notification events** (e.g. new message, incoming call) are **emitted over the same Socket.IO connection** as chat and signaling, targeting the appropriate **user** / **group** rooms on **messaging-service**. On the **web-client**, the **Socket.IO client runs in a dedicated Web Worker** so the connection stays responsive without blocking the UI thread; the worker forwards events to the main thread (e.g. `postMessage`) for Redux/UI.
 
+### MVP scope (product)
+
+This subsection defines a **bounded release target** for an initial production-ready slice. The rest of this document still describes the **full** platform (groups, contacts, group calls, and so on). For planning and checklists, treat the items below as the **MVP product boundary** unless the team explicitly expands scope.
+
+**In scope**
+
+| Capability | Plan reference (see §2) | Notes |
+| ---------- | ------------------------- | ----- |
+| **One-to-one messaging** | Feature **1** (direct / DM only) | Excludes **group** messaging (**Feature 8**) and **create groups** (**Feature 9**) for this MVP. |
+| **File sharing** | Media pipeline (**§3**, S3); attachments in thread | User uploads via **messaging-service**; no AWS SDK in the browser. |
+| **Settings** | **Feature 2** (profile / account) | e.g. display name, status, avatar via **`PATCH` profile**; not a separate “encryption management” surface (see **§7** / **§14** E2EE product rules). |
+| **Login, logout, register** | **Feature 2** | Email + password, session/refresh, optional verification per env/runtime config. |
+| **Login as guest** | **Feature 2a** | Temporary guest sessions; **guest ↔ guest** messaging and directory rules per **`README.md`** and **§7** guest subsections. |
+| **One-to-one video/audio call** | **Feature 3** | Signaling on Socket.IO / WebRTC; **Feature 4** (group call) is **out** of this MVP. |
+| **Notifications** | **Feature 7** | **In-tab** **`notification`** events on Socket.IO (**§8**); optional Web Push is **not** required for MVP. |
+
+**Out of scope for this MVP** (remain in the overall plan; ship later unless pulled forward): group messaging (**Feature 8**), group calls (**Feature 4**), create/manage groups (**Feature 9**), contact list / add-by-contact (**Feature 10**), and any **search/discovery** work beyond what **Feature 1** + **Feature 2** + **Feature 2a** need for starting 1:1 threads.
+
+**Tracking:** Implementation status for this slice and the wider plan lives in **`docs/TASK_CHECKLIST.md`**. **§12** below states success criteria for a **broader** checklist-style MVP (includes groups and contacts); use **this subsection** when aligning stakeholders on a **narrower** MVP.
+
 ---
 
 ## 2. Feature checklist (mapped to capabilities)
@@ -103,8 +123,8 @@ Design the **exchange / queue topology** so bindings align with **§3.2.1** (sep
 
 ### 3.3 In-tab notifications (no separate service)
 
-- **Server:** After relevant domain events (e.g. message persisted for another user, incoming call offer), **emit** a single Socket.IO event **`notification`** (see **§8**) to the recipient’s **`user:<userId>`** room (and, when applicable, to **`group:<groupId>`** for group-thread visibility — same payload shape). Apply mute/DND **before** emitting.
-- **Client:** The **Socket.IO client runs in a Web Worker**; the worker **listens** for **`notification`** and **posts** the JSON payload to the main thread for toasts/banners/Redux. **No second WebSocket** to a notification service; **no Redis Streams** for this path.
+- **Server:** After relevant domain events (e.g. message persisted for another user, incoming call offer), **emit** a single Socket.IO event **`notification`** (see **§8**) to the recipient’s **`user:<userId>`** room (and, when applicable, to **`group:<groupId>`** for group-thread visibility — same payload shape). **MVP:** deliver to every user in scope; **no** server-side DND/mute filtering.
+- **Client:** The **Socket.IO client runs in a Web Worker**; the worker **listens** for **`notification`** and **posts** the JSON payload to the main thread for toasts/banners/Redux. Use **`kind`** (e.g. **`message`** vs **`call_incoming`**) and any future **local** preferences to choose **alert audio** (e.g. different sounds for messages vs calls). **No second WebSocket** to a notification service; **no Redis Streams** for this path.
 
 _Optional later split:_ extract a dedicated **Socket.IO gateway** if traffic grows; keep domain logic and persistence in **messaging-service**.
 
@@ -154,6 +174,21 @@ _Optional later split:_ extract a dedicated **Socket.IO gateway** if traffic gro
 - **S3**: server-side upload via AWS SDK, bucket policies, virus scanning optional.
 - Rate limiting on auth and search; audit logs for sensitive actions.
 
+### Guest sessions (temporary access — Feature 2a)
+
+Short-lived access **without** full Feature 2 registration (email, password, verification). Intended for demo / playground; **on/off** via **`guestSessionsEnabled`** in MongoDB **`system_config`** (see **`README.md`** — Runtime configuration).
+
+**Session & token TTL:** Guest access JWT lifetime and opaque refresh token storage in Redis both use **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** and **`GUEST_REFRESH_TOKEN_TTL_SECONDS`** (defaults **1800** s = **30 minutes** each), separate from registered-user **`ACCESS_TOKEN_TTL_SECONDS`** / **`REFRESH_TOKEN_TTL_SECONDS`**. Configure in **`README.md`** (Configuration).
+
+**Persistence:** Guest **identity** is stored in **`users`** with **`isGuest: true`**, **`username`**, optional **`displayName`**, and **no** **`email`** field. **`GUEST_DATA_TTL_ENABLED`** / **`system_config.guestDataTtlEnabled`** (default **on**) controls whether **`guestDataExpiresAt`** is written for MongoDB TTL on guest **`users`**, guest↔guest **`conversations`**, and **`messages`**.
+
+**Product rules (locked):**
+
+- **Guest ↔ guest messaging only:** guests **must not** message **registered** users. Only **guest ↔ guest** threads are allowed. Enforce on **message send** (**Socket.IO** / **`sendMessageForUser`**), **conversation lazy-create**, and any **`recipientUserId`** / peer resolution so a guest cannot address a registered account.
+- **Username before `POST /auth/guest`:** a **username** is **required** before the service issues a guest session (OpenAPI **`POST /v1/auth/guest`** when implemented). This is **not** full registration; optional **display name** may be collected per product rules.
+- **Guest-only search directory:** for a **guest** caller, **`GET /v1/users/search`** (and any **user directory** used to pick someone for a new DM) **returns only other guests** (e.g. **`isGuest: true`**). **Registered users must not appear** in guest search results, so guests can start threads **only** with other guests found in that sandbox.
+- **No guest → registered messaging:** any description implying guests “search and DM registered users” is **superseded** — guests do **not** use the full user directory to contact registered accounts; **registration** is the path to that graph. Implementation tasks: **`docs/TASK_CHECKLIST.md`** Feature 2a.
+
 ### 7.1 End-to-end encryption (direct messages — web-client)
 
 This subsection documents **where keys live**, how **local UI** relates to **wire** payloads, and points to the implementation. It applies to **1:1** text bodies encrypted with **`E2EE_JSON_V1:`** in the web client.
@@ -191,7 +226,7 @@ In-tab notifications use **one** Socket.IO event name and a **versioned, discrim
 | ----------------- | --------- | ------- |
 | **`notification`** | Server → client | In-app toast/banner payload for **new messages** (direct or group) and **incoming calls** (audio or video). |
 
-**Rooms:** Implementations typically emit to **`user:<recipientUserId>`** so each user gets at most one copy and **mute/DND** can be applied per recipient. For **group** threads, an alternative is a single emit to **`group:<groupId>`** (all joined clients receive it); the client must **skip** UI when **`senderUserId`** is the current user. **Incoming calls** use **`user:<calleeUserId>`** (and optionally the same pattern for group calls).
+**Rooms:** Implementations typically emit to **`user:<recipientUserId>`** so each user gets at most one copy. **Post-MVP:** optional per-recipient **DND** / mute (deprioritized — **not** MVP; see **`docs/TASK_CHECKLIST.md`** Feature 7). For **group** threads, an alternative is a single emit to **`group:<groupId>`** (all joined clients receive it); the client must **skip** UI when **`senderUserId`** is the current user. **Incoming calls** use **`user:<calleeUserId>`** (and optionally the same pattern for group calls).
 
 ### 8.2 Envelope (all notifications)
 
@@ -206,7 +241,7 @@ Every payload includes:
 
 ### 8.3 `kind: "message"` — new message (1:1 or group)
 
-Emitted when another user’s message is persisted and the recipient should see an in-tab alert (respecting mute/DND). **Do not** use this for the sender’s own optimistic echo — chat delivery uses separate message events; this is **notification UI only**.
+Emitted when another user’s message is persisted and the recipient should see an in-tab alert (client chooses **audio** / UI by **`kind`**). **DND/mute** suppression is **post-MVP** (deprioritized — **`docs/TASK_CHECKLIST.md`**). **Do not** use this for the sender’s own optimistic echo — chat delivery uses separate message events; this is **notification UI only**.
 
 | Field | Type | Required | Description |
 | ----- | ---- | -------- | ----------- |
@@ -345,7 +380,7 @@ Additional **`kind`** values (e.g. `call_missed`, `group_invite`) should be adde
 ### Phase 5 — In-tab notifications (7)
 
 - **messaging-service**: emit **Socket.IO** notification events on message/call events to the right rooms; document payload schema.
-- **web-client**: worker receives events → main thread → toasts/banners / Redux; mute/DND in client or server rules.
+- **web-client**: worker receives events → main thread → toasts/banners / Redux; **distinct alert sounds** per **`kind`** (message vs call); optional local-only preferences later.
 
 ### Phase 6 — Calls (3, 4)
 
@@ -460,7 +495,8 @@ messaging-system/
 
 ## 12. Success criteria (MVP)
 
-- **messaging-service** runs in Docker Compose with **web-client**; users can register, verify email, log in, add a contact, exchange 1:1 messages over **Socket.IO** with **RabbitMQ-backed** delivery, see last seen, search by email, create a group and send group messages, upload small media to S3, receive **in-tab** notifications for messages and call events over **Socket.IO** (worker + UI), and complete a 1:1 call in supported browsers.
+- **Narrow product MVP:** the **bounded** release target is defined in **§1 — MVP scope (product)** (1:1 messaging, file sharing, settings, auth, guest login, 1:1 calls, in-tab notifications).
+- **Broader checklist MVP (full vertical slice in `TASK_CHECKLIST.md`):** **messaging-service** runs in Docker Compose with **web-client**; users can register, verify email, log in, add a contact, exchange 1:1 messages over **Socket.IO** with **RabbitMQ-backed** delivery, see last seen, search by email, create a group and send group messages, upload small media to S3, receive **in-tab** notifications for messages and call events over **Socket.IO** (worker + UI), and complete a 1:1 call in supported browsers.
 
 ---
 

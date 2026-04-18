@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { Env } from '../config/env.js';
 import {
   postForgotPassword,
+  postGuest,
   postLogin,
   postLogout,
   postRefresh,
@@ -9,10 +10,12 @@ import {
   postResendVerification,
   postResetPassword,
   postVerifyEmail,
+  requireGuestSessionsEnabled,
 } from '../controllers/auth.js';
 import { validateBody } from '../validation/middleware.js';
 import {
   forgotPasswordRequestSchema,
+  guestRequestSchema,
   loginRequestSchema,
   logoutRequestSchema,
   refreshRequestSchema,
@@ -69,6 +72,13 @@ export function createAuthRouter(env: Env): Router {
     '/auth/resend-verification',
     validateBody(resendVerificationRequestSchema),
     postResendVerification(env),
+  );
+
+  router.post(
+    '/auth/guest',
+    requireGuestSessionsEnabled(env),
+    validateBody(guestRequestSchema),
+    postGuest(env),
   );
 
   return router;

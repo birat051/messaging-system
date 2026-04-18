@@ -65,6 +65,71 @@ describe('HomePage', () => {
     ).toBeInTheDocument();
   });
 
+  it('does not send guest users to verify email when emailVerified is false', () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+      </Routes>,
+      {
+        route: '/',
+        preloadedState: {
+          auth: {
+            user: {
+              id: 'guest-test-1',
+              email: null,
+              username: 'guest_user',
+              displayName: null,
+              emailVerified: false,
+              profilePicture: null,
+              status: null,
+              guest: true,
+            },
+            accessToken: 'guest-token',
+            accessTokenExpiresAt: null,
+          },
+        },
+      },
+    );
+
+    expect(screen.getByTestId('home-page-shell')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /^verify email$/i })).not.toBeInTheDocument();
+  });
+
+  it('shows Create account in the header for guests instead of profile settings', () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+      </Routes>,
+      {
+        route: '/',
+        preloadedState: {
+          auth: {
+            user: {
+              id: 'guest-test-2',
+              email: null,
+              username: 'guest_h',
+              displayName: null,
+              emailVerified: false,
+              profilePicture: null,
+              status: null,
+              guest: true,
+            },
+            accessToken: 'guest-token',
+            accessTokenExpiresAt: null,
+          },
+        },
+      },
+    );
+
+    const createLinks = screen.getAllByRole('link', { name: /^create account$/i });
+    expect(createLinks.some((el) => el.getAttribute('href') === ROUTES.register)).toBe(
+      true,
+    );
+    expect(
+      screen.queryByRole('link', { name: /profile & settings/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it('debounced search: shows empty result when no stored email contains the query', async () => {
     const user = userEvent.setup();
 

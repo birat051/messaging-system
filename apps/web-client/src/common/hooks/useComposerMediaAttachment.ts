@@ -87,11 +87,14 @@ export function useComposerMediaAttachment(): UseComposerMediaAttachmentResult {
 
   const key = result?.key?.trim();
   const mediaKey = key ? key : null;
+  const uploadedMediaUrl = result?.url?.trim() ?? null;
+  const mediaPreviewUrl = imagePreviewUrl ?? uploadedMediaUrl ?? null;
 
   return {
     fileInputRef,
     fileName,
     imagePreviewUrl,
+    mediaPreviewUrl,
     openFilePicker,
     onFileInputChange,
     clearAttachment,

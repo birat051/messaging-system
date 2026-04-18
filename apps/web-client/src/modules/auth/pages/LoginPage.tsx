@@ -11,6 +11,7 @@ import {
 import { validateLoginForm } from '../../../common/utils/formValidation';
 import { loadSenderPlaintextIntoRedux } from '../../../common/senderPlaintext/loadSenderPlaintextIntoRedux';
 import { applyAuthResponse } from '../utils/applyAuthResponse';
+import { syncGuestReauthPreferenceFromUser } from '../utils/guestSessionPreference';
 import { setUser } from '../stores/authSlice';
 import { useAuth } from '../../../common/hooks/useAuth';
 import type { AuthRedirectState } from '../../../routes/postLoginRedirect';
@@ -57,6 +58,7 @@ export function LoginPage() {
       applyAuthResponse(dispatch, data, null);
       const user = await getCurrentUser();
       dispatch(setUser(user));
+      syncGuestReauthPreferenceFromUser(user);
       await loadSenderPlaintextIntoRedux(dispatch, user.id);
       navigate(getPostLoginRedirectPath(location.state), { replace: true });
     } catch (err) {
@@ -151,6 +153,14 @@ export function LoginPage() {
           {submitting ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
+
+      <Link
+        to={ROUTES.guest}
+        state={location.state}
+        className="bg-accent text-accent-foreground hover:bg-accent/90 focus:ring-accent/50 mt-4 inline-flex w-full items-center justify-center rounded-md px-4 py-2 text-sm font-medium focus:ring-2 focus:outline-none"
+      >
+        Continue as guest
+      </Link>
 
       <p className="text-muted mt-6 text-center text-sm">
         No account?{' '}

@@ -47,6 +47,44 @@ export const registerRequestSchema = z.object({
 
 export type RegisterRequest = z.infer<typeof registerRequestSchema>;
 
+/**
+ * `components/schemas/GuestRequest` — **`POST /auth/guest`** (guest sandbox; full signup not required).
+ * **`username`** is required; **`displayName`** is optional (may match or differ from **`username`**).
+ */
+export const guestRequestSchema = z.object({
+  username: registerUsernameSchema,
+  displayName: z.string().trim().min(1).max(200).optional(),
+});
+
+export type GuestRequest = z.infer<typeof guestRequestSchema>;
+
+/** `components/schemas/User` — API-safe shape (subset enforced for responses). */
+export const userApiShapeSchema = z.object({
+  id: z.string().min(1),
+  email: z.union([z.string().email(), z.null()]),
+  username: z.string().nullable(),
+  displayName: z.string().nullable(),
+  emailVerified: z.boolean(),
+  profilePicture: z.string().nullable(),
+  status: z.string().nullable(),
+  guest: z.boolean(),
+});
+
+/**
+ * `components/schemas/GuestAuthResponse` — **`POST /auth/guest`** **200** success (**Feature 2a**).
+ * **`expiresAt`** is absolute access-token expiry (ISO 8601); **`expiresIn`** is the same window in seconds.
+ */
+export const guestAuthResponseSchema = z.object({
+  accessToken: z.string().min(1),
+  refreshToken: z.string().min(1),
+  user: userApiShapeSchema,
+  tokenType: z.literal('Bearer'),
+  expiresIn: z.number().int().positive(),
+  expiresAt: z.string().min(1),
+});
+
+export type GuestAuthResponse = z.infer<typeof guestAuthResponseSchema>;
+
 /** `components/schemas/LoginRequest` */
 export const loginRequestSchema = z.object({
   email: z.string().email(),

@@ -2,7 +2,10 @@
 #   docker compose -f infra/docker-compose.yml up -d
 # API (via nginx): http://localhost:8080  —  Swagger: http://localhost:8080/api-docs
 # Direct app on host **3001** (not 3000) so local `npm run dev` can keep using 3000.
-# Optional TURN: docker compose -f infra/docker-compose.yml --profile turn up -d
+# WebRTC STUN/TURN (coturn, optional profile **turn**):
+#   docker compose -f infra/docker-compose.yml --profile turn up -d
+#   - 3478/tcp+udp  STUN + TURN; 49152-49200/udp  relay (see README.md — WebRTC: ports and ICE).
+#   WSS: serve the SPA/API over HTTPS so Socket.IO uses wss:// — nginx TLS is backlog (TASK_CHECKLIST).
 
 services:
   mongo:
@@ -83,6 +86,8 @@ services:
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-http://localhost:9000}
+      # MinIO objects are private by default; this allows `<img src>` to `S3_PUBLIC_BASE_URL` / bucket / key.
+      S3_ANONYMOUS_GET_OBJECT: ${S3_ANONYMOUS_GET_OBJECT:-true}
       JWT_SECRET: ${JWT_SECRET:-dev-only-change-for-production}
       EMAIL_VERIFICATION_REQUIRED: ${EMAIL_VERIFICATION_REQUIRED:-false}
       SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}

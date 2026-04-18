@@ -73,14 +73,17 @@ export function getSearchUsers(env: Env): RequestHandler {
         return;
       }
       const ip = getClientIp(req);
-      const key = `ratelimit:users-search:ip:${ip}`;
-      if (
-        await rateLimitExceeded(
-          key,
-          env.USER_SEARCH_RATE_LIMIT_WINDOW_SEC,
-          env.USER_SEARCH_RATE_LIMIT_MAX,
-        )
-      ) {
+      const guestSearch = authUser.isGuest === true;
+      const rlWindow = guestSearch
+        ? env.GUEST_USER_SEARCH_RATE_LIMIT_WINDOW_SEC
+        : env.USER_SEARCH_RATE_LIMIT_WINDOW_SEC;
+      const rlMax = guestSearch
+        ? env.GUEST_USER_SEARCH_RATE_LIMIT_MAX
+        : env.USER_SEARCH_RATE_LIMIT_MAX;
+      const key = guestSearch
+        ? `ratelimit:users-search:guest-ip:${ip}`
+        : `ratelimit:users-search:ip:${ip}`;
+      if (await rateLimitExceeded(key, rlWindow, rlMax)) {
         next(
           new AppError(
             'RATE_LIMIT_EXCEEDED',
@@ -95,6 +98,7 @@ export function getSearchUsers(env: Env): RequestHandler {
 
       const rows = await searchUsersForCaller({
         callerUserId: authUser.id,
+        callerIsGuest: authUser.isGuest === true,
         query: q.q,
         limit: resolveListLimit(q.limit),
         maxCandidateScanCap: env.USER_SEARCH_MAX_CANDIDATE_SCAN,

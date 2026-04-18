@@ -15,6 +15,8 @@ export type DirectConversationDocument = {
   isGroup: false;
   createdAt: Date;
   updatedAt: Date;
+  /** Guest-only guest↔guest threads — MongoDB TTL when **`guestDataTtlEnabled`** is on. */
+  guestDataExpiresAt?: Date;
 };
 
 /**
@@ -43,6 +45,14 @@ export async function ensureConversationIndexes(db: Db): Promise<void> {
   await col.createIndex(
     { participantIds: 1, updatedAt: -1, id: -1 },
     { name: 'conversations_participants_updated' },
+  );
+  await col.createIndex(
+    { guestDataExpiresAt: 1 },
+    {
+      name: 'conversations_guest_data_ttl',
+      expireAfterSeconds: 0,
+      sparse: true,
+    },
   );
   logger.info('MongoDB conversations indexes ensured');
 }

@@ -36,6 +36,28 @@ describe('ConversationListRow', () => {
     expect(onSelect).toHaveBeenCalledTimes(1);
   });
 
+  it('renders optional presence line (online vs stale styling)', () => {
+    const { rerender } = renderWithProviders(
+      <ConversationListRow
+        title="Ada"
+        subtitle="Hey there"
+        presence={{ text: 'Online', variant: 'online' }}
+      />,
+    );
+
+    expect(screen.getByText('Online')).toHaveClass('text-emerald-600');
+    rerender(
+      <ConversationListRow
+        title="Ada"
+        subtitle="Hey there"
+        presence={{ text: 'Last seen 2h ago', variant: 'stale' }}
+      />,
+    );
+    expect(screen.getByText('Last seen 2h ago')).toHaveClass(
+      'text-muted-foreground',
+    );
+  });
+
   it('marks the active conversation with aria-pressed', () => {
     const { rerender } = renderWithProviders(
       <ConversationListRow title="Casey" isActive={false} />,

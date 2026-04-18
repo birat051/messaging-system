@@ -4,8 +4,6 @@ import { waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSocketWorkerBridge } from './socketBridge';
 import { SocketWorkerProvider } from './SocketWorkerProvider';
-import type { WorkerToMainMessage } from './socketWorkerProtocol';
-
 vi.mock('./socketBridge', () => ({
   createSocketWorkerBridge: vi.fn(),
 }));
@@ -15,7 +13,7 @@ const mockConnect = vi.fn();
 const mockDisconnect = vi.fn();
 const mockTerminate = vi.fn();
 
-let bridgeHandler: ((msg: WorkerToMainMessage) => void) | null = null;
+let bridgeHandler: Parameters<typeof createSocketWorkerBridge>[0] | null = null;
 
 describe('SocketWorkerProvider — message:new receive path', () => {
   beforeEach(() => {
@@ -27,6 +25,8 @@ describe('SocketWorkerProvider — message:new receive path', () => {
         connect: mockConnect,
         sendMessage: vi.fn(),
         emitReceipt: mockEmitReceipt,
+        emitWebRtcSignaling: vi.fn().mockResolvedValue(undefined),
+        getLastSeen: vi.fn().mockResolvedValue({ status: 'not_available' }),
         disconnect: mockDisconnect,
         terminate: mockTerminate,
       };

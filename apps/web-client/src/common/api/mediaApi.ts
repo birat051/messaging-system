@@ -6,7 +6,7 @@ import { API_PATHS } from './paths';
 export type { MediaUploadResponse, UploadMediaOptions } from '../types/mediaApi-types';
 
 /**
- * **`POST /v1/media/upload`** — multipart field **`file`** per OpenAPI.
+ * **`POST /v1/media/upload`** — body built with **`buildMediaUploadFormData`** (**`MEDIA_UPLOAD_FORM_FIELD`** = **`file`**) per OpenAPI.
  * Strips the default JSON **`Content-Type`** on the shared **`httpClient`** so the runtime sets
  * **`multipart/form-data`** with a correct boundary.
  */
@@ -14,10 +14,15 @@ export async function uploadMedia(
   formData: FormData,
   options?: UploadMediaOptions,
 ): Promise<MediaUploadResponse> {
+  /** MSW intercepts **`fetch`**; **`XMLHttpRequest` + `FormData`** can hang under MSW in Vitest — use fetch adapter in **`MODE === 'test'`**. */
+  const testFetchAdapter =
+    import.meta.env.MODE === 'test' ? ('fetch' as const) : undefined;
+
   const res = await httpClient.post<MediaUploadResponse>(
     API_PATHS.media.upload,
     formData,
     {
+      ...(testFetchAdapter ? { adapter: testFetchAdapter } : {}),
       signal: options?.signal,
       onUploadProgress:
         options?.onUploadProgress === undefined

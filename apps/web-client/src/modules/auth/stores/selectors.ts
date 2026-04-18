@@ -4,6 +4,10 @@ export const selectAuthUser = (state: RootState) => state.auth.user;
 
 export const selectAccessToken = (state: RootState) => state.auth.accessToken;
 
+/** ISO 8601 UTC access expiry when **`AuthResponse.expiresAt`** / guest response was applied. */
+export const selectAccessTokenExpiresAt = (state: RootState) =>
+  state.auth.accessTokenExpiresAt;
+
 /** True when an access token is present (API calls may proceed; user may still be loading). */
 export const selectIsAuthenticated = (state: RootState) =>
   Boolean(state.auth.accessToken);

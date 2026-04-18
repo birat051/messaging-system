@@ -12,6 +12,11 @@ export type UseComposerMediaAttachmentResult = {
    * Revoked when the attachment clears or the hook unmounts.
    */
   imagePreviewUrl: string | null;
+  /**
+   * For **`sendMessage`** / optimistic UI: **`imagePreviewUrl`**, else **`MediaUploadResponse.url`** (HTTPS)
+   * when the API returns one — **not** sent on **`message:send`** (wire carries **`mediaKey`** only).
+   */
+  mediaPreviewUrl: string | null;
   openFilePicker: () => void;
   onFileInputChange: (e: ChangeEvent<HTMLInputElement>) => Promise<void>;
   clearAttachment: () => void;

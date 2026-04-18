@@ -40,7 +40,7 @@ Target capabilities include **direct and group messaging**, **last-seen presence
 | **Presence** | Redis while connected; flush **last seen** to Mongo | **Live**: heartbeat (~5 s), Redis, **`presence:getLastSeen`** resolution |
 | **Media** | Server-mediated upload to object storage | **`POST /v1/media/upload`** implemented; multipart UX in client backlog |
 | **Notifications** | Single Socket.IO event **`notification`**, versioned payload — **`PROJECT_PLAN.md` §8** | Contract defined; **emit from domain** (checklist Feature 7) **outstanding**. No separate notification microservice; no Redis Streams for in-tab delivery |
-| **Calls** | 1:1 signaling via Socket.IO; TURN; group SFU at scale | **coturn** optional in Compose; signaling / UI / SFU per **`PROJECT_PLAN.md` §6** |
+| **Calls** | 1:1 signaling via Socket.IO; STUN/TURN; group SFU at scale | **STUN** (default public host or **`VITE_WEBRTC_STUN_URLS`**); **TURN** via **`infra/coturn`** (`--profile turn`) or **managed** credentials (**`VITE_WEBRTC_TURN_*`**); ports in [**WebRTC: ports and ICE**](#webrtc-ports-and-ice) |
 | **Operations** | Compose, nginx, documented env | Stack exposed on **8080** via nginx; TLS and static **web-client** **`dist/`** serving called out as follow-up work |
 
 ---
@@ -138,10 +138,26 @@ flowchart LR
 
 | Mode | Direction |
 |------|-----------|
-| **1:1** | Offer / answer / ICE over the same Socket.IO connection; **STUN** publicly; **TURN** via optional **coturn** (`docker compose --profile turn`, **`infra/docker-compose.yml`**) |
+| **1:1** | Offer / answer / ICE over the same Socket.IO connection; **STUN** + optional **TURN** (Compose **coturn** or managed provider) |
 | **Group** | Prefer an **SFU** for fan-out at scale; mesh only for small pilots — **`docs/PROJECT_PLAN.md` §6** |
 
 Signaling rides on the **same Socket.IO** connection as chat; media is **peer-to-peer** (1:1) or via an **SFU** for groups at scale. Product completeness varies by milestone — see **`docs/TASK_CHECKLIST.md`**.
+
+### WebRTC: ports and ICE
+
+**Socket.IO (signaling)** uses the **same origin** as the REST API: in **Compose**, the browser talks to **nginx** on **`http://localhost:8080`** (path **`/socket.io`**, long-lived HTTP or **WebSocket** upgrade). **`Vite`** dev mode proxies **`/socket.io`** alongside **`/v1`** (**`apps/web-client/vite.config.ts`**). When the SPA is served over **HTTPS**, the browser must use **`https://…`** for **`VITE_API_BASE_URL`** (or same-origin **`/v1`**) so Socket.IO uses **`wss:`** and avoids mixed content.
+
+| Surface | Dev (typical) | Protocol | Notes |
+|---------|----------------|----------|--------|
+| **REST + Socket.IO entry** | **8080** (nginx → **messaging-service:3000**) | TCP (HTTP); WS upgrade for `/socket.io` | **`infra/nginx/nginx.conf`** sets **Upgrade** and long timeouts |
+| **WSS** | **443** (or your TLS listener) | TCP (HTTPS / **WSS**) | Terminate TLS at **nginx**, CDN, or load balancer; same **`/socket.io`** path |
+| **STUN / TURN (coturn)** | **3478** | **UDP + TCP** | STUN binding + TURN over the same listening port (**`infra/coturn/turnserver.conf`**) |
+| **TURN relay range (coturn)** | **49152–49200** (host → container) | **UDP** | Published in **`infra/docker-compose.yml`**; must allow firewall path for restrictive networks |
+| **TURNS (optional prod)** | **5349** (often) | **TCP** / **UDP** | **`tls-listening-port`** in coturn; **dev** profile uses **`no-tls`** / **`no-dtls`** — enable for production-style tests |
+
+**Bring up coturn (local):** `docker compose -f infra/docker-compose.yml --profile turn up -d` — static long-term credentials in **`infra/coturn/turnserver.conf`** (`user=dev:turnsecret`) are **dev-only**; production should use **rotated** credentials (TURN REST, or a **managed** TURN vendor — Twilio, Metered.ca, etc.) and lock down **`realm`** / **`allowed-peer-ip`**.
+
+**Web-client ICE** is read at build time from **`getWebRtcIceServers()`** (**`apps/web-client/src/common/utils/webrtcIceServers.ts`**). Defaults include a **public STUN** host for NAT discovery; set **`VITE_WEBRTC_STUN_URLS`** / **`VITE_WEBRTC_TURN_URLS`** (+ **`VITE_WEBRTC_TURN_USERNAME`** / **`VITE_WEBRTC_TURN_CREDENTIAL`** for **coturn**-style auth) in **`.env.production`** / **`.env.development.local`** as needed.
 
 ```mermaid
 sequenceDiagram
@@ -336,13 +352,22 @@ Single reference for variables passed into each deployable (Docker Compose, loca
 | `AWS_ACCESS_KEY_ID` | with `S3_ENDPOINT` | — | Access key |
 | `AWS_SECRET_ACCESS_KEY` | with `S3_ENDPOINT` | — | Secret key |
 | `S3_PUBLIC_BASE_URL` | no | — | No trailing slash — optional public **`url`** in upload responses |
+| `S3_ANONYMOUS_GET_OBJECT` | no | `false` | When **`true`**, applies a bucket policy allowing unauthenticated **`GetObject`** on startup — needed for **MinIO** (objects are private by default) when the browser loads **`img src`** from **`S3_PUBLIC_BASE_URL`**. **Compose** sets this to **`true`** by default. Use **`false`** on AWS if objects stay private behind CloudFront/OAI. |
 | `MEDIA_MAX_BYTES` | no | `31457280` | Max multipart upload size (default **30 MiB**) |
 | `JWT_SECRET` | no | — | **Required** for auth JWT routes; media upload when Bearer auth enabled |
 | `EMAIL_VERIFICATION_REQUIRED` | no | `false` | Enforce email verification (see tables below) |
 | `GUEST_SESSIONS_ENABLED` | no | `true` | Until overridden by **`system_config`** |
 | `EMAIL_VERIFICATION_TOKEN_TTL_HOURS` | no | `48` | Verification JWT lifetime |
-| `ACCESS_TOKEN_TTL_SECONDS` | no | `3600` | Access token TTL |
-| `REFRESH_TOKEN_TTL_SECONDS` | no | `604800` | Refresh token TTL in Redis (**7 days** default) |
+| `ACCESS_TOKEN_TTL_SECONDS` | no | `3600` | Access token TTL (registered users) |
+| `REFRESH_TOKEN_TTL_SECONDS` | no | `604800` | Refresh token TTL in Redis (**7 days** default; registered users) |
+| `GUEST_ACCESS_TOKEN_TTL_SECONDS` | no | `1800` | Guest access JWT lifetime (**30 min** default); **`POST /auth/guest`** / guest **`POST /auth/refresh`** |
+| `GUEST_REFRESH_TOKEN_TTL_SECONDS` | no | `1800` | Guest refresh token TTL in Redis (**30 min** default); align with guest access TTL |
+| `GUEST_DATA_TTL_ENABLED` | no | `true` | When **`true`**, guest **`users`** / guest↔guest **conversations** / **messages** may set **`guestDataExpiresAt`** for MongoDB TTL (overridable via **`system_config.guestDataTtlEnabled`**) |
+| `GUEST_DATA_MONGODB_TTL_SECONDS` | no | `86400` | Horizon (seconds) from insert for **`guestDataExpiresAt`** when guest data TTL is enabled |
+| `GUEST_AUTH_RATE_LIMIT_WINDOW_SEC` | no | `3600` | **`POST /auth/guest`** fixed window (per IP + optional fingerprint) |
+| `GUEST_AUTH_RATE_LIMIT_MAX_PER_IP` | no | `20` | Max guest sign-in attempts per client IP per window |
+| `GUEST_AUTH_RATE_LIMIT_MAX_PER_FINGERPRINT` | no | `10` | Max guest sign-ins per **`X-Client-Fingerprint`** per window (when header sent) |
+| `GUEST_MESSAGE_SEND_RATE_LIMIT_MAX_PER_USER` | no | `30` | Max **`POST /messages`** / **`message:send`** per **guest** **`userId`** per **`MESSAGE_SEND_RATE_LIMIT_WINDOW_SEC`** (registered users use **`MESSAGE_SEND_RATE_LIMIT_MAX_PER_USER`**) |
 | `PASSWORD_RESET_TOKEN_TTL_HOURS` | no | `1` | Reset JWT lifetime |
 | `PASSWORD_RESET_WEB_PATH` | no | `/reset-password` | Web path for reset links |
 | `FORGOT_PASSWORD_RATE_LIMIT_WINDOW_SEC` | no | `3600` | Forgot-password window per IP |
@@ -355,6 +380,8 @@ Single reference for variables passed into each deployable (Docker Compose, loca
 | `VERIFY_EMAIL_RATE_LIMIT_MAX` | no | `30` | Max verify attempts per IP per window |
 | `USER_SEARCH_RATE_LIMIT_WINDOW_SEC` | no | `60` | User search window per IP |
 | `USER_SEARCH_RATE_LIMIT_MAX` | no | `60` | Max user searches per IP per window |
+| `GUEST_USER_SEARCH_RATE_LIMIT_WINDOW_SEC` | no | `60` | Guest **`GET /users/search`** window (separate Redis key **`ratelimit:users-search:guest-ip:*`**) |
+| `GUEST_USER_SEARCH_RATE_LIMIT_MAX` | no | `30` | Max guest searches per IP per window (stricter than **`USER_SEARCH_RATE_LIMIT_MAX`**) |
 | `USER_SEARCH_MIN_QUERY_LENGTH` | no | `3` | Minimum search query length |
 | `USER_SEARCH_MAX_CANDIDATE_SCAN` | no | `200` | Max MongoDB users scanned per search |
 | `PUBLIC_KEY_FETCH_REQUIRE_DIRECT_THREAD` | no | `false` | Restrict **`GET /users/{id}/public-key`** to existing DM |
@@ -369,6 +396,10 @@ Single reference for variables passed into each deployable (Docker Compose, loca
 | `MESSAGE_RECEIPT_RATE_LIMIT_MAX_PER_USER` | no | `600` | Max receipt events per user per window |
 | `MESSAGE_RECEIPT_RATE_LIMIT_MAX_PER_IP` | no | `2000` | Max receipt events per IP per window |
 | `MESSAGE_RECEIPT_RATE_LIMIT_MAX_PER_SOCKET` | no | `600` | Max receipt events per socket per window |
+| `WEBRTC_SIGNAL_RATE_LIMIT_WINDOW_SEC` | no | `60` | WebRTC signaling (**`webrtc:*`**) window |
+| `WEBRTC_SIGNAL_RATE_LIMIT_MAX_PER_USER` | no | `2000` | Max signaling events per user per window |
+| `WEBRTC_SIGNAL_RATE_LIMIT_MAX_PER_IP` | no | `6000` | Max signaling events per IP per window |
+| `WEBRTC_SIGNAL_RATE_LIMIT_MAX_PER_SOCKET` | no | `2000` | Max signaling events per socket per window |
 | `GLOBAL_RATE_LIMIT_WINDOW_SEC` | no | `60` | Global REST per-IP window (Redis TTL) |
 | `GLOBAL_RATE_LIMIT_MAX` | no | `500` | Max REST requests per IP per window (**~500/min** default) |
 | `SENDGRID_API_KEY` | no | — | SendGrid when **`EMAIL_VERIFICATION_REQUIRED`** |
@@ -384,7 +415,7 @@ The **global** per-IP limit runs **first** on **`/v1`**; route-specific Redis li
 
 #### User search policy (`GET /v1/users/search`)
 
-Substring match on normalized email; abuse controls include **`USER_SEARCH_MIN_QUERY_LENGTH`**, **`USER_SEARCH_MAX_CANDIDATE_SCAN`**, **`limit`** response cap, **`USER_SEARCH_RATE_LIMIT_*`**, and **`GLOBAL_RATE_LIMIT_*`**. See **`docs/openapi/openapi.yaml`**.
+Substring match on normalized email and username; abuse controls include **`USER_SEARCH_MIN_QUERY_LENGTH`**, **`USER_SEARCH_MAX_CANDIDATE_SCAN`**, **`limit`** response cap, **`USER_SEARCH_RATE_LIMIT_*`** (registered callers), **`GUEST_USER_SEARCH_RATE_LIMIT_*`** (guest callers — **guest-only** result set: **`isGuest: true`** only; registered users never appear), and **`GLOBAL_RATE_LIMIT_*`**. See **`docs/openapi/openapi.yaml`**.
 
 #### Email verification (`EMAIL_VERIFICATION_REQUIRED`)
 
@@ -395,17 +426,36 @@ Substring match on normalized email; abuse controls include **`USER_SEARCH_MIN_Q
 
 #### Runtime configuration (MongoDB)
 
-**Collection:** **`system_config`**, singleton **`{ _id: 'singleton' }`**. Fields **`emailVerificationRequired`**, **`guestSessionsEnabled`** override env when present. Cached in Redis (**~5 min**); see **`getEffectiveRuntimeConfig`** in code.
+**Collection:** **`system_config`**, singleton **`{ _id: 'singleton' }`**. Fields **`emailVerificationRequired`**, **`guestSessionsEnabled`**, **`guestDataTtlEnabled`** (MongoDB TTL for guest sandbox data — **`guestDataExpiresAt`** on user / conversation / message rows) override env when present. Cached in Redis (**~5 min**); see **`getEffectiveRuntimeConfig`** in code.
+
+#### Guest sessions (Feature 2a — temporary access)
+
+**Product rules (locked)** — see also **`docs/PROJECT_PLAN.md`** (Security — guest sessions) and **`docs/TASK_CHECKLIST.md`** Feature 2a for implementation.
+
+- **Session & refresh TTL:** guest access JWTs and opaque refresh tokens use **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** and **`GUEST_REFRESH_TOKEN_TTL_SECONDS`** (defaults **1800** seconds = **30 minutes** each), independent of registered-user **`ACCESS_TOKEN_TTL_SECONDS`** / **`REFRESH_TOKEN_TTL_SECONDS`**. Redis **`EX`** on refresh keys matches the guest refresh TTL.
+- **Privilege ceiling:** guests cannot use **profile/settings** updates (**`PATCH /v1/users/me`**; **`403`** **`GUEST_ACTION_FORBIDDEN`**) or password‑reset / email‑verification flows for guest accounts (**`POST /auth/reset-password`**, **`POST /auth/verify-email`**). **Register** is a separate unauthenticated flow. There is no admin or billing in **messaging-service**; E2EE public-key routes and messaging stay available so guests can chat in the sandbox.
+- **Rate limits:** **`POST /auth/guest`** is capped per client IP (**`GUEST_AUTH_RATE_LIMIT_*`**); optional header **`X-Client-Fingerprint`** enables a second per-fingerprint bucket. Outgoing chat sends use a stricter per-**guest**-**userId** cap (**`GUEST_MESSAGE_SEND_RATE_LIMIT_MAX_PER_USER`**) in the same window as **`MESSAGE_SEND_RATE_LIMIT_WINDOW_SEC`**, in addition to shared IP/socket limits.
+- **Persistence (MongoDB):** Guest accounts are rows in **`users`** with **`isGuest: true`** and **no** **`email`** field (sparse unique index on **`email`** applies only to registered users). **`username`** and optional **`displayName`** are stored. When **`GUEST_DATA_TTL_ENABLED`** / **`system_config.guestDataTtlEnabled`** is **true** (default), **`guestDataExpiresAt`** is set on **new** guest users and on **guest↔guest** direct **conversations** and **messages** for MongoDB TTL indexes (**`expireAfterSeconds: 0`**). When **`false`**, those fields are omitted (no TTL cleanup).
+- **Guest ↔ guest messaging only:** guests **cannot** message **registered** users. Guests may **only** message **other guests** (same guest identity rules on the server). Do **not** allow guest → registered DMs, conversation creation to a registered **`recipientUserId`**, or any path that lets a guest target a full account over chat.
+- **Username before guest sign-in:** full **Feature 2** registration (email, password, verification) is **not** required for a guest session, but the visitor **must** provide a **username** (validated; uniqueness policy per implementation) **before** **`POST /v1/auth/guest`** (or equivalent) issues tokens. Optional **display name** may be collected in addition.
+- **Guest-only search directory:** when the authenticated user is a **guest**, **`GET /v1/users/search`** and any **user directory / picker** used to start a direct thread **must return only other guests** so guests can find **only peers in the guest sandbox** to open a conversation — **registered users must not appear** in those results.
+- **No guest → registered via search or send:** replace any narrative that guests “search and DM registered users” — that behavior is **out of scope** for guests; **register** is the path to the full directory and to messaging registered users.
 
 ### web-client
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `VITE_API_BASE_URL` | no | *(relative)* `/v1` in dev | REST base including **`/v1`** |
-| `VITE_S3_PUBLIC_BASE_URL` | no | — | Public object base URL |
-| `VITE_S3_BUCKET` | no | — | Bucket name for media URLs in UI |
+| `VITE_API_BASE_URL` | no | *(relative)* `/v1` in dev | REST API path prefix — **must** include **`/v1`**. Used by **`getApiBaseUrl()`**; together with **`getSocketUrl()`** it is the single knob for **HTTP + Socket.IO** (see **REST + Socket.IO** below). |
+| `VITE_S3_PUBLIC_BASE_URL` | no | — | Public **read** base URL for object storage (no trailing slash) — e.g. MinIO/S3 API origin, CloudFront, or static CDN. Required with **`VITE_S3_BUCKET`** when the browser must build **`<img src>`** (and similar) from **`Message.mediaKey`** and the **public** object origin **differs** from the API origin. |
+| `VITE_S3_BUCKET` | no | — | Bucket name in public URLs; **must** match **messaging-service** **`S3_BUCKET`** (and the same layout as **`S3_PUBLIC_BASE_URL`** on the server). |
+| `VITE_WEBRTC_STUN_URLS` | no | *(default: public STUN in code)* | Comma-separated **`stun:`** URLs — **`getWebRtcIceServers()`** when unset defaults to **`stun:stun.l.google.com:19302`** |
+| `VITE_WEBRTC_TURN_URLS` | no | — | Comma-separated **`turn:`** / **`turns:`** URLs (e.g. **`turn:127.0.0.1:3478`** with Compose **coturn** on host) |
+| `VITE_WEBRTC_TURN_USERNAME` | no | — | With **`VITE_WEBRTC_TURN_CREDENTIAL`**, applied to each TURN URL (**coturn** **`lt-cred-mech`**) |
+| `VITE_WEBRTC_TURN_CREDENTIAL` | no | — | TURN password |
 
 **REST + Socket.IO (same origin):** **`getApiBaseUrl()`** and **`getSocketUrl()`** in **`apps/web-client/src/common/utils/apiConfig.ts`** both read **`VITE_API_BASE_URL`**. For a **relative** value (e.g. **`/v1`**), the SPA’s **`window.location.origin`** is used for Socket.IO as well, so the Vite dev server must proxy both **`/v1`** and **`/socket.io`** to **messaging-service** (**`apps/web-client/vite.config.ts`**). For an **absolute** URL (e.g. **`http://localhost:8080/v1`** to reach Docker nginx), **`getSocketUrl()`** uses **`http://localhost:8080`** only — REST and **`/socket.io`** stay on the **same host and port**. Production HTTPS pages must use an **`https://`** API base to avoid mixed content. **Compose:** **`infra/nginx/nginx.conf`** forwards **`/`** to **messaging-service** with **`Upgrade`** / **`Connection`** for long-lived Socket.IO connections.
+
+**Env / CDN (public `src` for media):** **`VITE_API_BASE_URL`** does **not** supply **`src`** for uploaded blobs. When thread or composer UI needs an HTTP URL from **`Message.mediaKey`**, the client joins **`VITE_S3_PUBLIC_BASE_URL`**, **`VITE_S3_BUCKET`**, and the encoded object key in **`apps/web-client/src/common/utils/mediaPublicUrl.ts`** — mirror **messaging-service** **`S3_PUBLIC_BASE_URL`** and **`S3_BUCKET`** so URLs match **`POST /v1/media/upload`** and public GET paths. Set **`VITE_S3_PUBLIC_BASE_URL`** + **`VITE_S3_BUCKET`** when the **public** object host (CDN, MinIO on another port, S3 website endpoint, etc.) is **not** the same origin as the API; if either is unset, **`mediaKey`** alone cannot be turned into a URL (local **`blob:`** previews or response **`url`** fields still work).
 
 **Tokens:** access JWT in memory (Redux); refresh in **`localStorage`** **`messaging-refresh-token`**. **`POST /v1/auth/refresh`** on **401** — see **`apps/web-client/src/common/api/httpClient.ts`**.
 

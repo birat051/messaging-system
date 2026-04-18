@@ -15,6 +15,7 @@ import {
 } from '../../../common/utils/formValidation';
 import { loadSenderPlaintextIntoRedux } from '../../../common/senderPlaintext/loadSenderPlaintextIntoRedux';
 import { applyAuthResponse } from '../utils/applyAuthResponse';
+import { syncGuestReauthPreferenceFromUser } from '../utils/guestSessionPreference';
 import { setUser } from '../stores/authSlice';
 import { useAuth } from '../../../common/hooks/useAuth';
 import type { AuthRedirectState } from '../../../routes/postLoginRedirect';
@@ -99,6 +100,7 @@ export function RegisterPage() {
         }
         const user = await getCurrentUser();
         dispatch(setUser(user));
+        syncGuestReauthPreferenceFromUser(user);
         await loadSenderPlaintextIntoRedux(dispatch, user.id);
         if (user.emailVerified === false) {
           if (profileFile) {
@@ -108,7 +110,7 @@ export function RegisterPage() {
           }
           navigate(ROUTES.verifyEmail, {
             replace: true,
-            state: verifyEmailState(user.email),
+            state: verifyEmailState(user.email ?? body.email),
           });
           return;
         }
@@ -353,6 +355,16 @@ export function RegisterPage() {
           className="text-accent font-medium hover:underline"
         >
           Sign in
+        </Link>
+      </p>
+      <p className="text-muted mt-4 text-center text-sm">
+        No email yet?{' '}
+        <Link
+          to={ROUTES.guest}
+          state={location.state}
+          className="text-accent font-medium hover:underline"
+        >
+          Continue as guest
         </Link>
       </p>
     </div>

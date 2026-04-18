@@ -63,3 +63,13 @@ export async function forgotPassword(
 export async function resetPassword(body: S['ResetPasswordRequest']): Promise<void> {
   await httpClient.post(API_PATHS.auth.resetPassword, body);
 }
+
+export async function createGuestSession(
+  body: S['GuestRequest'],
+): Promise<S['GuestAuthResponse']> {
+  const res = await httpClient.post<S['GuestAuthResponse']>(
+    API_PATHS.auth.guest,
+    body,
+  );
+  return res.data;
+}

@@ -10,7 +10,10 @@ import {
 import { connectRedis, disconnectRedis } from './data/redis/redis.js';
 import { logger } from './utils/logger.js';
 import { attachSocketIo, closeSocketIo } from './utils/realtime/socket.js';
-import { ensureBucketExists } from './data/storage/ensureBucket.js';
+import {
+  ensureAnonymousGetObjectPolicy,
+  ensureBucketExists,
+} from './data/storage/ensureBucket.js';
 import { getS3Client } from './data/storage/s3Client.js';
 import { ensureConversationReadsIndexes } from './data/conversationReads/conversation_reads.collection.js';
 import { ensureConversationIndexes } from './data/conversations/conversations.collection.js';
@@ -39,7 +42,16 @@ async function main(): Promise<void> {
   const s3 = getS3Client(env);
   if (s3 && env.S3_BUCKET) {
     await ensureBucketExists(s3, env.S3_BUCKET);
-    logger.info({ bucket: env.S3_BUCKET }, 'S3 bucket ready');
+    if (env.S3_ANONYMOUS_GET_OBJECT) {
+      await ensureAnonymousGetObjectPolicy(s3, env.S3_BUCKET);
+    }
+    logger.info(
+      {
+        bucket: env.S3_BUCKET,
+        anonymousGetObjectPolicy: env.S3_ANONYMOUS_GET_OBJECT,
+      },
+      'S3 bucket ready',
+    );
   }
 
   const app = createApp(env);

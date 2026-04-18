@@ -38,6 +38,7 @@ describe('rankUsersBySearchRelevance', () => {
         username: 'bob',
         displayName: null,
         profilePicture: null,
+        isGuest: undefined,
       },
       {
         id: '2',
@@ -45,6 +46,7 @@ describe('rankUsersBySearchRelevance', () => {
         username: 'alice',
         displayName: null,
         profilePicture: null,
+        isGuest: undefined,
       },
       {
         id: '3',
@@ -52,6 +54,7 @@ describe('rankUsersBySearchRelevance', () => {
         username: 'alice_dev',
         displayName: null,
         profilePicture: null,
+        isGuest: undefined,
       },
     ];
     const out = rankUsersBySearchRelevance(rows, 'alice');

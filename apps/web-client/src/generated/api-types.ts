@@ -68,6 +68,7 @@ export interface paths {
          * Verify email using signed JWT from registration or resend (throttled per IP)
          * @description When **`EMAIL_VERIFICATION_REQUIRED`** is **`false`** on the server, returns **400** with **`ErrorResponse`**
          *     **`code`** **`EMAIL_VERIFICATION_DISABLED`** — the verification flow is not used (see **`README.md`** (Configuration section)).
+         *     If the token resolves to a **guest** account, returns **403** **`GUEST_ACTION_FORBIDDEN`**.
          */
         post: operations["verifyEmail"];
         delete?: never;
@@ -90,6 +91,36 @@ export interface paths {
          * @description When **`EMAIL_VERIFICATION_REQUIRED`** is **`false`**, returns **400** with **`code`** **`EMAIL_VERIFICATION_DISABLED`**.
          */
         post: operations["resendVerificationEmail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/guest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a guest session (planned — not yet implemented when enabled)
+         * @description **On/off** is controlled by **`guestSessionsEnabled`** in MongoDB **`system_config`** (singleton), merged with env
+         *     **`GUEST_SESSIONS_ENABLED`** via effective runtime config (see **`README.md`** — Runtime configuration). When disabled,
+         *     returns **403** with **`code`** **`GUEST_SESSIONS_DISABLED`** before body validation. When enabled, creates a guest **`User`** row (no email; optional MongoDB TTL via **`guestDataExpiresAt`** when **`guestDataTtlEnabled`** is true in **`system_config`** / env).
+         *
+         *     **Rate limits (Redis):** per client IP (**`GUEST_AUTH_RATE_LIMIT_*`**); when **`X-Client-Fingerprint`** is sent, an additional
+         *     per-fingerprint bucket applies so one IP cannot rotate unlimited guest identities and one fingerprint cannot bypass IP caps alone.
+         *
+         *     Success body is **`GuestAuthResponse`**: tokens, **`user`** with **`guest: true`**, **`expiresIn`** (seconds),
+         *     and **`expiresAt`** (ISO 8601 absolute access expiry). Access JWT payload includes **`guest: true`**. Guest sessions use
+         *     **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** and **`GUEST_REFRESH_TOKEN_TTL_SECONDS`** (see **`README.md`** — Configuration;
+         *     defaults **1800** s = **30 minutes** each); opaque refresh token Redis **`EX`** matches guest refresh TTL.
+         */
+        post: operations["createGuestSession"];
         delete?: never;
         options?: never;
         head?: never;
@@ -122,7 +153,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Rotate refresh token and issue new access token */
+        /**
+         * Rotate refresh token and issue new access token
+         * @description For **registered** users, access and refresh TTLs follow **`ACCESS_TOKEN_TTL_SECONDS`** and **`REFRESH_TOKEN_TTL_SECONDS`**.
+         *     For **guest** users (`User.isGuest`), the server uses **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** and **`GUEST_REFRESH_TOKEN_TTL_SECONDS`**
+         *     (defaults **30 minutes** each; see **`README.md`**).
+         */
         post: operations["refreshTokens"];
         delete?: never;
         options?: never;
@@ -173,7 +209,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Set new password using JWT from forgot-password email */
+        /**
+         * Set new password using JWT from forgot-password email
+         * @description If the reset token targets a **guest** account, returns **403** **`GUEST_ACTION_FORBIDDEN`** (guests cannot set a password).
+         */
         post: operations["resetPassword"];
         delete?: never;
         options?: never;
@@ -201,6 +240,8 @@ export interface paths {
          *     text, optional **displayName**. At least one part should be supplied; omitted fields are left
          *     unchanged. Server stores the image via the same pipeline as **`POST /media/upload`** (S3 key
          *     on user document + public URL in **`profilePicture`**).
+         *
+         *     **Not available for guest sessions** — use **`POST /auth/register`** for a full account. Guests receive **403** **`GUEST_ACTION_FORBIDDEN`**.
          */
         patch: operations["updateCurrentUserProfile"];
         trace?: never;
@@ -308,11 +349,16 @@ export interface paths {
          *     lowered to **2** only when operators accept weaker bounds); allowed charset
          *     **`[a-z0-9@._+_-]`** (includes **`_`** for username fragments); regex metacharacters are **escaped** server-side; response size is capped
          *     by **`limit`** (default **20**, max **100**); MongoDB candidate scan per request is bounded
-         *     (**`USER_SEARCH_MAX_CANDIDATE_SCAN`**). **Rate limiting:** per **client IP** in Redis
-         *     (`USER_SEARCH_RATE_LIMIT_*` in **`README.md`** (Configuration section)). Exceeding the limit returns **429**
-         *     with **`code`** **`RATE_LIMIT_EXCEEDED`**.
+         *     (**`USER_SEARCH_MAX_CANDIDATE_SCAN`**).
          *
-         *     Returns username, display name, profile picture, and the **direct conversation id** with the
+         *     **Guest directory (Feature 2a):** when the bearer identifies a **guest** (`User.guest` / JWT `guest` claim),
+         *     the server applies **`isGuest: true`** in the user query — **registered users never appear** in results.
+         *     **`q`** / **`email`** / **`limit`** behave the same; only the result set is restricted. **Rate limiting:** guest
+         *     callers use **`GUEST_USER_SEARCH_RATE_LIMIT_*`** (separate Redis key **`ratelimit:users-search:guest-ip:*`**,
+         *     typically stricter **`MAX`** than registered **`USER_SEARCH_RATE_LIMIT_*`**). Registered callers use
+         *     **`USER_SEARCH_RATE_LIMIT_*`**. **429** **`RATE_LIMIT_EXCEEDED`** when either cap is exceeded.
+         *
+         *     Returns username, display name, profile picture, **`guest`** flag, and the **direct conversation id** with the
          *     current user when a conversation already exists (null when none). The caller never
          *     receives their own row.
          */
@@ -421,6 +467,9 @@ export interface paths {
          *     **`recipientUserId`**. **Group** threads return **403** until group messaging is implemented.
          *     Request body must include **`body`** text and/or **`mediaKey`** (validated by Zod).
          *
+         *     **Guest sandbox:** direct sends require **both** participants to be **guests** or **both** to be **registered** —
+         *     guest ↔ registered pairs return **403** with **`code`** **`GUEST_MESSAGING_FORBIDDEN`** (same rule on Socket.IO **`message:send`**).
+         *
          *     **Rate limiting:** this route uses the **message-send** limits (**`MESSAGE_SEND_RATE_LIMIT_*`**, per user + IP)
          *     in addition to the **global** REST per-IP limit — see **`README.md`** (Configuration section) (*Global vs per-route*). Either
          *     can return **429** with **`ErrorResponse`** (**`code`** **`RATE_LIMIT_EXCEEDED`**).
@@ -505,6 +554,28 @@ export interface components {
             /** @description Optional short status line at signup */
             status?: string | null;
         };
+        GuestRequest: {
+            /** @description Unique handle for the guest session; stored lowercase (same rules as register **`username`**). */
+            username: string;
+            /** @description Optional; may match or differ from **`username`** (trimmed on the server). */
+            displayName?: string;
+        };
+        GuestAuthResponse: {
+            /** @description HS256 access JWT; includes a boolean **`guest`** custom claim (true for guest sessions) */
+            accessToken: string;
+            /** @description Opaque refresh token (Redis); TTL matches **`GUEST_REFRESH_TOKEN_TTL_SECONDS`** for guests */
+            refreshToken: string;
+            user: components["schemas"]["User"];
+            /** @example Bearer */
+            tokenType: string;
+            /** @description Access token lifetime in seconds (same window as **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** for guests) */
+            expiresIn: number;
+            /**
+             * Format: date-time
+             * @description Absolute UTC expiry of the access token (for UI countdown)
+             */
+            expiresAt: string;
+        };
         VerifyEmailRequest: {
             /** @description Signed JWT from registration or resend */
             token: string;
@@ -571,13 +642,21 @@ export interface components {
             refreshToken?: string | null;
             /** @example Bearer */
             tokenType: string;
-            /** @description null when accessToken is null; otherwise access token lifetime in seconds */
+            /** @description null when accessToken is null; otherwise access token lifetime in seconds. Guest sessions use **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** (default **1800**); registered users use **`ACCESS_TOKEN_TTL_SECONDS`**. */
             expiresIn?: number | null;
+            /**
+             * Format: date-time
+             * @description null when accessToken is null. When present (e.g. guest **`POST /auth/refresh`**), absolute UTC expiry of the access token — same semantics as **`GuestAuthResponse.expiresAt`**.
+             */
+            expiresAt?: string | null;
         };
         User: {
             id: string;
-            /** Format: email */
-            email: string;
+            /**
+             * Format: email
+             * @description Null for guest accounts (no email stored)
+             */
+            email?: string | null;
             /** @description Unique handle (null for legacy accounts predating usernames) */
             username?: string | null;
             displayName?: string | null;
@@ -590,6 +669,8 @@ export interface components {
             profilePicture?: string | null;
             /** @description Short user-defined status line */
             status?: string | null;
+            /** @description True for temporary guest sandbox accounts (POST /auth/guest); false for full registrations. */
+            guest: boolean;
         };
         UserPublic: {
             id: string;
@@ -632,6 +713,8 @@ export interface components {
             profilePicture?: string | null;
             /** @description Direct conversation id between searcher and this user if it exists; null if first contact */
             conversationId?: string | null;
+            /** @description Whether this row is a guest sandbox user (directory filtering for guest callers) */
+            guest: boolean;
         };
         Conversation: {
             id: string;
@@ -940,6 +1023,15 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            /** @description Guest account — email verification not applicable (**`GUEST_ACTION_FORBIDDEN`**) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Too many verification attempts */
             429: {
                 headers: {
@@ -984,6 +1076,70 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             /** @description Too many resend requests for this email */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Auth signing not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    createGuestSession: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional stable client id (e.g. device/install). When present, **`POST /auth/guest`** is also rate-limited per hashed fingerprint (**`GUEST_AUTH_RATE_LIMIT_MAX_PER_FINGERPRINT`**) in addition to per-IP. */
+                "X-Client-Fingerprint"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GuestRequest"];
+            };
+        };
+        responses: {
+            /** @description Guest session created (GuestAuthResponse). user.guest is true; access JWT includes a guest claim. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuestAuthResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            /** @description Guest sessions disabled by runtime configuration */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Username already taken (**`USERNAME_TAKEN`**) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many guest session attempts (**`RATE_LIMIT_EXCEEDED`**) — per IP and/or per **`X-Client-Fingerprint`** */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -1177,6 +1333,15 @@ export interface operations {
                 content?: never;
             };
             400: components["responses"]["BadRequest"];
+            /** @description Guest account — password reset not applicable (**`GUEST_ACTION_FORBIDDEN`**) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Auth signing not configured */
             503: {
                 headers: {
@@ -1233,6 +1398,15 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            /** @description Guest session — profile update not allowed (**`GUEST_ACTION_FORBIDDEN`**) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     putMyPublicKey: {
@@ -1558,7 +1732,15 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
+            /** @description Group thread not supported, or **guest ↔ registered** messaging blocked (**`GUEST_MESSAGING_FORBIDDEN`** — only guest↔guest or registered↔registered direct threads). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             404: components["responses"]["NotFound"];
             /** @description Message-send and/or global REST rate limit exceeded (`MESSAGE_SEND_RATE_LIMIT_*`, `GLOBAL_RATE_LIMIT_*`) */
             429: {

@@ -1,4 +1,7 @@
 import { AppError } from '../../utils/errors/AppError.js';
+import type { Env } from '../../config/env.js';
+import { computeGuestDataExpiresAt } from '../../config/guestDataTtl.js';
+import { getEffectiveRuntimeConfig } from '../../config/runtimeConfig.js';
 import {
   findOrCreateDirectConversation,
   lookupConversationById,
@@ -7,6 +10,7 @@ import type { DirectConversationDocument } from '../../data/conversations/conver
 import { publishMessage } from '../../data/messaging/rabbitmq.js';
 import { findUserById } from '../../data/users/repo.js';
 import type { SendMessageRequest } from '../../validation/schemas.js';
+import { assertGuestGuestDirectMessagingAllowed } from './guestMessagingAuthz.js';
 import { messageDocumentToApi } from './messageApiShape.js';
 import { insertMessage } from './repo.js';
 import type { MessageDocument } from './messages.collection.js';
@@ -29,6 +33,26 @@ function normalizeMediaKey(
   return t.length === 0 ? null : t;
 }
 
+/** When both peers are guests and TTL is on, returns the same **`guestDataExpiresAt`** for conversation + message. */
+async function resolveGuestGuestDataExpiresAt(
+  env: Env,
+  senderId: string,
+  recipientId: string,
+): Promise<Date | undefined> {
+  const cfg = await getEffectiveRuntimeConfig(env);
+  if (!cfg.guestDataTtlEnabled) {
+    return undefined;
+  }
+  const [a, b] = await Promise.all([
+    findUserById(senderId),
+    findUserById(recipientId),
+  ]);
+  if (!a?.isGuest || !b?.isGuest) {
+    return undefined;
+  }
+  return computeGuestDataExpiresAt(env, cfg);
+}
+
 /** Broker publishes for recipient + sender echo (other devices); see `skipSocketId` in `rabbitmq.ts`. */
 async function insertDirectMessageAndPublish(
   recipientUserId: string,
@@ -37,6 +61,7 @@ async function insertDirectMessageAndPublish(
     senderId: string;
     body: string | null;
     mediaKey: string | null;
+    guestDataExpiresAt?: Date;
   },
   options?: { originSocketId?: string },
 ): Promise<MessageDocument> {
@@ -51,16 +76,23 @@ async function insertDirectMessageAndPublish(
 }
 
 /**
- * Persists a message for **`POST /messages`** — **direct 1:1** only; **group** threads return **403**.
+ * Persists a message for **`POST /messages`** and Socket.IO **`message:send`** — **direct 1:1** only; **group** threads return **403**.
+ * **Guest sandbox (Feature 2a):** **guest ↔ guest** and **registered ↔ registered** only — mixed pairs return **403** **`GUEST_MESSAGING_FORBIDDEN`**.
  *
  * **`body`:** Stored as an opaque string. When clients use E2EE, **`body`** is ciphertext; the service does not decrypt.
  * That feature **depends on** user-level public-key APIs and **Prerequisite — User keypair** (`docs/TASK_CHECKLIST.md`).
  */
 export async function sendMessageForUser(
+  env: Env,
   senderId: string,
   payload: SendMessageRequest,
   options?: { originSocketId?: string },
 ): Promise<MessageDocument> {
+  const sender = await findUserById(senderId);
+  if (!sender) {
+    throw new AppError('NOT_FOUND', 404, 'Sender not found');
+  }
+
   const text = normalizeBodyText(payload.body);
   const mediaKey = normalizeMediaKey(payload.mediaKey);
 
@@ -84,7 +116,17 @@ export async function sendMessageForUser(
     if (!recipient) {
       throw new AppError('NOT_FOUND', 404, 'Recipient not found');
     }
-    const conv = await findOrCreateDirectConversation(senderId, recipRaw);
+    assertGuestGuestDirectMessagingAllowed(sender, recipient);
+    const guestExp = await resolveGuestGuestDataExpiresAt(
+      env,
+      senderId,
+      recipRaw,
+    );
+    const conv = await findOrCreateDirectConversation(
+      senderId,
+      recipRaw,
+      guestExp,
+    );
     return insertDirectMessageAndPublish(
       recipRaw,
       {
@@ -92,6 +134,7 @@ export async function sendMessageForUser(
         senderId,
         body: text,
         mediaKey,
+        guestDataExpiresAt: guestExp,
       },
       options,
     );
@@ -125,6 +168,16 @@ export async function sendMessageForUser(
         'Invalid direct conversation participants',
       );
     }
+    const recipient = await findUserById(recipientUserId);
+    if (!recipient) {
+      throw new AppError('NOT_FOUND', 404, 'Recipient not found');
+    }
+    assertGuestGuestDirectMessagingAllowed(sender, recipient);
+    const guestExp = await resolveGuestGuestDataExpiresAt(
+      env,
+      senderId,
+      recipientUserId,
+    );
     return insertDirectMessageAndPublish(
       recipientUserId,
       {
@@ -132,6 +185,7 @@ export async function sendMessageForUser(
         senderId,
         body: text,
         mediaKey,
+        guestDataExpiresAt: guestExp,
       },
       options,
     );

@@ -15,3 +15,6 @@ export function messageDocumentToApi(msg: MessageDocument) {
     createdAt: msg.createdAt.toISOString(),
   };
 }
+
+/** JSON **`Message`** shape for Socket.IO / RabbitMQ fan-out (same as **`messageDocumentToApi`** output). */
+export type MessageApiPayload = ReturnType<typeof messageDocumentToApi>;

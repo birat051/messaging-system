@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useState } from 'react';
 import {
   Link,
+  Navigate,
   useLocation,
   useNavigate,
   useSearchParams,
@@ -14,9 +15,11 @@ import type { AuthRedirectState } from '../../../routes/postLoginRedirect';
 import { getPostLoginRedirectPath } from '../../../routes/postLoginRedirect';
 import { ROUTES } from '../../../routes/paths';
 import { useAppDispatch } from '../../../store/hooks';
+import { useAuth } from '../../../common/hooks/useAuth';
 
 export function VerifyEmailPage() {
   const dispatch = useAppDispatch();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -88,6 +91,10 @@ export function VerifyEmailPage() {
     } finally {
       setSubmittingResend(false);
     }
+  }
+
+  if (user?.guest) {
+    return <Navigate to={ROUTES.home} replace />;
   }
 
   return (

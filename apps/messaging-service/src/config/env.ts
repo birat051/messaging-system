@@ -109,6 +109,20 @@ const envSchema = z.object({
    */
   S3_PUBLIC_BASE_URL: z.string().url().optional(),
   /**
+   * When `true`, apply an **anonymous `s3:GetObject`** bucket policy on startup so browser **`img src`** URLs
+   * (see **`S3_PUBLIC_BASE_URL`**) work against **MinIO** / private S3 buckets. **Do not** enable on AWS public
+   * buckets meant to stay private behind CloudFront/OAI — use **`false`** (default) there.
+   */
+  S3_ANONYMOUS_GET_OBJECT: z.preprocess((val) => {
+    if (val === undefined || val === '') {
+      return false;
+    }
+    if (val === false || val === 0 || val === '0' || val === 'false') {
+      return false;
+    }
+    return val === true || val === 'true' || val === '1' || val === 1;
+  }, z.boolean()),
+  /**
    * Max upload size in bytes per multipart `file` (images and videos). Default **30 MiB**; override via env for deployments that need a different cap.
    */
   MEDIA_MAX_BYTES: z.coerce
@@ -145,6 +159,81 @@ const envSchema = z.object({
     }
     return val === true || val === 'true' || val === '1' || val === 1;
   }, z.boolean()),
+  /**
+   * Guest access JWT lifetime (seconds). Used for **`POST /auth/guest`** and **`POST /auth/refresh`** when the user is a guest.
+   * Default **30 minutes**; independent of **`ACCESS_TOKEN_TTL_SECONDS`** / **`REFRESH_TOKEN_TTL_SECONDS`**.
+   */
+  GUEST_ACCESS_TOKEN_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(86400)
+    .default(1800),
+  /**
+   * Guest opaque refresh token TTL in Redis (seconds). Should align with **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** for the guest sandbox.
+   * Default **30 minutes**.
+   */
+  GUEST_REFRESH_TOKEN_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(86400)
+    .default(1800),
+  /**
+   * When **`true`** (default), guest **`users`** / guest-only **conversations** / **messages** may carry **`guestDataExpiresAt`**
+   * for MongoDB TTL cleanup. Override via **`system_config.guestDataTtlEnabled`**.
+   */
+  GUEST_DATA_TTL_ENABLED: z.preprocess((val) => {
+    if (val === undefined || val === '') {
+      return true;
+    }
+    if (val === false || val === 0 || val === '0' || val === 'false') {
+      return false;
+    }
+    return val === true || val === 'true' || val === '1' || val === 1;
+  }, z.boolean()),
+  /**
+   * Horizon (seconds) from insert for **`guestDataExpiresAt`** on guest rows when TTL is enabled.
+   * Default **24 hours**; cap aligns with MongoDB TTL expectations.
+   */
+  GUEST_DATA_MONGODB_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(2592000)
+    .default(86400),
+  /**
+   * Redis fixed-window rate limit: **`POST /auth/guest`** per client IP (**`getClientIp`** / **`X-Forwarded-For`**).
+   * Stacks with optional **`X-Client-Fingerprint`** bucket when that header is non-empty.
+   */
+  GUEST_AUTH_RATE_LIMIT_WINDOW_SEC: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(3600),
+  GUEST_AUTH_RATE_LIMIT_MAX_PER_IP: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(20),
+  /**
+   * Max guest creations per window when **`X-Client-Fingerprint`** is sent (hashed in Redis).
+   * Ignored when the header is omitted.
+   */
+  GUEST_AUTH_RATE_LIMIT_MAX_PER_FINGERPRINT: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(10),
+  /**
+   * Per-**guest** **`userId`** cap for **`POST /messages`** and Socket.IO **`message:send`** (same window as
+   * **`MESSAGE_SEND_RATE_LIMIT_WINDOW_SEC`**). Registered users use **`MESSAGE_SEND_RATE_LIMIT_MAX_PER_USER`**.
+   */
+  GUEST_MESSAGE_SEND_RATE_LIMIT_MAX_PER_USER: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(30),
   /** Lifetime of signed email-verification JWTs (hours). */
   EMAIL_VERIFICATION_TOKEN_TTL_HOURS: z.coerce
     .number()
@@ -237,6 +326,23 @@ const envSchema = z.object({
     .positive()
     .default(60),
   USER_SEARCH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),
+  /**
+   * Same window semantics as **`USER_SEARCH_RATE_LIMIT_WINDOW_SEC`** — used when the authenticated caller is a **guest**
+   * (**`GET /users/search`** uses **`ratelimit:users-search:guest-ip:*`**).
+   */
+  GUEST_USER_SEARCH_RATE_LIMIT_WINDOW_SEC: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60),
+  /**
+   * Stricter per-IP cap for **guest** callers on **`GET /users/search`** (default lower than **`USER_SEARCH_RATE_LIMIT_MAX`**).
+   */
+  GUEST_USER_SEARCH_RATE_LIMIT_MAX: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(30),
   /**
    * Minimum **`email`** query length for **`GET /users/search`** (substring match). Default **3** limits
    * very broad two-character scans; may be set to **2** only when you accept weaker abuse bounds.
@@ -338,6 +444,29 @@ const envSchema = z.object({
     .int()
     .positive()
     .default(600),
+  /**
+   * Fixed window for Socket.IO **WebRTC signaling** (**`webrtc:offer`**, **`webrtc:answer`**, **`webrtc:candidate`**).
+   */
+  WEBRTC_SIGNAL_RATE_LIMIT_WINDOW_SEC: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60),
+  WEBRTC_SIGNAL_RATE_LIMIT_MAX_PER_USER: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(2000),
+  WEBRTC_SIGNAL_RATE_LIMIT_MAX_PER_IP: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(6000),
+  WEBRTC_SIGNAL_RATE_LIMIT_MAX_PER_SOCKET: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(2000),
   /**
    * Global per-client-IP cap for REST **`/v1/*`** (middleware — **`README.md`** Configuration).
    * Default **500** requests per **60** seconds ≈ **500/min** average; not calendar-aligned.

@@ -3,6 +3,27 @@
  * Uses **`VITE_S3_PUBLIC_BASE_URL`** and **`VITE_S3_BUCKET`** — same values as the API’s **`S3_PUBLIC_BASE_URL`** / **`S3_BUCKET`**
  * so **`Message.mediaKey`** resolves to the same public object URL as **`MediaUploadResponse.url`** when the server exposes one.
  */
+/**
+ * Prefer **`blob:`** / **`http(s):`** from local preview or **`MediaUploadResponse.url`**; otherwise derive
+ * from **`mediaKey`** + env (**no** AWS SDK in the browser).
+ */
+export function resolveMediaAttachmentDisplayUrl(
+  mediaKey: string,
+  previewUrlOverride?: string | null,
+): string | null {
+  const raw = previewUrlOverride?.trim();
+  if (raw) {
+    if (
+      raw.startsWith('blob:') ||
+      raw.startsWith('https:') ||
+      raw.startsWith('http:')
+    ) {
+      return raw;
+    }
+  }
+  return getMediaPublicObjectUrl(mediaKey);
+}
+
 export function getMediaPublicObjectUrl(mediaKey: string): string | null {
   const key = mediaKey.trim();
   if (!key) {

@@ -77,4 +77,17 @@ describe('mediaApi', () => {
     });
     expect(progress).toContain(50);
   });
+
+  it('forwards AbortSignal to axios post for cancel', async () => {
+    post.mockResolvedValue({
+      data: { key: 'k', bucket: 'b', url: null },
+    });
+    const ac = new AbortController();
+    const fd = buildMediaUploadFormData(
+      new File(['x'], 'a.png', { type: 'image/png' }),
+    );
+    await uploadMedia(fd, { signal: ac.signal });
+    const cfg = post.mock.calls[0]?.[2] as { signal?: AbortSignal };
+    expect(cfg?.signal).toBe(ac.signal);
+  });
 });

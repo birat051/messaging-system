@@ -29,7 +29,7 @@ export function createMessagesRouter(env: Env): Router {
     requireAuthMiddleware(env),
     messageSendRateLimitPreBody(env),
     validateBody(sendMessageRequestSchema),
-    postMessage(),
+    postMessage(env),
   );
 
   return router;

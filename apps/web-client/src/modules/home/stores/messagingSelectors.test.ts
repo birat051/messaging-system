@@ -14,6 +14,7 @@ describe('selectOutboundReceiptTickState (direct)', () => {
   it('returns sent for own server message without receipt entry', () => {
     const messaging: MessagingState = {
       activeConversationId: null,
+      recipientDirectoryKeyByUserId: {},
       messagesById: {
         m1: {
           id: 'm1',
@@ -44,6 +45,7 @@ describe('selectOutboundReceiptTickState (direct)', () => {
   it('createSelector wrapper matches plain function', () => {
     const messaging: MessagingState = {
       activeConversationId: null,
+      recipientDirectoryKeyByUserId: {},
       messagesById: {
         m1: {
           id: 'm1',
@@ -85,6 +87,7 @@ describe('selectOutboundReceiptDisplay (group aggregate)', () => {
 
   const baseMessaging = (): MessagingState => ({
     activeConversationId: null,
+    recipientDirectoryKeyByUserId: {},
     messagesById: {
       m1: {
         id: 'm1',

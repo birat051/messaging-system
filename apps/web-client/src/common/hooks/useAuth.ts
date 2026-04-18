@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { clearRefreshToken } from '../../modules/auth/utils/authStorage';
+import { clearGuestReauthPreference } from '../../modules/auth/utils/guestSessionPreference';
 import { logout } from '../../modules/auth/stores/authSlice';
 import {
   selectAccessToken,
@@ -22,6 +23,7 @@ export function useAuth() {
 
   const signOut = useCallback(() => {
     clearRefreshToken();
+    clearGuestReauthPreference();
     dispatch(logout());
   }, [dispatch]);
 

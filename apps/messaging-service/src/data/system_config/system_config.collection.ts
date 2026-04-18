@@ -16,6 +16,11 @@ export type SystemConfigDocument = {
   emailVerificationRequired?: boolean;
   /** When set, overrides **`GUEST_SESSIONS_ENABLED`** env. Reserved for **`POST /auth/guest`**. */
   guestSessionsEnabled?: boolean;
+  /**
+   * When set, overrides **`GUEST_DATA_TTL_ENABLED`** env. If **`false`**, guest documents omit **`guestDataExpiresAt`**
+   * (no MongoDB TTL on guest **`users`** / guest-only **conversations** / **messages**).
+   */
+  guestDataTtlEnabled?: boolean;
   updatedAt?: Date;
 };
 

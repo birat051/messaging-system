@@ -24,6 +24,8 @@ export const RUNTIME_CONFIG_REDIS_TTL_SECONDS = 300;
 export type EffectiveRuntimeConfig = {
   emailVerificationRequired: boolean;
   guestSessionsEnabled: boolean;
+  /** MongoDB TTL for guest **`guestDataExpiresAt`** fields — default **`true`**. */
+  guestDataTtlEnabled: boolean;
 };
 
 /**
@@ -47,9 +49,15 @@ export async function buildEffectiveRuntimeConfigFromDb(
       ? doc.guestSessionsEnabled
       : env.GUEST_SESSIONS_ENABLED;
 
+  const guestDataTtlEnabled =
+    typeof doc?.guestDataTtlEnabled === 'boolean'
+      ? doc.guestDataTtlEnabled
+      : env.GUEST_DATA_TTL_ENABLED;
+
   return {
     emailVerificationRequired,
     guestSessionsEnabled,
+    guestDataTtlEnabled,
   };
 }
 
@@ -61,9 +69,11 @@ function parseCachedJson(raw: string): EffectiveRuntimeConfig | null {
       parsed !== null &&
       'emailVerificationRequired' in parsed &&
       'guestSessionsEnabled' in parsed &&
+      'guestDataTtlEnabled' in parsed &&
       typeof (parsed as EffectiveRuntimeConfig).emailVerificationRequired ===
         'boolean' &&
-      typeof (parsed as EffectiveRuntimeConfig).guestSessionsEnabled === 'boolean'
+      typeof (parsed as EffectiveRuntimeConfig).guestSessionsEnabled === 'boolean' &&
+      typeof (parsed as EffectiveRuntimeConfig).guestDataTtlEnabled === 'boolean'
     ) {
       return parsed as EffectiveRuntimeConfig;
     }

@@ -22,14 +22,18 @@ function readUserIdFromHandshakeAuth(auth: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+export type SocketHandshakeAuth =
+  | { source: 'jwt'; sub: string; guest: boolean }
+  | { source: 'dev'; sub: string };
+
 /**
  * Bearer JWT from **`auth.token`**, **`auth.accessToken`**, **`auth.authorization`**, or
- * **`handshake.headers.authorization`** — aligned with REST **`Authorization`**.
+ * **`handshake.headers.authorization`** — aligned with REST **`Authorization`** (includes **`guest`** claim).
  */
-async function resolveUserIdFromSocketHandshake(
+async function resolveHandshakeAccessAuth(
   socket: Socket,
   env: Env,
-): Promise<string | undefined> {
+): Promise<SocketHandshakeAuth | undefined> {
   const auth = socket.handshake.auth;
   const headers = socket.handshake.headers;
 
@@ -54,17 +58,21 @@ async function resolveUserIdFromSocketHandshake(
   }
 
   if (token && env.JWT_SECRET?.trim()) {
-    const sub = await verifyAccessTokenJwt(token, env);
-    if (sub) {
-      return sub;
+    const verified = await verifyAccessTokenJwt(token, env);
+    if (!verified) {
+      return undefined;
     }
-    return undefined;
+    return {
+      source: 'jwt',
+      sub: verified.sub,
+      guest: verified.guest,
+    };
   }
 
   if (env.NODE_ENV !== 'production') {
     const raw = readUserIdFromHandshakeAuth(auth);
     if (raw) {
-      return raw;
+      return { source: 'dev', sub: raw };
     }
   }
 
@@ -82,13 +90,20 @@ export async function resolveSocketAuth(
   socket: Socket,
   env: Env,
 ): Promise<SocketAuthResult> {
-  const userId = await resolveUserIdFromSocketHandshake(socket, env);
-  if (!userId) {
+  const handshakeAuth = await resolveHandshakeAccessAuth(socket, env);
+  if (!handshakeAuth) {
     return { kind: 'unauthenticated' };
   }
 
-  const user = await findUserById(userId);
+  const user = await findUserById(handshakeAuth.sub);
   if (!user) {
+    return { kind: 'unauthenticated' };
+  }
+
+  if (
+    handshakeAuth.source === 'jwt' &&
+    handshakeAuth.guest !== (user.isGuest === true)
+  ) {
     return { kind: 'unauthenticated' };
   }
 

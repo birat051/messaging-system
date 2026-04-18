@@ -12,6 +12,7 @@ import {
   rateLimitPublicKeyWrites,
 } from '../controllers/users.js';
 import { requireAuthMiddleware } from '../middleware/requireAuth.js';
+import { rejectGuestUserMiddleware } from '../middleware/rejectGuestUser.js';
 import { getS3Client } from '../data/storage/s3Client.js';
 import { validateBody, validateParams, validateQuery } from '../validation/middleware.js';
 import {
@@ -23,6 +24,7 @@ import {
 
 /**
  * User profile, search, E2EE public key directory — **wiring only**. Handlers live in **`src/controllers/users.ts`**.
+ * **`PATCH /users/me`** uses **`rejectGuestUserMiddleware`** after auth (guests cannot update profile — **Feature 2a**).
  * User-search and public-key PUT/POST rate limits **stack** with the global REST cap (global middleware runs first).
  */
 export function createUsersRouter(env: Env): Router {
@@ -45,6 +47,7 @@ export function createUsersRouter(env: Env): Router {
   router.patch(
     '/users/me',
     requireAuthMiddleware(env),
+    rejectGuestUserMiddleware(),
     patchMeMultipart(upload),
     patchMe(env, s3Client),
   );

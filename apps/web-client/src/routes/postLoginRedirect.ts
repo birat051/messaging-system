@@ -11,6 +11,7 @@ const AUTH_PATHS = new Set<string>([
   ROUTES.login,
   ROUTES.register,
   ROUTES.verifyEmail,
+  ROUTES.guest,
 ]);
 
 /**

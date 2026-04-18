@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 import { io, type Socket } from 'socket.io-client';
+import { parseNotificationWorkerPayload } from '../common/realtime/socketNotificationPayload';
 import type {
   MainToWorkerMessage,
   WorkerToMainMessage,
@@ -65,7 +66,17 @@ function connectSocket(msg: Extract<MainToWorkerMessage, { type: 'connect' }>): 
     post({ type: 'connect_error', message: err.message });
   });
 
-  socket.on('notification', (payload: unknown) => {
+  socket.on('notification', (raw: unknown) => {
+    const payload = parseNotificationWorkerPayload(raw);
+    if (payload === null) {
+      if (import.meta.env.DEV) {
+        console.warn(
+          '[notification] dropped invalid payload (expected schemaVersion 1 and kind message | call_incoming)',
+          raw,
+        );
+      }
+      return;
+    }
     post({ type: 'notification', payload });
   });
 
@@ -83,6 +94,16 @@ function connectSocket(msg: Extract<MainToWorkerMessage, { type: 'connect' }>): 
 
   socket.on('conversation:read', (payload: unknown) => {
     post({ type: 'conversation_read', payload });
+  });
+
+  socket.on('webrtc:offer', (payload: unknown) => {
+    post({ type: 'webrtc_inbound', event: 'webrtc:offer', payload });
+  });
+  socket.on('webrtc:answer', (payload: unknown) => {
+    post({ type: 'webrtc_inbound', event: 'webrtc:answer', payload });
+  });
+  socket.on('webrtc:candidate', (payload: unknown) => {
+    post({ type: 'webrtc_inbound', event: 'webrtc:candidate', payload });
   });
 }
 
@@ -130,6 +151,50 @@ self.onmessage = (ev: MessageEvent<MainToWorkerMessage>) => {
     socket.emit(msg.event, msg.payload, (ack: unknown) => {
       post({ type: 'receipt_emit_ack', requestId: msg.requestId, ack });
     });
+    return;
+  }
+
+  if (msg.type === 'webrtc_emit') {
+    if (!socket?.connected) {
+      post({
+        type: 'webrtc_emit_ack',
+        requestId: msg.requestId,
+        ack: {
+          code: 'UNAVAILABLE',
+          message: 'Socket not connected',
+        },
+      });
+      return;
+    }
+    socket.emit(msg.event, msg.payload, (ack: unknown) => {
+      post({ type: 'webrtc_emit_ack', requestId: msg.requestId, ack });
+    });
+    return;
+  }
+
+  if (msg.type === 'presence_get_last_seen') {
+    if (!socket?.connected) {
+      post({
+        type: 'presence_get_last_seen_ack',
+        requestId: msg.requestId,
+        ack: {
+          code: 'UNAVAILABLE',
+          message: 'Socket not connected',
+        },
+      });
+      return;
+    }
+    socket.emit(
+      'presence:getLastSeen',
+      { targetUserId: msg.targetUserId.trim() },
+      (ack: unknown) => {
+        post({
+          type: 'presence_get_last_seen_ack',
+          requestId: msg.requestId,
+          ack,
+        });
+      },
+    );
     return;
   }
 

@@ -50,6 +50,7 @@ describe('senderPlaintextPersistListener', () => {
       id: userId,
       email: 'a@b.com',
       emailVerified: true,
+      guest: false,
     };
 
     const store = createTestStore({
@@ -109,6 +110,7 @@ describe('senderPlaintextPersistListener', () => {
       id: userId,
       email: 'b@b.com',
       emailVerified: true,
+      guest: false,
     };
 
     const store = createTestStore({

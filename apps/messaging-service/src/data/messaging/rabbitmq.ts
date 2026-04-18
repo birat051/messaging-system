@@ -3,7 +3,15 @@ import { connect as amqpConnect } from 'amqplib';
 import type { Server as SocketIoServer } from 'socket.io';
 import { loadEnv } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
+import {
+  parseCallIncomingNotificationBrokerBody,
+} from '../notifications/callIncomingNotification.js';
+import {
+  emitMessageNotificationDirect,
+  emitMessageNotificationToGroupRoom,
+} from '../notifications/messageNotification.js';
 import { messageDocumentToApi } from '../messages/messageApiShape.js';
+import { findUserById } from '../users/repo.js';
 
 type MessageApiPayload = ReturnType<typeof messageDocumentToApi>;
 
@@ -12,6 +20,12 @@ export const MESSAGING_EVENTS_EXCHANGE = 'messaging.events';
 
 /** Routing key prefix for outbound chat events (extend per user/conversation as features land). */
 export const MESSAGE_ROUTING_PREFIX = 'message';
+
+/**
+ * Broker routing for **`kind: call_incoming`** notifications (**Feature 7**): **`message.call.user.<calleeUserId>`**.
+ * Publisher: **`webrtc:offer`** handler after relaying signaling; consumer: **`notification`** → **`user:<calleeUserId>`**.
+ */
+export const CALL_INCOMING_ROUTING_PREFIX = 'message.call.user.';
 
 let connection: ChannelModel | null = null;
 let channel: Channel | null = null;
@@ -44,6 +58,25 @@ function parseDirectUserRoutingKey(routingKey: string): string | null {
     return null;
   }
   const id = routingKey.slice(prefix.length).trim();
+  return id.length > 0 ? id : null;
+}
+
+/** `message.group.<groupId>` → group id (group thread fan-out — **`PROJECT_PLAN.md`** §3.2). */
+function parseGroupRoutingKey(routingKey: string): string | null {
+  const prefix = `${MESSAGE_ROUTING_PREFIX}.group.`;
+  if (!routingKey.startsWith(prefix)) {
+    return null;
+  }
+  const id = routingKey.slice(prefix.length).trim();
+  return id.length > 0 ? id : null;
+}
+
+/** `message.call.user.<calleeUserId>` → callee for **`notification`** **`kind: call_incoming`** (Feature 7). */
+function parseCallIncomingRoutingKey(routingKey: string): string | null {
+  if (!routingKey.startsWith(CALL_INCOMING_ROUTING_PREFIX)) {
+    return null;
+  }
+  const id = routingKey.slice(CALL_INCOMING_ROUTING_PREFIX.length).trim();
   return id.length > 0 ? id : null;
 }
 
@@ -161,6 +194,41 @@ function parseReceiptBrokerPayload(buf: Buffer): {
   };
 }
 
+async function deliverCallIncomingNotificationToSocketIo(
+  calleeUserId: string,
+  content: Buffer,
+): Promise<void> {
+  const parsed = parseCallIncomingNotificationBrokerBody(content);
+  if (parsed === null) {
+    logger.warn({ calleeUserId }, 'rabbitmq: invalid call_incoming broker body');
+    return;
+  }
+  const io = messagingSocketIo;
+  if (!io) {
+    logger.warn(
+      { calleeUserId },
+      'rabbitmq: Socket.IO not registered; skip call_incoming notification emit',
+    );
+    return;
+  }
+  const room = `user:${calleeUserId}`;
+  io.to(room).emit('notification', parsed);
+  const env = loadEnv();
+  if (env.MESSAGING_REALTIME_DELIVERY_LOGS) {
+    logger.info(
+      {
+        event: 'notification',
+        kind: 'call_incoming',
+        room,
+        targetUserId: calleeUserId,
+        callId: parsed.callId,
+        callerUserId: parsed.callerUserId,
+      },
+      'rabbitmq: emitted call_incoming to Socket.IO room',
+    );
+  }
+}
+
 async function deliverReceiptToSocketIo(
   targetUserId: string,
   content: Buffer,
@@ -209,11 +277,71 @@ async function deliverMessageToSocketIo(msg: ConsumeMessage): Promise<void> {
     return;
   }
 
+  const callCalleeUserId = parseCallIncomingRoutingKey(routingKey);
+  if (callCalleeUserId !== null) {
+    await deliverCallIncomingNotificationToSocketIo(
+      callCalleeUserId,
+      msg.content,
+    );
+    return;
+  }
+
+  const groupId = parseGroupRoutingKey(routingKey);
+  if (groupId !== null) {
+    const parsed = parseBrokerPayload(msg.content);
+    if (parsed === null) {
+      logger.warn({ routingKey }, 'rabbitmq: invalid group message body');
+      return;
+    }
+    const io = messagingSocketIo;
+    if (!io) {
+      logger.warn(
+        { routingKey, groupId },
+        'rabbitmq: Socket.IO not registered; skip group message emit',
+      );
+      return;
+    }
+    const room = `group:${groupId}`;
+    const { message, skipSocketId } = parsed;
+    if (skipSocketId) {
+      io.to(room).except(skipSocketId).emit('message:new', message);
+    } else {
+      io.to(room).emit('message:new', message);
+    }
+    const sender = await findUserById(message.senderId);
+    const senderDisplayName = sender?.displayName?.trim()
+      ? sender.displayName.trim()
+      : null;
+    emitMessageNotificationToGroupRoom(
+      io,
+      groupId,
+      message,
+      senderDisplayName,
+      null,
+      skipSocketId ? { exceptSocketId: skipSocketId } : undefined,
+    );
+    const env = loadEnv();
+    if (env.MESSAGING_REALTIME_DELIVERY_LOGS) {
+      logger.info(
+        {
+          event: 'message:new',
+          routingKey,
+          room,
+          groupId,
+          messageId: message.id,
+          skipSocketId: skipSocketId ?? null,
+        },
+        'rabbitmq: emitted group thread to Socket.IO room',
+      );
+    }
+    return;
+  }
+
   const userId = parseDirectUserRoutingKey(routingKey);
   if (userId === null) {
     logger.debug(
       { routingKey },
-      'rabbitmq: skip emit (routing key not message.user.* or message.receipt.*)',
+      'rabbitmq: skip emit (routing key not message.user.*, message.group.*, message.receipt.*, or message.call.user.*)',
     );
     return;
   }
@@ -236,6 +364,12 @@ async function deliverMessageToSocketIo(msg: ConsumeMessage): Promise<void> {
     io.to(room).except(skipSocketId).emit('message:new', message);
   } else {
     io.to(room).emit('message:new', message);
+    /** Recipient fan-out only — not the sender’s **`{ message, skipSocketId }`** echo (§8.3). */
+    const sender = await findUserById(message.senderId);
+    const senderDisplayName = sender?.displayName?.trim()
+      ? sender.displayName.trim()
+      : null;
+    emitMessageNotificationDirect(io, userId, message, senderDisplayName);
   }
   const env = loadEnv();
   if (env.MESSAGING_REALTIME_DELIVERY_LOGS) {

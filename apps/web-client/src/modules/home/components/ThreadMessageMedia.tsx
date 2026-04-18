@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import {
-  getMediaPublicObjectUrl,
   isLikelyImageMediaKey,
+  resolveMediaAttachmentDisplayUrl,
 } from '@/common/utils/mediaPublicUrl';
 import type { ThreadMessageMediaProps } from '../types/ThreadMessageMedia-types';
 
@@ -12,17 +12,37 @@ function attachmentAlt(isOwn: boolean): string {
 }
 
 /**
- * Renders **`mediaKey`** as a **lazy-loaded** image when a public URL is configured and the key looks like an image;
- * otherwise a generic file link or a text fallback when URLs are not available.
+ * Renders **`mediaKey`** as a **lazy-loaded** **`<img>`** when a URL is available (**`getMediaPublicObjectUrl`**
+ * / **`MediaUploadResponse.url`** / blob preview) and the key looks like an image; optional **`<dialog>`** lightbox;
+ * non-images become an **Open attachment** link. **No** AWS SDK in the browser.
  */
 export function ThreadMessageMedia({
   mediaKey,
   messageId,
   isOwn,
+  previewUrlOverride = null,
+  lightboxEnabled = true,
 }: ThreadMessageMediaProps) {
-  const url = getMediaPublicObjectUrl(mediaKey);
+  const url = resolveMediaAttachmentDisplayUrl(mediaKey, previewUrlOverride);
   const [loaded, setLoaded] = useState(false);
   const [imgError, setImgError] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  useLayoutEffect(() => {
+    if (!lightboxEnabled || !lightboxOpen) {
+      return;
+    }
+    const d = dialogRef.current;
+    if (!d) {
+      return;
+    }
+    if (typeof d.showModal === 'function') {
+      d.showModal();
+    } else {
+      d.setAttribute('open', '');
+    }
+  }, [lightboxOpen, lightboxEnabled]);
 
   if (!url) {
     return (
@@ -68,38 +88,108 @@ export function ThreadMessageMedia({
     );
   }
 
+  const thumbImgClassName = `absolute inset-0 h-full w-full object-contain transition-opacity duration-150 ${
+    loaded ? 'opacity-100' : 'opacity-0'
+  }`;
+
   return (
-    <div className="mt-1.5 min-w-0 w-full max-w-[min(100%,20rem)]">
-      <div
-        className="border-border bg-muted/30 relative aspect-video w-full overflow-hidden rounded-md border"
-        aria-label={alt}
-      >
-        {!loaded ? (
-          <div
-            id={loadingId}
-            role="status"
-            aria-live="polite"
-            aria-busy="true"
-            className="bg-muted absolute inset-0 animate-pulse"
-          />
-        ) : null}
-        <img
-          src={url}
-          alt={alt}
-          loading="lazy"
-          decoding="async"
-          aria-describedby={!loaded ? loadingId : undefined}
-          onLoad={() => {
-            setLoaded(true);
-          }}
-          onError={() => {
-            setImgError(true);
-          }}
-          className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-150 ${
-            loaded ? 'opacity-100' : 'opacity-0'
-          }`}
-        />
+    <>
+      <div className="mt-1.5 min-w-0 w-full max-w-[min(100%,20rem)]">
+        <div className="border-border bg-muted/30 relative aspect-video w-full overflow-hidden rounded-md border">
+          {!loaded ? (
+            <div
+              id={loadingId}
+              role="status"
+              aria-live="polite"
+              aria-busy="true"
+              className="bg-muted absolute inset-0 animate-pulse"
+            />
+          ) : null}
+          {lightboxEnabled ? (
+            <button
+              type="button"
+              className="text-foreground focus:ring-accent/50 absolute inset-0 cursor-zoom-in outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-background"
+              onClick={() => {
+                setLightboxOpen(true);
+              }}
+            >
+              <img
+                src={url}
+                alt={alt}
+                loading="lazy"
+                decoding="async"
+                aria-describedby={!loaded ? loadingId : undefined}
+                onLoad={() => {
+                  setLoaded(true);
+                }}
+                onError={() => {
+                  setImgError(true);
+                }}
+                className={`${thumbImgClassName} pointer-events-none`}
+              />
+            </button>
+          ) : (
+            <img
+              src={url}
+              alt={alt}
+              loading="lazy"
+              decoding="async"
+              aria-describedby={!loaded ? loadingId : undefined}
+              onLoad={() => {
+                setLoaded(true);
+              }}
+              onError={() => {
+                setImgError(true);
+              }}
+              className={thumbImgClassName}
+            />
+          )}
+        </div>
       </div>
-    </div>
+
+      {lightboxEnabled && lightboxOpen ? (
+        <dialog
+          ref={dialogRef}
+          className="border-border bg-background text-foreground m-auto max-h-[min(90vh,100%)] max-w-[min(96vw,96rem)] w-full rounded-lg border p-0 shadow-xl backdrop:bg-black/60"
+          aria-label="Image preview"
+          onClose={() => {
+            setLightboxOpen(false);
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              dialogRef.current?.close();
+            }
+          }}
+        >
+          <div
+            className="flex max-h-[min(90vh,100%)] flex-col gap-2 p-3 sm:p-4"
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
+          >
+            <div className="flex shrink-0 justify-end">
+              <button
+                type="button"
+                className="border-border text-foreground hover:bg-surface/80 focus:ring-accent/50 inline-flex min-h-11 touch-manipulation items-center rounded-md border px-3 text-sm outline-none focus:ring-2"
+                onClick={() => {
+                  dialogRef.current?.close();
+                }}
+              >
+                Close
+              </button>
+            </div>
+            <div className="bg-muted/20 relative min-h-0 min-w-0 flex-1 overflow-auto">
+              <img
+                src={url}
+                alt={alt}
+                loading="lazy"
+                decoding="async"
+                className="mx-auto max-h-[min(85vh,100%)] w-auto max-w-full object-contain"
+              />
+            </div>
+          </div>
+        </dialog>
+      ) : null}
+    </>
   );
 }

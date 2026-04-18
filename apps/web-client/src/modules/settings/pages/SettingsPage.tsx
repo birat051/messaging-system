@@ -10,6 +10,7 @@ import {
 } from '../../../common/utils/formValidation';
 import { buildProfileFormData } from '../utils/buildProfileFormData';
 import { setUser } from '../../auth/stores/authSlice';
+import { syncGuestReauthPreferenceFromUser } from '../../auth/utils/guestSessionPreference';
 import { useAuth } from '../../../common/hooks/useAuth';
 import { ROUTES } from '../../../routes/paths';
 import { useAppDispatch } from '../../../store/hooks';
@@ -60,6 +61,7 @@ export function SettingsPage() {
     try {
       const updated = await updateCurrentUserProfile(fd);
       dispatch(setUser(updated));
+      syncGuestReauthPreferenceFromUser(updated);
       setFile(null);
       setDisplayName(updated.displayName ?? '');
       setStatus(updated.status ?? '');

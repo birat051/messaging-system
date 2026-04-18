@@ -5,6 +5,11 @@ import type { AppDispatch } from '../../../store/store';
 import { applyAuthResponse } from './applyAuthResponse';
 import { logout, setUser } from '../stores/authSlice';
 import { clearRefreshToken, readRefreshToken } from './authStorage';
+import {
+  shouldPreferGuestReauth,
+  syncGuestReauthPreferenceFromUser,
+} from './guestSessionPreference';
+import { navigateToGuestEntry, navigateToLogin } from '../../../routes/navigation';
 
 let inFlight: Promise<void> | null = null;
 
@@ -27,14 +32,25 @@ export function bootstrapSessionIfNeeded(dispatch: AppDispatch): Promise<void> {
       try {
         const user = await getCurrentUser();
         dispatch(setUser(user));
+        syncGuestReauthPreferenceFromUser(user);
         await loadSenderPlaintextIntoRedux(dispatch, user.id);
       } catch {
         clearRefreshToken();
         dispatch(logout());
+        if (shouldPreferGuestReauth()) {
+          navigateToGuestEntry();
+        } else {
+          navigateToLogin();
+        }
       }
     } catch {
       clearRefreshToken();
       dispatch(logout());
+      if (shouldPreferGuestReauth()) {
+        navigateToGuestEntry();
+      } else {
+        navigateToLogin();
+      }
     } finally {
       inFlight = null;
     }

@@ -23,6 +23,7 @@ export function messageSendRateLimitPreBody(env: Env): RequestHandler {
         await isMessageSendRateLimited(env, {
           userId: user.id,
           ip,
+          isGuest: user.isGuest === true,
         })
       ) {
         next(
@@ -41,7 +42,7 @@ export function messageSendRateLimitPreBody(env: Env): RequestHandler {
   };
 }
 
-export function postMessage(): RequestHandler {
+export function postMessage(env: Env): RequestHandler {
   return async (req, res, next) => {
     try {
       const user = req.authUser;
@@ -50,7 +51,7 @@ export function postMessage(): RequestHandler {
         return;
       }
       const payload = req.body as SendMessageRequest;
-      const msg = await sendMessageForUser(user.id, payload);
+      const msg = await sendMessageForUser(env, user.id, payload);
       res.status(201).json(messageDocumentToApi(msg));
     } catch (err) {
       next(err);

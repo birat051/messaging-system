@@ -15,9 +15,16 @@ const emitReceiptMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 );
 
+const getLastSeenMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({ status: 'not_available' as const }),
+);
+
 vi.mock('@/common/realtime/SocketWorkerProvider', () => ({
   useSocketWorker: () => ({
     emitReceipt: emitReceiptMock,
+    emitWebRtcSignaling: vi.fn().mockResolvedValue(undefined),
+    getLastSeen: getLastSeenMock,
+    setWebRtcInboundHandler: vi.fn(),
     status: { kind: 'connected', socketId: 'sk-test' },
     sendMessage: vi.fn(),
   }),

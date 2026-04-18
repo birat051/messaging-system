@@ -15,6 +15,7 @@ export async function insertMessage(params: {
   senderId: string;
   body: string | null;
   mediaKey: string | null;
+  guestDataExpiresAt?: Date;
 }): Promise<MessageDocument> {
   const id = randomUUID();
   const now = new Date();
@@ -25,6 +26,9 @@ export async function insertMessage(params: {
     body: params.body,
     mediaKey: params.mediaKey,
     createdAt: now,
+    ...(params.guestDataExpiresAt !== undefined
+      ? { guestDataExpiresAt: params.guestDataExpiresAt }
+      : {}),
   };
   await getDb().collection<MessageDocument>(MESSAGES_COLLECTION).insertOne(doc);
   await getDb().collection(CONVERSATIONS_COLLECTION).updateOne(

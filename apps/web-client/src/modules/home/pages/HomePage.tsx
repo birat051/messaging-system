@@ -3,13 +3,14 @@ import { ThemeToggle } from '../../../common/components/ThemeToggle';
 import { useAuth } from '../../../common/hooks/useAuth';
 import { ROUTES } from '../../../routes/paths';
 import { ConnectionStatusIndicator } from '../components/ConnectionStatusIndicator';
+import { GuestSessionBanner } from '../components/GuestSessionBanner';
 import { HomeConversationShell } from '../components/HomeConversationShell';
 
 export function HomePage() {
   const { user, emailVerified } = useAuth();
   const location = useLocation();
 
-  if (user && emailVerified === false) {
+  if (user && !user.guest && emailVerified === false) {
     return (
       <Navigate
         to={ROUTES.verifyEmail}
@@ -24,6 +25,7 @@ export function HomePage() {
       data-testid="home-page-shell"
       className="flex min-h-0 w-full min-w-0 max-w-none flex-1 flex-col overflow-hidden pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))] md:pl-[max(2rem,env(safe-area-inset-left))] md:pr-[max(2rem,env(safe-area-inset-right))] md:pt-[max(2.5rem,env(safe-area-inset-top))] md:pb-[max(2.5rem,env(safe-area-inset-bottom))]"
     >
+        <GuestSessionBanner />
         <header className="mb-6 flex shrink-0 flex-col gap-4 sm:mb-10 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-foreground text-xl font-semibold tracking-tight sm:text-2xl">
@@ -31,12 +33,21 @@ export function HomePage() {
             </h1>
             {user && (
               <p className="mt-2">
-                <Link
-                  to={ROUTES.settings}
-                  className="text-accent inline-flex min-h-11 items-center text-sm font-medium hover:underline"
-                >
-                  Profile &amp; settings
-                </Link>
+                {user.guest ? (
+                  <Link
+                    to={ROUTES.register}
+                    className="text-accent inline-flex min-h-11 items-center text-sm font-medium hover:underline"
+                  >
+                    Create account
+                  </Link>
+                ) : (
+                  <Link
+                    to={ROUTES.settings}
+                    className="text-accent inline-flex min-h-11 items-center text-sm font-medium hover:underline"
+                  >
+                    Profile &amp; settings
+                  </Link>
+                )}
               </p>
             )}
           </div>

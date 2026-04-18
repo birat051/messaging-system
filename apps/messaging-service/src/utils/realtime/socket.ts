@@ -17,6 +17,7 @@ import { sendMessageRequestSchema } from '../../validation/schemas.js';
 import { parseGetLastSeenPayload } from './presenceSocketPayload.js';
 import { registerMessageReceiptSocketHandlers } from './receiptSocketHandlers.js';
 import { resolveSocketAuth } from './socketAuth.js';
+import { registerWebRtcSignalingHandlers } from './webrtcSocketHandlers.js';
 
 /** Minimum ms between Redis writes per socket (~5s client heartbeat, allow clock drift). */
 const HEARTBEAT_MIN_INTERVAL_MS = 4500;
@@ -44,14 +45,19 @@ function readUserIdFromHandshake(auth: unknown): string | undefined {
  * **`socket.data.authAtConnect`**). Inbound events such as **`message:send`** only read that snapshot — they do
  * not re-verify tokens or reload the user from the database.
  *
- * **Rate limits:** **`message:send`** shares Redis fixed-window caps with **`POST /messages`** (**`MESSAGE_SEND_RATE_LIMIT_*`**)
- * — per **user**, per **client IP**, and per **socket id** (socket path only).
+ * **Rate limits:** **`message:send`** shares Redis fixed-window caps with **`POST /messages`** (**`MESSAGE_SEND_RATE_LIMIT_*`**) —
+ * per **user** (guests use **`GUEST_MESSAGE_SEND_RATE_LIMIT_MAX_PER_USER`** / **`ratelimit:message-send:guest-user:{userId}`**),
+ * per **client IP**, and per **socket id** (socket path only).
  *
  * Last seen: client emits **`presence:heartbeat` every ~5s** while connected → Redis; on **disconnect** → flush to MongoDB (`users.lastSeenAt`) and clear Redis key.
  * Read path: **`presence:getLastSeen`** with `{ targetUserId }` + ack — Redis → Mongo → **`not_available`**.
  *
  * Receipts (**Feature 12**): **`message:delivered`**, **`message:read`**, **`conversation:read`** with **`{ messageId, conversationId }`**
  * + ack — server sets **`userId`** from auth; persists + RabbitMQ **`message.receipt.<userId>`** for cross-node fan-out.
+ *
+ * WebRTC (**Feature 3**): **`webrtc:offer`**, **`webrtc:answer`**, **`webrtc:candidate`** with ack — relay to **`user:<peerId>`**;
+ * **`webrtc:offer`** also publishes **`message.call.user.<calleeUserId>`** so replicas emit **`notification`** **`kind: call_incoming`** (Feature 7);
+ * authz matches direct-messaging peer rules (**`webrtcSignalingAuthz`**).
  */
 export async function attachSocketIo(
   httpServer: HttpServer,
@@ -144,6 +150,7 @@ export async function attachSocketIo(
     );
 
     registerMessageReceiptSocketHandlers(socket, env);
+    registerWebRtcSignalingHandlers(socket, io, env);
 
     socket.on(
       'message:send',
@@ -182,6 +189,7 @@ export async function attachSocketIo(
               userId: auth.user.id,
               ip,
               socketId: socket.id,
+              isGuest: auth.user.isGuest === true,
             })
           ) {
             ack({
@@ -200,7 +208,7 @@ export async function attachSocketIo(
             return;
           }
 
-          const msg = await sendMessageForUser(auth.user.id, parsed.data, {
+          const msg = await sendMessageForUser(env, auth.user.id, parsed.data, {
             originSocketId: socket.id,
           });
           ack(messageDocumentToApi(msg));

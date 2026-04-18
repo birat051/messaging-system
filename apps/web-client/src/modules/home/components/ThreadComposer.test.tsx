@@ -7,6 +7,7 @@ import { ThreadComposer } from './ThreadComposer';
 const attachment = vi.hoisted(() => ({
   mediaKey: null as string | null,
   imagePreviewUrl: null as string | null,
+  mediaPreviewUrl: null as string | null,
   clearAttachment: vi.fn(),
 }));
 
@@ -15,6 +16,7 @@ vi.mock('@/common/hooks/useComposerMediaAttachment', () => ({
     fileInputRef: { current: null },
     fileName: attachment.mediaKey ? 'photo.png' : null,
     imagePreviewUrl: attachment.imagePreviewUrl,
+    mediaPreviewUrl: attachment.mediaPreviewUrl,
     openFilePicker: vi.fn(),
     onFileInputChange: vi.fn(),
     clearAttachment: attachment.clearAttachment,
@@ -31,6 +33,7 @@ describe('ThreadComposer', () => {
   beforeEach(() => {
     attachment.mediaKey = null;
     attachment.imagePreviewUrl = null;
+    attachment.mediaPreviewUrl = null;
     attachment.clearAttachment.mockClear();
   });
 
@@ -55,7 +58,11 @@ describe('ThreadComposer', () => {
     expect(sendBtn).toHaveClass('min-h-11', 'touch-manipulation');
     await user.click(sendBtn);
 
-    expect(onSend).toHaveBeenCalledWith({ text: 'Hello world', mediaKey: null });
+    expect(onSend).toHaveBeenCalledWith({
+      text: 'Hello world',
+      mediaKey: null,
+      mediaPreviewUrl: null,
+    });
     expect(input).toHaveValue('');
     expect(attachment.clearAttachment).toHaveBeenCalled();
   });
@@ -72,8 +79,26 @@ describe('ThreadComposer', () => {
     expect(onSend).toHaveBeenCalledWith({
       text: '',
       mediaKey: 'users/me/obj.png',
+      mediaPreviewUrl: null,
     });
     expect(attachment.clearAttachment).toHaveBeenCalled();
+  });
+
+  it('passes mediaPreviewUrl with mediaKey for optimistic display (e.g. blob)', async () => {
+    attachment.mediaKey = 'users/me/obj.png';
+    attachment.mediaPreviewUrl = 'blob:local-preview';
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+
+    renderWithProviders(<ThreadComposer onSend={onSend} />);
+
+    await user.click(screen.getByRole('button', { name: /send message/i }));
+
+    expect(onSend).toHaveBeenCalledWith({
+      text: '',
+      mediaKey: 'users/me/obj.png',
+      mediaPreviewUrl: 'blob:local-preview',
+    });
   });
 
   it('does not submit or call onSend when the message is empty', async () => {

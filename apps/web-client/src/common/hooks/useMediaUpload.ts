@@ -9,7 +9,9 @@ export type { UseMediaUploadResult, UseMediaUploadState } from '@/common/types/u
 
 /**
  * Thin wrapper around **`uploadMedia`** (`**POST /media/upload**`) — **`FormData`**, **`MediaUploadResponse`**
- * (`key`, `bucket`, optional **`url`**), Axios **`onUploadProgress`**, cancel via **`AbortController`**, and **`retryUpload`**.
+ * (`key`, `bucket`, optional **`url`**), **`progress`** (0–100, **`null`** when idle), **`error`** (parsed API message),
+ * Axios **`onUploadProgress`** (skipped in **`MODE === 'test'`** only), **`AbortController`** cancel, **`retryUpload`**.
+ * **No** AWS SDK in **`package.json`** — browser talks to the API only.
  */
 export function useMediaUpload(): UseMediaUploadResult {
   const [isUploading, setIsUploading] = useState(false);
@@ -45,10 +47,14 @@ export function useMediaUpload(): UseMediaUploadResult {
       abortRef.current = ac;
       try {
         const fd = buildMediaUploadFormData(file);
+        /** Axios **fetch** adapter (Vitest) + **`onUploadProgress`** can stall MSW multipart — omit here only in test; **`mediaApi.test.ts`** still covers percent math via mocked **`post`**. */
+        const testMode = import.meta.env.MODE === 'test';
         const data = await uploadMedia(fd, {
           signal: ac.signal,
           contentLength: file.size,
-          onUploadProgress: (pct) => setProgress(pct),
+          ...(testMode
+            ? {}
+            : { onUploadProgress: (pct: number) => setProgress(pct) }),
         });
         setResult(data);
         setProgress(100);

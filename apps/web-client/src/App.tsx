@@ -1,13 +1,15 @@
 import { Suspense, useEffect } from 'react';
 import { Route, Routes, useNavigate } from 'react-router-dom';
 import {
-  HomePage,
+  GuestEntryPage,
   LoginPage,
   RegisterPage,
   SettingsPage,
   VerifyEmailPage,
 } from './routes/lazyPages';
+import { HomeOrLanding } from './routes/HomeOrLanding';
 import { ProtectedRoute } from './routes/ProtectedRoute';
+import { RegisteredOnlyRoute } from './routes/RegisteredOnlyRoute';
 import { RouteFallback } from './routes/RouteFallback';
 import { ROUTES } from './routes/paths';
 import { setNavigateHandler } from './routes/navigation';
@@ -26,11 +28,14 @@ export default function App() {
       <NavigationBridge />
       <Suspense fallback={<RouteFallback />}>
         <Routes>
+          <Route path={ROUTES.home} element={<HomeOrLanding />} />
           <Route element={<ProtectedRoute />}>
-            <Route path={ROUTES.home} element={<HomePage />} />
-            <Route path={ROUTES.settings} element={<SettingsPage />} />
+            <Route element={<RegisteredOnlyRoute />}>
+              <Route path={ROUTES.settings} element={<SettingsPage />} />
+            </Route>
           </Route>
           <Route path={ROUTES.login} element={<LoginPage />} />
+          <Route path={ROUTES.guest} element={<GuestEntryPage />} />
           <Route path={ROUTES.register} element={<RegisterPage />} />
           <Route path={ROUTES.verifyEmail} element={<VerifyEmailPage />} />
         </Routes>

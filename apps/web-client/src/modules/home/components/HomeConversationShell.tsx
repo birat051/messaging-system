@@ -9,6 +9,7 @@ import useSWR from 'swr';
 import { listConversations } from '@/common/api';
 import { useAuth } from '@/common/hooks/useAuth';
 import { usePrefetchRecipientPublicKey } from '@/common/hooks/usePrefetchRecipientPublicKey';
+import { usePeerPresenceDisplay } from '@/modules/home/hooks/usePeerPresenceDisplay';
 import { useSocketWorker } from '@/common/realtime/SocketWorkerProvider';
 import { parseApiError } from '@/modules/auth/utils/apiError';
 import { useConversation } from '@/modules/home/hooks/useConversation';
@@ -19,11 +20,18 @@ import {
   conversationListAvatarInitials,
   lastMessagePreviewLine,
 } from '@/modules/home/utils/conversationListPreview';
+import { peerPresenceTextClassName } from '@/modules/home/utils/peerPresenceDisplay';
 import {
   currentUserHasSeenMessage,
   hydratePeerReadDedupeFromReceipts,
 } from '@/modules/home/utils/receiptEmitGuards';
-import { setActiveConversationId, setSendError } from '@/modules/home/stores/messagingSlice';
+import { CallSessionDock } from '@/modules/home/components/CallSessionDock';
+import { startOutgoingCall } from '@/modules/home/stores/callSlice';
+import {
+  setActiveConversationId,
+  setSendError,
+  type StoredMessage,
+} from '@/modules/home/stores/messagingSlice';
 import {
   selectOutboundReceiptDisplay,
   type ReceiptTickContext,
@@ -58,6 +66,7 @@ export function HomeConversationShell() {
   const { user } = useAuth();
   const socketWorker = useSocketWorker();
   const emitReceipt = socketWorker?.emitReceipt;
+  const socketConnected = socketWorker?.status.kind === 'connected';
 
   const conversationReadCursorKeyRef = useRef<string>('');
   const messageReadEmittedRef = useRef(new Set<string>());
@@ -65,6 +74,7 @@ export function HomeConversationShell() {
   const activeConversationId = useAppSelector(
     (s) => s.messaging.activeConversationId,
   );
+  const callPhase = useAppSelector((s) => s.call.phase);
 
   const sendPending = useAppSelector((s) => {
     const id = s.messaging.activeConversationId;
@@ -194,6 +204,7 @@ export function HomeConversationShell() {
       const receipt = isOwn
         ? selectOutboundReceiptDisplay(messaging, m.id, user.id, receiptContext)
         : null;
+      const stored = m as StoredMessage;
       out.push({
         id: m.id,
         body: resolveMessageDisplayBody(
@@ -203,6 +214,7 @@ export function HomeConversationShell() {
           messaging.decryptedBodyByMessageId,
         ),
         mediaKey: m.mediaKey ?? null,
+        mediaPreviewUrl: stored.mediaPreviewUrl ?? null,
         isOwn,
         createdAt: m.createdAt,
         outboundReceipt: receipt?.state,
@@ -340,6 +352,7 @@ export function HomeConversationShell() {
         title,
         subtitle,
         avatarInitials: conversationListAvatarInitials(title),
+        peerUserId: c.isGroup === true ? null : (c.peerUserId ?? null),
       };
     });
   }, [data, messaging, user?.id]);
@@ -353,6 +366,10 @@ export function HomeConversationShell() {
   const threadTitle =
     selectedConversation?.title?.trim() ||
     (selectedConversation?.isGroup ? 'Group' : 'Direct message');
+
+  const headerPeerPresence = usePeerPresenceDisplay(
+    !isGroupThread ? selectedPeerUserId : null,
+  );
 
   return (
     <div
@@ -391,11 +408,11 @@ export function HomeConversationShell() {
             role="region"
             aria-label="Conversation thread"
           >
-            <div className="border-border flex shrink-0 items-center gap-2 border-b pb-2 md:hidden">
+            <div className="border-border flex shrink-0 items-center gap-2 border-b pb-2">
               <button
                 type="button"
                 data-testid="thread-mobile-back"
-                className="border-border text-foreground hover:bg-surface/80 focus:ring-accent/50 min-h-11 min-w-11 shrink-0 rounded-md border px-3 text-sm font-medium outline-none focus:ring-2"
+                className="border-border text-foreground hover:bg-surface/80 focus:ring-accent/50 min-h-11 min-w-11 shrink-0 rounded-md border px-3 text-sm font-medium outline-none focus:ring-2 md:hidden"
                 aria-label="Back to conversations"
                 onClick={() => {
                   dispatch(setActiveConversationId(null));
@@ -403,9 +420,39 @@ export function HomeConversationShell() {
               >
                 ←
               </button>
-              <span className="text-foreground min-w-0 truncate text-sm font-medium">
-                {threadTitle}
-              </span>
+              <div className="min-w-0 flex-1 flex flex-col justify-center gap-0.5">
+                <span className="text-foreground truncate text-sm font-medium">
+                  {threadTitle}
+                </span>
+                {!isGroupThread &&
+                headerPeerPresence.variant !== 'hidden' &&
+                headerPeerPresence.text ? (
+                  <span
+                    className={`truncate text-xs ${peerPresenceTextClassName(headerPeerPresence.variant)}`}
+                  >
+                    {headerPeerPresence.text}
+                  </span>
+                ) : null}
+              </div>
+              {!isGroupThread && selectedPeerUserId ? (
+                <button
+                  type="button"
+                  data-testid="thread-start-call"
+                  className="border-border bg-surface text-foreground hover:bg-surface/80 focus:ring-accent/50 shrink-0 rounded-md border px-3 py-2 text-sm font-medium outline-none focus:ring-2 disabled:pointer-events-none disabled:opacity-50"
+                  disabled={callPhase !== 'idle' || !socketConnected}
+                  title={
+                    !socketConnected
+                      ? 'Waiting for chat connection before calling.'
+                      : undefined
+                  }
+                  aria-label="Start voice or video call"
+                  onClick={() => {
+                    dispatch(startOutgoingCall(selectedPeerUserId));
+                  }}
+                >
+                  Call
+                </button>
+              ) : null}
             </div>
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
               <ThreadMessageList
@@ -460,6 +507,12 @@ export function HomeConversationShell() {
           </section>
         )}
       </div>
+      <CallSessionDock
+        activeConversationId={activeConversationId}
+        isGroupThread={isGroupThread}
+        selectedPeerUserId={selectedPeerUserId}
+        peerDisplayName={threadTitle}
+      />
     </div>
   );
 }

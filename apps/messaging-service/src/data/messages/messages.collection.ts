@@ -26,6 +26,8 @@ export type MessageDocument = {
   body: string | null;
   mediaKey: string | null;
   createdAt: Date;
+  /** Guest-only guest↔guest sends — MongoDB TTL when enabled. */
+  guestDataExpiresAt?: Date;
   /**
    * **1:1** (one peer) or **group** per-member receipt materialization — user id → delivery/read times.
    * **Read-up-to** for groups may also use **`conversation_reads`** to avoid O(N) message updates.
@@ -55,5 +57,13 @@ export async function ensureMessageIndexes(db: Db): Promise<void> {
     { name: 'messages_conversation_created' },
   );
   await col.createIndex({ id: 1 }, { unique: true, name: 'messages_id_unique' });
+  await col.createIndex(
+    { guestDataExpiresAt: 1 },
+    {
+      name: 'messages_guest_data_ttl',
+      expireAfterSeconds: 0,
+      sparse: true,
+    },
+  );
   logger.info('MongoDB messages indexes ensured');
 }

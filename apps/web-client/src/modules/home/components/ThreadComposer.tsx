@@ -20,7 +20,8 @@ export type ThreadComposerProps = {
 
 /**
  * Message input + send — trimmed body and/or **`mediaKey`** from **`POST /media/upload`**;
- * send disabled when empty (no text and no uploaded attachment), while upload is in flight, or while **`onSend`** runs.
+ * **`mediaPreviewUrl`** (blob or API **`url`**) is passed for optimistic thread display only — **`message:send`** still sends **`mediaKey`** (**no** browser S3).
+ * Send disabled when empty (no text and no uploaded attachment), while upload is in flight, or while **`onSend`** runs.
  */
 export function ThreadComposer({
   onSend,
@@ -64,7 +65,13 @@ export function ThreadComposer({
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await Promise.resolve(onSend({ text, mediaKey: mediaKey ?? null }));
+      await Promise.resolve(
+        onSend({
+          text,
+          mediaKey: mediaKey ?? null,
+          mediaPreviewUrl: attachment.mediaPreviewUrl ?? null,
+        }),
+      );
       setValue('');
       attachment.clearAttachment();
     } catch (e: unknown) {

@@ -56,6 +56,23 @@ describe('ComposerAttachmentToolbar', () => {
     expect(screen.getByText(/uploading 42%/i)).toBeInTheDocument();
   });
 
+  it('offers Cancel upload while uploading', async () => {
+    const user = userEvent.setup();
+    const cancelUpload = vi.fn();
+
+    renderWithProviders(
+      <ComposerAttachmentToolbar
+        {...base()}
+        isUploading
+        progress={20}
+        cancelUpload={cancelUpload}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /cancel upload/i }));
+    expect(cancelUpload).toHaveBeenCalledTimes(1);
+  });
+
   it('offers Retry upload after an error when a file was chosen', async () => {
     const user = userEvent.setup();
     const retryUpload = vi.fn();

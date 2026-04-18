@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   getMediaPublicObjectUrl,
   isLikelyImageMediaKey,
+  resolveMediaAttachmentDisplayUrl,
 } from './mediaPublicUrl';
 
 describe('mediaPublicUrl', () => {
@@ -29,5 +30,26 @@ describe('mediaPublicUrl', () => {
   it('detects common image extensions on keys', () => {
     expect(isLikelyImageMediaKey('users/1/x.PNG')).toBe(true);
     expect(isLikelyImageMediaKey('users/1/doc.pdf')).toBe(false);
+  });
+
+  it('resolveMediaAttachmentDisplayUrl prefers blob or http(s) override', () => {
+    expect(
+      resolveMediaAttachmentDisplayUrl('users/1/a.png', 'blob:abc'),
+    ).toBe('blob:abc');
+    expect(
+      resolveMediaAttachmentDisplayUrl('users/1/a.png', 'https://cdn.example.com/obj'),
+    ).toBe('https://cdn.example.com/obj');
+  });
+
+  it('resolveMediaAttachmentDisplayUrl falls back to public URL from key when override missing', () => {
+    expect(resolveMediaAttachmentDisplayUrl('users/1/a.png', null)).toBe(
+      'http://localhost:9000/messaging-media/users/1/a.png',
+    );
+  });
+
+  it('resolveMediaAttachmentDisplayUrl ignores invalid override strings', () => {
+    expect(
+      resolveMediaAttachmentDisplayUrl('users/1/a.png', 'javascript:alert(1)'),
+    ).toBe('http://localhost:9000/messaging-media/users/1/a.png');
   });
 });

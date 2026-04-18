@@ -13,6 +13,11 @@ export type StoredRefreshPayload = {
   v: number;
 };
 
+export type CreateRefreshTokenOptions = {
+  /** Override **`env.REFRESH_TOKEN_TTL_SECONDS`** (e.g. guest sessions). */
+  ttlSeconds?: number;
+};
+
 /**
  * Opaque refresh token stored in Redis with TTL; payload ties to **`refreshTokenVersion`** on the user.
  */
@@ -20,6 +25,7 @@ export async function createRefreshToken(
   env: Env,
   userId: string,
   refreshTokenVersion: number,
+  options?: CreateRefreshTokenOptions,
 ): Promise<string> {
   const redis = getRedisClient();
   const raw = randomBytes(48).toString('base64url');
@@ -28,8 +34,9 @@ export async function createRefreshToken(
     userId,
     v: refreshTokenVersion,
   };
+  const ttl = options?.ttlSeconds ?? env.REFRESH_TOKEN_TTL_SECONDS;
   await redis.set(`${PREFIX}${h}`, JSON.stringify(payload), {
-    EX: env.REFRESH_TOKEN_TTL_SECONDS,
+    EX: ttl,
   });
   return raw;
 }

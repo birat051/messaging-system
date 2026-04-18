@@ -4,6 +4,12 @@ import { isE2eeEnvelopeBody } from '@/common/crypto/messageEcies';
 import { logout } from '../../auth/stores/authSlice';
 
 export type Message = components['schemas']['Message'];
+/**
+ * **`messagesById`** values — server **`Message`** plus optional client-only preview URL for optimistic rows.
+ */
+export type StoredMessage = Message & {
+  mediaPreviewUrl?: string | null;
+};
 export type MessageReceiptSummary = components['schemas']['MessageReceiptSummary'];
 export type MessageReceiptEntry = components['schemas']['MessageReceiptEntry'];
 
@@ -20,7 +26,7 @@ export type MessagingState = {
    */
   recipientDirectoryKeyByUserId: Record<string, UserPublicKeyResponse>;
   /** Normalized message entities (deduped by **`message.id`**). */
-  messagesById: Record<string, Message>;
+  messagesById: Record<string, StoredMessage>;
   /** **`conversationId` → ordered message ids (oldest → newest, display order). */
   messageIdsByConversationId: Record<string, string[]>;
   /**
@@ -209,7 +215,7 @@ const messagingSlice = createSlice({
     },
     appendMessageFromSend(
       state,
-      action: PayloadAction<{ conversationId: string; message: Message }>,
+      action: PayloadAction<{ conversationId: string; message: StoredMessage }>,
     ) {
       const { conversationId, message } = action.payload;
       state.messagesById[message.id] = message;

@@ -1,11 +1,14 @@
 import { useEffect, useId, useState } from 'react';
+import { Link } from 'react-router-dom';
 import useSWR from 'swr';
 import type { components } from '@/generated/api-types';
 import { searchUsers } from '@/common/api/usersApi';
 import { usePrefetchRecipientPublicKey } from '@/common/hooks/usePrefetchRecipientPublicKey';
 import { useDebouncedValue } from '@/common/hooks/useDebouncedValue';
 import { isValidUserSearchQuery } from '@/common/utils/formValidation';
+import { useAuth } from '@/common/hooks/useAuth';
 import { parseApiError } from '@/modules/auth/utils/apiError';
+import { ROUTES } from '@/routes/paths';
 import { FollowUpThreadComposer } from './FollowUpThreadComposer';
 import { NewDirectThreadComposer } from './NewDirectThreadComposer';
 import { UserSearchResultList } from './UserSearchResultList';
@@ -31,9 +34,12 @@ export type UserSearchPanelProps = {
 };
 
 /**
- * Debounced search field → **`GET /users/search`** — loading / empty / error states (partial email match on server).
+ * Debounced search → **`GET /v1/users/search`**. For **guest** sessions the API returns **guest-scoped**
+ * results only (registered users never appear). Loading / empty / error copy reflects that sandbox.
  */
 export function UserSearchPanel({ embedInSidebar = false }: UserSearchPanelProps) {
+  const { user } = useAuth();
+  const isGuest = user?.guest === true;
   const id = useId();
   const headingId = `user-search-heading-${id}`;
   const inputId = `user-search-query-${id}`;
@@ -77,17 +83,23 @@ export function UserSearchPanel({ embedInSidebar = false }: UserSearchPanelProps
       aria-labelledby={headingId}
     >
       <h2 id={headingId} className="text-foreground text-sm font-medium">
-        Find someone
+        {isGuest ? 'Find other guests' : 'Find someone'}
       </h2>
+      {isGuest ? (
+        <p className="text-muted text-xs leading-snug">
+          Registered accounts are not listed here — start chats with other guests, or register for the
+          full directory.
+        </p>
+      ) : null}
       <div>
         <label htmlFor={inputId} className="sr-only">
-          Search users
+          {isGuest ? 'Search guests' : 'Search users'}
         </label>
         <input
           id={inputId}
           type="text"
           autoComplete="off"
-          placeholder="Search"
+          placeholder={isGuest ? 'Search guests' : 'Search'}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           className="border-border bg-background ring-ring focus:ring-accent/40 min-h-11 w-full rounded-md border px-3 py-2 text-base outline-none focus:ring-2 md:text-sm"
@@ -97,30 +109,64 @@ export function UserSearchPanel({ embedInSidebar = false }: UserSearchPanelProps
       <div aria-live="polite" className="text-sm">
         {canSearch && showLoading && (
           <p className="text-foreground" role="status" aria-busy="true">
-            Searching…
+            {isGuest ? 'Searching guests…' : 'Searching…'}
           </p>
         )}
 
         {canSearch && !showLoading && parsedError && (
-          <p className="text-red-600 dark:text-red-400" role="alert">
-            {parsedError.message}
-          </p>
+          <div className="space-y-2" role="alert">
+            <p className="text-red-600 dark:text-red-400">{parsedError.message}</p>
+            {isGuest ? (
+              <p className="text-muted text-xs">
+                Guest search never includes registered users.{' '}
+                <Link
+                  to={ROUTES.register}
+                  className="text-accent font-medium underline-offset-4 hover:underline"
+                >
+                  Register
+                </Link>{' '}
+                to use the full directory if you need it.
+              </p>
+            ) : null}
+          </div>
         )}
 
         {canSearch && !showLoading && !parsedError && data && data.length === 0 && (
           <p className="text-muted" role="status">
-            No users match that search text.
+            {isGuest ? (
+              <>
+                No other guests match that text. Invite a friend to try as a guest, or{' '}
+                <Link
+                  to={ROUTES.register}
+                  className="text-accent font-medium underline-offset-4 hover:underline"
+                >
+                  create an account
+                </Link>{' '}
+                to search the full directory.
+              </>
+            ) : (
+              'No users match that search text.'
+            )}
           </p>
         )}
 
         {canSearch && !showLoading && !parsedError && data && data.length > 0 && (
           <div className="space-y-3">
             <p className="text-foreground" role="status">
-              Found {data.length} {data.length === 1 ? 'person' : 'people'}.
+              {isGuest ? (
+                <>
+                  Found {data.length} other {data.length === 1 ? 'guest' : 'guests'}.
+                </>
+              ) : (
+                <>
+                  Found {data.length} {data.length === 1 ? 'person' : 'people'}.
+                </>
+              )}
             </p>
             <UserSearchResultList
               results={data}
               idPrefix={`user-search-${id}`}
+              isGuestDirectory={isGuest}
               selectedUserId={selectedRecipient?.userId ?? null}
               onSelectUser={setSelectedRecipient}
             />

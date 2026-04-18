@@ -5,4 +5,6 @@ export const ROUTES = {
   login: '/login',
   register: '/register',
   verifyEmail: '/verify-email',
+  /** Guest sandbox entry — username for **`POST /auth/guest`**; also used when the guest session expires (**401**). */
+  guest: '/guest',
 } as const;

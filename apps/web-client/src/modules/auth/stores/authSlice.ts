@@ -7,11 +7,17 @@ export type User = components['schemas']['User'];
 export type AuthState = {
   user: User | null;
   accessToken: string | null;
+  /**
+   * UTC **`expiresAt`** from **`AuthResponse`** / **`GuestAuthResponse`** when the API sends it
+   * (e.g. guest **`POST /auth/guest`**, **`POST /auth/refresh`**).
+   */
+  accessTokenExpiresAt: string | null;
 };
 
 const initialState: AuthState = {
   user: null,
   accessToken: null,
+  accessTokenExpiresAt: null,
 };
 
 const authSlice = createSlice({
@@ -23,10 +29,14 @@ const authSlice = createSlice({
       action: PayloadAction<{
         user: User | null;
         accessToken: string | null;
+        accessTokenExpiresAt?: string | null;
       }>,
     ) {
       state.user = action.payload.user;
       state.accessToken = action.payload.accessToken;
+      if (action.payload.accessTokenExpiresAt !== undefined) {
+        state.accessTokenExpiresAt = action.payload.accessTokenExpiresAt;
+      }
     },
     setUser(state, action: PayloadAction<User>) {
       state.user = action.payload;
@@ -34,6 +44,7 @@ const authSlice = createSlice({
     logout(state) {
       state.user = null;
       state.accessToken = null;
+      state.accessTokenExpiresAt = null;
     },
   },
 });

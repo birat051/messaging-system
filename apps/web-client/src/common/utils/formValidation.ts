@@ -139,6 +139,38 @@ export function validateRegisterForm(input: {
   return { valid: true };
 }
 
+export type GuestEntryFieldKey = 'username' | 'displayName';
+
+/** Align with **`GuestRequest`** / register **`username`** rules. */
+export function validateGuestEntryForm(input: {
+  username: string;
+  displayName: string;
+}):
+  | { valid: true }
+  | { valid: false; fields: Partial<Record<GuestEntryFieldKey, string>> } {
+  const fields: Partial<Record<GuestEntryFieldKey, string>> = {};
+  const username = input.username.trim();
+  if (!username) {
+    fields.username = 'Username is required.';
+  } else if (
+    username.length < USERNAME_MIN_LENGTH ||
+    username.length > USERNAME_MAX_LENGTH
+  ) {
+    fields.username = `Username must be ${USERNAME_MIN_LENGTH}–${USERNAME_MAX_LENGTH} characters.`;
+  } else if (!USERNAME_RE.test(username)) {
+    fields.username =
+      'Use only letters, digits, and underscores (no spaces).';
+  }
+  const displayName = input.displayName.trim();
+  if (displayName.length > DISPLAY_NAME_MAX_LENGTH) {
+    fields.displayName = `Display name must be at most ${DISPLAY_NAME_MAX_LENGTH} characters.`;
+  }
+  if (Object.keys(fields).length > 0) {
+    return { valid: false, fields };
+  }
+  return { valid: true };
+}
+
 export function validateLoginForm(email: string, password: string): string | null {
   if (!email.trim()) {
     return 'Email is required.';

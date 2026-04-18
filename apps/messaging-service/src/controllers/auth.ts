@@ -11,6 +11,10 @@ import {
 import { getRefreshPayload, revokeRefreshToken } from '../utils/auth/refreshTokenRedis.js';
 import { getClientIp } from '../utils/auth/getClientIp.js';
 import {
+  getClientFingerprintHeader,
+  isGuestAuthRateLimited,
+} from '../utils/auth/guestAuthRateLimit.js';
+import {
   emailRateLimitKey,
   rateLimitExceeded,
 } from '../utils/auth/rateLimitRedis.js';
@@ -18,6 +22,7 @@ import { AppError } from '../utils/errors/AppError.js';
 import { logger } from '../utils/logger.js';
 import { verifyPassword } from '../data/users/password.js';
 import {
+  createGuestUser,
   createUser,
   DuplicateEmailError,
   DuplicateUsernameError,
@@ -27,9 +32,10 @@ import {
   setUserPasswordAndBumpVersion,
 } from '../data/users/repo.js';
 import { toUserApiShape } from '../data/users/publicUser.js';
-import type { RegisterRequest } from '../validation/schemas.js';
+import type { GuestRequest, RegisterRequest } from '../validation/schemas.js';
 import { sendPasswordResetEmail } from '../utils/email/sendPasswordResetEmail.js';
 import { sendVerificationEmail } from '../utils/email/sendVerificationEmail.js';
+import { computeGuestDataExpiresAt } from '../config/guestDataTtl.js';
 import { getEffectiveRuntimeConfig } from '../config/runtimeConfig.js';
 import type { Env } from '../config/env.js';
 
@@ -52,6 +58,32 @@ async function requireEmailVerificationEnabled(env: Env): Promise<void> {
       'Email verification is not enabled. Accounts are verified on registration.',
     );
   }
+}
+
+/**
+ * **`POST /auth/guest`** — reject when **`guestSessionsEnabled`** is false (**MongoDB** **`system_config`**
+ * or env **`GUEST_SESSIONS_ENABLED`** via **`getEffectiveRuntimeConfig`**). Runs **before** body validation
+ * so clients get **403** even with a malformed body.
+ */
+export function requireGuestSessionsEnabled(env: Env): RequestHandler {
+  return async (_req, _res, next) => {
+    try {
+      const cfg = await getEffectiveRuntimeConfig(env);
+      if (!cfg.guestSessionsEnabled) {
+        next(
+          new AppError(
+            'GUEST_SESSIONS_DISABLED',
+            403,
+            'Guest sessions are disabled.',
+          ),
+        );
+        return;
+      }
+      next();
+    } catch (err: unknown) {
+      next(err);
+    }
+  };
 }
 
 export function postRegister(env: Env): RequestHandler {
@@ -91,14 +123,25 @@ export function postRegister(env: Env): RequestHandler {
       });
 
       if (runtimeCfg.emailVerificationRequired) {
+        const regEmail = user.email;
+        if (!regEmail) {
+          next(
+            new AppError(
+              'INTERNAL_ERROR',
+              500,
+              'Registered user missing email after signup',
+            ),
+          );
+          return;
+        }
         const verificationToken = await signEmailVerificationToken(
           env,
           user.id,
-          user.email,
+          regEmail,
         );
         if (env.NODE_ENV !== 'production') {
           logger.info(
-            { userId: user.id, email: user.email },
+            { userId: user.id, email: regEmail },
             'email verification token (dev — configure mail in production)',
           );
           logger.debug({ verificationToken }, 'verification JWT');
@@ -110,7 +153,7 @@ export function postRegister(env: Env): RequestHandler {
         }
         try {
           await sendVerificationEmail(env, {
-            to: user.email,
+            to: regEmail,
             verificationToken,
           });
         } catch (err: unknown) {
@@ -121,7 +164,7 @@ export function postRegister(env: Env): RequestHandler {
         }
       } else {
         logger.info(
-          { userId: user.id, email: user.email },
+          { userId: user.id, email: user.email ?? null },
           'user registered; email verification skipped (verification not required)',
         );
       }
@@ -264,13 +307,16 @@ export function postRefresh(env: Env): RequestHandler {
         );
         return;
       }
-      const tokens = await issueAuthTokens(env, user);
+      const tokens = await issueAuthTokens(env, user, {
+        guest: user.isGuest === true,
+      });
       await revokeRefreshToken(rawRefresh);
       res.status(200).json({
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
         tokenType: 'Bearer',
         expiresIn: tokens.expiresIn,
+        ...(tokens.expiresAt !== undefined ? { expiresAt: tokens.expiresAt } : {}),
       });
     } catch (err: unknown) {
       next(err);
@@ -315,7 +361,7 @@ export function postForgotPassword(env: Env): RequestHandler {
       }
       const { email } = req.body as { email: string };
       const user = await findUserByEmail(email);
-      if (user) {
+      if (user?.email) {
         const token = await signPasswordResetToken(env, user.id, user.email);
         if (env.NODE_ENV !== 'production') {
           logger.debug(
@@ -353,6 +399,16 @@ export function postResetPassword(env: Env): RequestHandler {
             'INVALID_PASSWORD_RESET_TOKEN',
             400,
             'Password reset token is not valid for this account',
+          ),
+        );
+        return;
+      }
+      if (user.isGuest === true) {
+        next(
+          new AppError(
+            'GUEST_ACTION_FORBIDDEN',
+            403,
+            'Password reset does not apply to guest accounts',
           ),
         );
         return;
@@ -403,6 +459,16 @@ export function postVerifyEmail(env: Env): RequestHandler {
             'INVALID_VERIFICATION_TOKEN',
             400,
             'User not found for this token',
+          ),
+        );
+        return;
+      }
+      if (user.isGuest === true) {
+        next(
+          new AppError(
+            'GUEST_ACTION_FORBIDDEN',
+            403,
+            'Email verification does not apply to guest accounts',
           ),
         );
         return;
@@ -480,6 +546,10 @@ export function postResendVerification(env: Env): RequestHandler {
         res.status(200).json({ ok: true });
         return;
       }
+      if (!user.email) {
+        res.status(200).json({ ok: true });
+        return;
+      }
 
       const verificationToken = await signEmailVerificationToken(
         env,
@@ -519,6 +589,65 @@ export function postResendVerification(env: Env): RequestHandler {
       }
 
       res.status(200).json({ ok: true });
+    } catch (err: unknown) {
+      next(err);
+    }
+  };
+}
+
+/**
+ * **`POST /auth/guest`** — creates a **guest** row in **`users`** (no **`email`**; optional MongoDB TTL via
+ * **`guestDataExpiresAt`**) and returns **`GuestAuthResponse`**.
+ */
+export function postGuest(env: Env): RequestHandler {
+  return async (req, res, next) => {
+    try {
+      requireJwtForAuth(env);
+      const ip = getClientIp(req);
+      const fingerprint = getClientFingerprintHeader(req);
+      if (
+        await isGuestAuthRateLimited(env, {
+          ip,
+          ...(fingerprint !== undefined ? { fingerprintRaw: fingerprint } : {}),
+        })
+      ) {
+        next(
+          new AppError(
+            'RATE_LIMIT_EXCEEDED',
+            429,
+            'Too many guest session attempts; try again later',
+          ),
+        );
+        return;
+      }
+      const body = req.body as GuestRequest;
+      const runtimeCfg = await getEffectiveRuntimeConfig(env);
+      const guestDataExpiresAt = computeGuestDataExpiresAt(env, runtimeCfg);
+      let user;
+      try {
+        user = await createGuestUser(body, { guestDataExpiresAt });
+      } catch (err: unknown) {
+        if (err instanceof DuplicateUsernameError) {
+          next(
+            new AppError(
+              'USERNAME_TAKEN',
+              409,
+              'This username is already taken',
+            ),
+          );
+          return;
+        }
+        throw err;
+      }
+      const tokens = await issueAuthTokens(env, user, { guest: true });
+      res.status(200).json({
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        tokenType: 'Bearer',
+        expiresIn: tokens.expiresIn,
+        ...(tokens.expiresAt !== undefined ? { expiresAt: tokens.expiresAt } : {}),
+        user: toUserApiShape(user),
+      });
     } catch (err: unknown) {
       next(err);
     }

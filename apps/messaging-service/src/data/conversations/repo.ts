@@ -61,10 +61,12 @@ export async function lookupConversationById(
 
 /**
  * Loads or creates a **direct 1:1** conversation between two distinct users.
+ * **`guestDataExpiresAt`** is set on **new** guest↔guest threads when TTL is enabled (see **`sendMessage.ts`**).
  */
 export async function findOrCreateDirectConversation(
   userA: string,
   userB: string,
+  guestDataExpiresAt?: Date,
 ): Promise<DirectConversationDocument> {
   const col = getDb().collection<DirectConversationDocument>(CONVERSATIONS_COLLECTION);
   const existingId = await findDirectConversationIdBetween(userA, userB);
@@ -86,6 +88,9 @@ export async function findOrCreateDirectConversation(
     isGroup: false,
     createdAt: now,
     updatedAt: now,
+    ...(guestDataExpiresAt !== undefined
+      ? { guestDataExpiresAt }
+      : {}),
   };
 
   try {
