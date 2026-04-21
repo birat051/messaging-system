@@ -1,17 +1,17 @@
 # Ekko
 
-**Product name** for the messaging stack in this repository (**folder:** **`messaging-system`**). TypeScript **web client** and **Node.js microservice** for real-time **chat**, **presence**, **in-app notifications**, and **WebRTC-oriented** calling. The stack is **OpenAPI-first** (REST contract, codegen to the client, Zod validation on the server), with **Socket.IO** for browser transport and **RabbitMQ** for routing persisted work across processes and replicas. **Docker Compose** runs the full dependency set locally.
+TypeScript **web client** and **Node.js microservice** for real-time **chat**, **presence**, **in-app notifications**, and **WebRTC-oriented** calling. The stack is **OpenAPI-first** (REST contract, codegen to the client, Zod validation on the server), with **Socket.IO** for browser transport and **RabbitMQ** for routing persisted work across processes and replicas. **Docker Compose** runs the full dependency set locally.
 
 ## Documentation (three files only)
 
 This repository uses **exactly three** Markdown documents: **`README.md`** (this file — features, architecture summary, diagrams, deployment, **environment variables**), **[`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md)** (vision, algorithms, procedures, stack, **§14 engineering standards**), and **[`docs/TASK_CHECKLIST.md`](docs/TASK_CHECKLIST.md)** (delivery backlog). **OpenAPI** lives in **`docs/openapi/openapi.yaml`** (not Markdown). Do not add other `*.md` files; extend these three.
 
-| Layer | Technology |
-|-------|------------|
-| **Client** | React 18, Vite, TypeScript, Tailwind CSS, Redux Toolkit, React Router, Axios; Socket.IO client in a **Web Worker** so the UI thread stays responsive |
-| **API** | Node.js, Express, TypeScript; OpenAPI 3 spec in **`docs/openapi/`**, Swagger UI, **`openapi-typescript`** for **`apps/web-client/src/generated/`** |
-| **Data** | MongoDB (primary store), Redis (presence / hot paths), RabbitMQ (post-persist routing), S3-compatible object storage (MinIO in development) |
-| **Real time** | Socket.IO server on **messaging-service** (chat, signaling channel, notification transport) |
+| Layer         | Technology                                                                                                                                           |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Client**    | React 18, Vite, TypeScript, Tailwind CSS, Redux Toolkit, React Router, Axios; Socket.IO client in a **Web Worker** so the UI thread stays responsive |
+| **API**       | Node.js, Express, TypeScript; OpenAPI 3 spec in **`docs/openapi/`**, Swagger UI, **`openapi-typescript`** for **`apps/web-client/src/generated/`**   |
+| **Data**      | MongoDB (primary store), Redis (presence / hot paths), RabbitMQ (post-persist routing), S3-compatible object storage (MinIO in development)          |
+| **Real time** | Socket.IO server on **messaging-service** (chat, signaling channel, notification transport)                                                          |
 
 Architecture, scaling, and algorithms: **[`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md)**. Task tracking: **[`docs/TASK_CHECKLIST.md`](docs/TASK_CHECKLIST.md)**. **How to build** (TypeScript, React, MongoDB, tests): **`docs/PROJECT_PLAN.md` §14**. **E2EE multi-device encryption** (hybrid model, per-device keys, message key distribution, send/receive flow, new device key re-sharing): **`docs/PROJECT_PLAN.md` §7.1**.
 
@@ -33,15 +33,15 @@ Target capabilities include **direct and group messaging**, **last-seen presence
 
 ## Delivery status
 
-| Area | Specification | Repository today |
-|------|----------------|-------------------|
-| **Identity** | Register, login, verification, reset; JWT access + refresh | REST APIs per OpenAPI on **messaging-service**; **web-client**: Redux session, shared **`httpClient`**, refresh-on-401 flow — [`apps/web-client/src/common/api/httpClient.ts`](apps/web-client/src/common/api/httpClient.ts) |
-| **Chat (messages)** | Persist → RabbitMQ → Socket.IO rooms | Broker + Socket.IO + MongoDB integrated on the service; end-user chat UI and full pipeline items tracked in **`TASK_CHECKLIST.md`** |
-| **Presence** | Redis while connected; flush **last seen** to Mongo | **Live**: heartbeat (~5 s), Redis, **`presence:getLastSeen`** resolution |
-| **Media** | Server-mediated upload to object storage | **`POST /v1/media/upload`** implemented; multipart UX in client backlog |
-| **Notifications** | Single Socket.IO event **`notification`**, versioned payload — **`PROJECT_PLAN.md` §8** | Contract defined; **emit from domain** (checklist Feature 7) **outstanding**. No separate notification microservice; no Redis Streams for in-tab delivery |
-| **Calls** | 1:1 signaling via Socket.IO; STUN/TURN; group SFU at scale | **STUN** (default public host or **`VITE_WEBRTC_STUN_URLS`**); **TURN** via **`infra/coturn`** (`--profile turn`) or **managed** credentials (**`VITE_WEBRTC_TURN_*`**); ports in [**WebRTC: ports and ICE**](#webrtc-ports-and-ice) |
-| **Operations** | Compose, nginx, documented env | Stack exposed on **8080** via nginx (**`apps/web-client/dist/`** bind-mounted as static root, SPA **`index.html`** fallback); **TLS** still follow-up |
+| Area                | Specification                                                                           | Repository today                                                                                                                                                                                                                     |
+| ------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Identity**        | Register, login, verification, reset; JWT access + refresh                              | REST APIs per OpenAPI on **messaging-service**; **web-client**: Redux session, shared **`httpClient`**, refresh-on-401 flow — [`apps/web-client/src/common/api/httpClient.ts`](apps/web-client/src/common/api/httpClient.ts)         |
+| **Chat (messages)** | Persist → RabbitMQ → Socket.IO rooms                                                    | Broker + Socket.IO + MongoDB integrated on the service; end-user chat UI and full pipeline items tracked in **`TASK_CHECKLIST.md`**                                                                                                  |
+| **Presence**        | Redis while connected; flush **last seen** to Mongo                                     | **Live**: heartbeat (~5 s), Redis, **`presence:getLastSeen`** resolution                                                                                                                                                             |
+| **Media**           | Server-mediated upload to object storage                                                | **`POST /v1/media/upload`** implemented; multipart UX in client backlog                                                                                                                                                              |
+| **Notifications**   | Single Socket.IO event **`notification`**, versioned payload — **`PROJECT_PLAN.md` §8** | Contract defined; **emit from domain** (checklist Feature 7) **outstanding**. No separate notification microservice; no Redis Streams for in-tab delivery                                                                            |
+| **Calls**           | 1:1 signaling via Socket.IO; STUN/TURN; group SFU at scale                              | **STUN** (default public host or **`VITE_WEBRTC_STUN_URLS`**); **TURN** via **`infra/coturn`** (`--profile turn`) or **managed** credentials (**`VITE_WEBRTC_TURN_*`**); ports in [**WebRTC: ports and ICE**](#webrtc-ports-and-ice) |
+| **Operations**      | Compose, nginx, documented env                                                          | Stack exposed on **8080** via nginx (**`apps/web-client/dist/`** bind-mounted as static root, SPA **`index.html`** fallback); **TLS** still follow-up                                                                                |
 
 ---
 
@@ -55,22 +55,22 @@ Today **`E2EE_JSON_V1`** encrypts the message body for the **recipient**. The **
 
 **Dual envelope** (or an equivalent) would attach a **second ciphertext** the **sender** can decrypt using their **directory public key** material and **local private key**, so **GET `/conversations/.../messages`** can restore the sender’s readable copy **without** a prior local cache—useful for **new devices**, **cleared storage**, or products that want **server-mediated history** to be decryptable by the sender as well as the recipient. **Security posture:** still **no private keys on the server**; payloads stay **opaque** to the service (same review line as today).
 
-| Dimension | Summary |
-| --- | --- |
-| **Solves** | Sender-readable copy from **server-stored** blobs after reload; **multi-device / clean browser** without depending only on IndexedDB; aligns with a stricter story than “plaintext only ever in a local map.” |
+| Dimension     | Summary                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Solves**    | Sender-readable copy from **server-stored** blobs after reload; **multi-device / clean browser** without depending only on IndexedDB; aligns with a stricter story than “plaintext only ever in a local map.”                                                                                                                                                                                               |
 | **Tradeoffs** | **Large PR**: **OpenAPI**, **messaging-service** persistence, **web-client** encrypt/decrypt, **backward compatibility** with legacy single-envelope messages; **larger payloads** and more **crypto review**; product must accept that **decrypted plaintext still exists client-side** after decrypt. Option B changes **where** recoverability comes from, not whether humans see plain text in the app. |
 
 ### Sender-plaintext persistence (web client)
 
 The client already keeps **own-message plaintext** in **IndexedDB** (scoped by signed-in user), merges it into Redux on session restore, and **write-through** on send ack so full reloads can still show what you typed when the server only stores **E2EE** ciphertext. The items below are **not** required for that baseline; they address **performance, hygiene, security posture, and test coverage** as the product hardens.
 
-| Follow-up | What problem it solves |
-|-----------|-------------------------|
+| Follow-up                            | What problem it solves                                                                                                                                                                                                                                                         |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Optional `sessionStorage` mirror** | IndexedDB is async; a same-tab **JSON mirror** (e.g. key `messaging:senderPlaintext:${userId}`) can make the first paint after navigation **faster** inside one tab. **IndexedDB** remains the source of truth across **full reloads**; the mirror is optional and tab-scoped. |
-| **Optional encryption-at-rest** | Today values may appear as **literal strings** in DevTools. **AES-GCM** (or existing wrap patterns) with a key from **`getOrCreateDeviceScopedPassphrase(userId)`** raises the bar for **casual local inspection**; tradeoff is **CPU + complexity** vs easier debugging. |
-| **Cap + eviction** | Without limits, the local store grows with every sent message id. **Max entries per user** (e.g. LRU by `updatedAt`) and/or **TTL** (drop rows older than *N* days) caps **disk use** and **retention**; eviction on `put` or **`requestIdleCallback`** avoids jank. |
-| **Logout / account switch** | Call **`clearUser`** on the IndexedDB store (and remove any **`sessionStorage`** mirror) on **logout** or **reset messaging** so a **different user** on the same browser does not inherit the previous account’s **local plaintext** map. |
-| **Expanded Vitest** | As eviction and policies land, add tests for **put/get/clear/eviction** and **persist → Redux → `hydrateMessagesFromFetch`** with E2EE wire bodies so regressions in **local history** are caught in CI. |
+| **Optional encryption-at-rest**      | Today values may appear as **literal strings** in DevTools. **AES-GCM** (or existing wrap patterns) with a key from **`getOrCreateDeviceScopedPassphrase(userId)`** raises the bar for **casual local inspection**; tradeoff is **CPU + complexity** vs easier debugging.      |
+| **Cap + eviction**                   | Without limits, the local store grows with every sent message id. **Max entries per user** (e.g. LRU by `updatedAt`) and/or **TTL** (drop rows older than _N_ days) caps **disk use** and **retention**; eviction on `put` or **`requestIdleCallback`** avoids jank.           |
+| **Logout / account switch**          | Call **`clearUser`** on the IndexedDB store (and remove any **`sessionStorage`** mirror) on **logout** or **reset messaging** so a **different user** on the same browser does not inherit the previous account’s **local plaintext** map.                                     |
+| **Expanded Vitest**                  | As eviction and policies land, add tests for **put/get/clear/eviction** and **persist → Redux → `hydrateMessagesFromFetch`** with E2EE wire bodies so regressions in **local history** are caught in CI.                                                                       |
 
 ---
 
@@ -136,10 +136,10 @@ flowchart LR
 
 ## WebRTC (video / audio calling)
 
-| Mode | Direction |
-|------|-----------|
-| **1:1** | Offer / answer / ICE over the same Socket.IO connection; **STUN** + optional **TURN** (Compose **coturn** or managed provider) |
-| **Group** | Prefer an **SFU** for fan-out at scale; mesh only for small pilots — **`docs/PROJECT_PLAN.md` §6** |
+| Mode      | Direction                                                                                                                      |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **1:1**   | Offer / answer / ICE over the same Socket.IO connection; **STUN** + optional **TURN** (Compose **coturn** or managed provider) |
+| **Group** | Prefer an **SFU** for fan-out at scale; mesh only for small pilots — **`docs/PROJECT_PLAN.md` §6**                             |
 
 Signaling rides on the **same Socket.IO** connection as chat; media is **peer-to-peer** (1:1) or via an **SFU** for groups at scale. Product completeness varies by milestone — see **`docs/TASK_CHECKLIST.md`**.
 
@@ -147,28 +147,27 @@ Signaling rides on the **same Socket.IO** connection as chat; media is **peer-to
 
 **Socket.IO (signaling)** uses the **same origin** as the REST API: in **Compose**, the browser talks to **nginx** on **`http://localhost:8080`** (path **`/socket.io`**, long-lived HTTP or **WebSocket** upgrade). **`Vite`** dev mode proxies **`/socket.io`** alongside **`/v1`** (**`apps/web-client/vite.config.ts`**). When the SPA is served over **HTTPS**, the browser must use **`https://…`** for **`VITE_API_BASE_URL`** (or same-origin **`/v1`**) so Socket.IO uses **`wss:`** and avoids mixed content.
 
-| Surface | Dev (typical) | Protocol | Notes |
-|---------|----------------|----------|--------|
-| **REST + Socket.IO entry** | **8080** (nginx: SPA **`dist/`** + **`/v1`**, **`/socket.io`**, **`/api-docs`** → **messaging-service:3000**) | TCP (HTTP); WS upgrade for `/socket.io` | **`infra/nginx/nginx.conf`**: static **`try_files`** + **Upgrade** / long timeouts on **`/socket.io`** |
-| **WSS** | **443** (or your TLS listener) | TCP (HTTPS / **WSS**) | Terminate TLS at **nginx**, CDN, or load balancer; same **`/socket.io`** path |
-| **STUN / TURN (coturn)** | **3478** | **UDP + TCP** | STUN binding + TURN over the same listening port (**`infra/coturn/turnserver.conf`**) |
-| **TURN relay range (coturn)** | **49152–49200** (host → container) | **UDP** | Published in **`infra/docker-compose.yml`**; must allow firewall path for restrictive networks |
-| **TURNS (optional prod)** | **5349** (often) | **TCP** / **UDP** | **`tls-listening-port`** in coturn; **dev** profile uses **`no-tls`** / **`no-dtls`** — enable for production-style tests |
+| Surface                       | Dev (typical)                                                                                                 | Protocol                                | Notes                                                                                                                     |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| **REST + Socket.IO entry**    | **8080** (nginx: SPA **`dist/`** + **`/v1`**, **`/socket.io`**, **`/api-docs`** → **messaging-service:3000**) | TCP (HTTP); WS upgrade for `/socket.io` | **`infra/nginx/nginx.conf`**: static **`try_files`** + **Upgrade** / long timeouts on **`/socket.io`**                    |
+| **WSS**                       | **443** (or your TLS listener)                                                                                | TCP (HTTPS / **WSS**)                   | Terminate TLS at **nginx**, CDN, or load balancer; same **`/socket.io`** path                                             |
+| **STUN / TURN (coturn)**      | **3478**                                                                                                      | **UDP + TCP**                           | STUN binding + TURN over the same listening port (**`infra/coturn/turnserver.conf`**)                                     |
+| **TURN relay range (coturn)** | **49152–49200** (host → container)                                                                            | **UDP**                                 | Published in **`infra/docker-compose.yml`**; must allow firewall path for restrictive networks                            |
+| **TURNS (optional prod)**     | **5349** (often)                                                                                              | **TCP** / **UDP**                       | **`tls-listening-port`** in coturn; **dev** profile uses **`no-tls`** / **`no-dtls`** — enable for production-style tests |
 
 **Bring up coturn (local):** `docker compose -f infra/docker-compose.yml --profile turn up -d` — static long-term credentials in **`infra/coturn/turnserver.conf`** (`user=dev:turnsecret`) are **dev-only**; production should use **rotated** credentials (TURN REST, or a **managed** TURN vendor — Twilio, Metered.ca, etc.) and lock down **`realm`** / **`allowed-peer-ip`**.
 
 **Web-client ICE** is read at build time from **`getWebRtcIceServers()`** (**`apps/web-client/src/common/utils/webrtcIceServers.ts`**). Defaults include a **public STUN** host for NAT discovery; set **`VITE_WEBRTC_STUN_URLS`** / **`VITE_WEBRTC_TURN_URLS`** (+ **`VITE_WEBRTC_TURN_USERNAME`** / **`VITE_WEBRTC_TURN_CREDENTIAL`** for **coturn**-style auth) in **`.env.production`** / **`.env.development.local`** as needed.
 
-```mermaid
+```
 sequenceDiagram
-  participant A as Browser A
-  participant SIO as Socket.IO (messaging-service)
-  participant B as Browser B
+  participant A as "Browser A"
+  participant SIO as "Socket.IO (messaging-service)"
+  participant B as "Browser B"
   A->>SIO: signaling (offer/answer/ICE candidates)
   SIO->>B: forward to callee room
   B->>SIO: signaling (answer/ICE)
   SIO->>A: forward to caller
-  Note over A,B: DTLS-SRTP media may use STUN/TURN; server does not decode media
 ```
 
 ---
@@ -255,9 +254,9 @@ npm run lint
 npm run build
 ```
 
-| App | Path |
-|-----|------|
-| web-client | `apps/web-client/` |
+| App               | Path                      |
+| ----------------- | ------------------------- |
+| web-client        | `apps/web-client/`        |
 | messaging-service | `apps/messaging-service/` |
 
 Root convenience scripts: `npm run lint:all`, `npm run typecheck:all`, `npm run format:check:all`.
@@ -285,15 +284,15 @@ Root convenience scripts: `npm run lint:all`, `npm run typecheck:all`, `npm run 
 docker compose -f infra/docker-compose.yml up -d --build
 ```
 
-| Service | Default access |
-|---------|----------------|
-| HTTP, Swagger, Socket.IO (via nginx) | **`http://localhost:8080`** — e.g. **`/api-docs`**, **`/v1/health`** |
-| messaging-service (host port) | **`http://localhost:3001`** |
-| MongoDB | `localhost:27017` |
-| Redis | `localhost:6379` |
-| RabbitMQ AMQP | `localhost:5672` |
-| RabbitMQ management UI | **`http://localhost:15672`** (default user **`messaging`** / **`messaging`**) |
-| MinIO S3 API / console | `9000` / **`http://localhost:9001`** |
+| Service                              | Default access                                                                |
+| ------------------------------------ | ----------------------------------------------------------------------------- |
+| HTTP, Swagger, Socket.IO (via nginx) | **`http://localhost:8080`** — e.g. **`/api-docs`**, **`/v1/health`**          |
+| messaging-service (host port)        | **`http://localhost:3001`**                                                   |
+| MongoDB                              | `localhost:27017`                                                             |
+| Redis                                | `localhost:6379`                                                              |
+| RabbitMQ AMQP                        | `localhost:5672`                                                              |
+| RabbitMQ management UI               | **`http://localhost:15672`** (default user **`messaging`** / **`messaging`**) |
+| MinIO S3 API / console               | `9000` / **`http://localhost:9001`**                                          |
 
 **TURN (WebRTC):** `docker compose -f infra/docker-compose.yml --profile turn up -d` — UDP/TCP **3478**; development credentials in **`infra/coturn/turnserver.conf`**.
 
@@ -323,96 +322,96 @@ This runs **`src/integration/messagingSocket.integration.test.ts`**: creates use
 
 Single reference for variables passed into each deployable (Docker Compose, local runs, CI). **Do not commit secrets.** When you add or rename variables in code, update **`apps/messaging-service/src/config/env.ts`** and this section together.
 
-| Service | Code / config entry |
-|---------|---------------------|
-| **messaging-service** | `apps/messaging-service/src/config/env.ts` |
-| **web-client** | Vite: `import.meta.env.VITE_*` under **`apps/web-client/`** |
+| Service               | Code / config entry                                         |
+| --------------------- | ----------------------------------------------------------- |
+| **messaging-service** | `apps/messaging-service/src/config/env.ts`                  |
+| **web-client**        | Vite: `import.meta.env.VITE_*` under **`apps/web-client/`** |
 
 **E2EE / private keys:** Client-side key generation and **IndexedDB** persistence require a **secure context** (HTTPS or localhost). Production must serve the SPA over HTTPS.
 
 ### messaging-service
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `NODE_ENV` | no | `development` | `development` \| `production` \| `test` |
-| `PORT` | no | `3000` | HTTP listen port |
-| `LOG_LEVEL` | no | `info` in production, else `debug` | Pino level: `fatal` \| `error` \| `warn` \| `info` \| `debug` \| `trace` \| `silent` |
-| `MONGODB_URI` | no | `mongodb://127.0.0.1:27017/messaging` | MongoDB connection string |
-| `MONGODB_DB_NAME` | no | `messaging` | Application database name |
-| `MONGODB_MAX_POOL_SIZE` | no | `10` | Max connections in the MongoDB driver pool |
-| `RABBITMQ_URL` | no | `amqp://guest:guest@127.0.0.1:5672` | RabbitMQ connection URL |
-| `MESSAGING_INSTANCE_ID` | no | host name | Unique per process/replica; RabbitMQ queue name |
-| `MESSAGING_REALTIME_DELIVERY_LOGS` | no | `false` | When `true`, structured logs for each **`message:new`** / receipt emit from RabbitMQ to Socket.IO (`user:<id>` room, ids) — see **`apps/messaging-service/src/data/messaging/rabbitmq.ts`** |
-| `SOCKET_IO_CORS_ORIGIN` | no | — | Optional Socket.IO CORS origin |
-| `REDIS_URL` | no | `redis://127.0.0.1:6379` | Redis (last seen, rate limits, runtime config — **not** Socket.IO rooms; see **`docs/PROJECT_PLAN.md` §3.2.2**) |
-| `LAST_SEEN_TTL_SECONDS` | no | `604800` | TTL for Redis `presence:lastSeen:{userId}` |
-| `SOCKET_IO_REDIS_ADAPTER` | no | `false` | **Discouraged** — prefer in-memory rooms + RabbitMQ (**`docs/PROJECT_PLAN.md` §3.2.2**) |
-| `OPENAPI_SPEC_PATH` | no | — | Absolute path to **`openapi.yaml`** when default resolution fails |
-| `S3_BUCKET` | no | — | Enables **`POST /v1/media/upload`** when set |
-| `S3_REGION` | no | `us-east-1` | AWS region |
-| `S3_ENDPOINT` | no | — | S3-compatible API URL; requires **`AWS_ACCESS_KEY_ID`** / **`AWS_SECRET_ACCESS_KEY`** |
-| `S3_FORCE_PATH_STYLE` | no | `false` | Path-style URLs for some S3-compatible stores |
-| `S3_KEY_PREFIX` | no | — | Optional object key prefix |
-| `AWS_ACCESS_KEY_ID` | with `S3_ENDPOINT` | — | Access key |
-| `AWS_SECRET_ACCESS_KEY` | with `S3_ENDPOINT` | — | Secret key |
-| `S3_PUBLIC_BASE_URL` | no | — | No trailing slash — optional public **`url`** in upload responses |
-| `S3_ANONYMOUS_GET_OBJECT` | no | `false` | When **`true`**, applies a bucket policy allowing unauthenticated **`GetObject`** on startup — needed for **MinIO** (objects are private by default) when the browser loads **`img src`** from **`S3_PUBLIC_BASE_URL`**. **Compose** sets this to **`true`** by default. Use **`false`** on AWS if objects stay private behind CloudFront/OAI. |
-| `MEDIA_MAX_BYTES` | no | `31457280` | Max multipart upload size (default **30 MiB**) |
-| `JWT_SECRET` | no | — | **Required** for auth JWT routes; media upload when Bearer auth enabled |
-| `EMAIL_VERIFICATION_REQUIRED` | no | `false` | Enforce email verification (see tables below) |
-| `GUEST_SESSIONS_ENABLED` | no | `true` | Until overridden by **`system_config`** |
-| `EMAIL_VERIFICATION_TOKEN_TTL_HOURS` | no | `48` | Verification JWT lifetime |
-| `ACCESS_TOKEN_TTL_SECONDS` | no | `3600` | Access token TTL (registered users) |
-| `REFRESH_TOKEN_TTL_SECONDS` | no | `604800` | Refresh token TTL in Redis (**7 days** default; registered users) |
-| `GUEST_ACCESS_TOKEN_TTL_SECONDS` | no | `1800` | Guest access JWT lifetime (**30 min** default); **`POST /auth/guest`** / guest **`POST /auth/refresh`** |
-| `GUEST_REFRESH_TOKEN_TTL_SECONDS` | no | `1800` | Guest refresh token TTL in Redis (**30 min** default); align with guest access TTL |
-| `GUEST_DATA_TTL_ENABLED` | no | `true` | When **`true`**, guest **`users`** / guest↔guest **conversations** / **messages** may set **`guestDataExpiresAt`** for MongoDB TTL (overridable via **`system_config.guestDataTtlEnabled`**) |
-| `GUEST_DATA_MONGODB_TTL_SECONDS` | no | `86400` | Horizon (seconds) from insert for **`guestDataExpiresAt`** when guest data TTL is enabled |
-| `GUEST_AUTH_RATE_LIMIT_WINDOW_SEC` | no | `3600` | **`POST /auth/guest`** fixed window (per IP + optional fingerprint) |
-| `GUEST_AUTH_RATE_LIMIT_MAX_PER_IP` | no | `20` | Max guest sign-in attempts per client IP per window |
-| `GUEST_AUTH_RATE_LIMIT_MAX_PER_FINGERPRINT` | no | `10` | Max guest sign-ins per **`X-Client-Fingerprint`** per window (when header sent) |
-| `GUEST_MESSAGE_SEND_RATE_LIMIT_MAX_PER_USER` | no | `30` | Max **`POST /messages`** / **`message:send`** per **guest** **`userId`** per **`MESSAGE_SEND_RATE_LIMIT_WINDOW_SEC`** (registered users use **`MESSAGE_SEND_RATE_LIMIT_MAX_PER_USER`**) |
-| `PASSWORD_RESET_TOKEN_TTL_HOURS` | no | `1` | Reset JWT lifetime |
-| `PASSWORD_RESET_WEB_PATH` | no | `/reset-password` | Web path for reset links |
-| `FORGOT_PASSWORD_RATE_LIMIT_WINDOW_SEC` | no | `3600` | Forgot-password window per IP |
-| `FORGOT_PASSWORD_RATE_LIMIT_MAX` | no | `5` | Max forgot-password per IP per window |
-| `REGISTER_RATE_LIMIT_WINDOW_SEC` | no | `3600` | Register window per IP |
-| `REGISTER_RATE_LIMIT_MAX` | no | `5` | Max registrations per IP per window |
-| `RESEND_RATE_LIMIT_WINDOW_SEC` | no | `3600` | Resend verification window |
-| `RESEND_RATE_LIMIT_MAX` | no | `3` | Max resends per email per window |
-| `VERIFY_EMAIL_RATE_LIMIT_WINDOW_SEC` | no | `3600` | Verify-email attempts window per IP |
-| `VERIFY_EMAIL_RATE_LIMIT_MAX` | no | `30` | Max verify attempts per IP per window |
-| `USER_SEARCH_RATE_LIMIT_WINDOW_SEC` | no | `60` | User search window per IP |
-| `USER_SEARCH_RATE_LIMIT_MAX` | no | `60` | Max user searches per IP per window |
-| `GUEST_USER_SEARCH_RATE_LIMIT_WINDOW_SEC` | no | `60` | Guest **`GET /users/search`** window (separate Redis key **`ratelimit:users-search:guest-ip:*`**) |
-| `GUEST_USER_SEARCH_RATE_LIMIT_MAX` | no | `30` | Max guest searches per IP per window (stricter than **`USER_SEARCH_RATE_LIMIT_MAX`**) |
-| `USER_SEARCH_MIN_QUERY_LENGTH` | no | `3` | Minimum search query length |
-| `USER_SEARCH_MAX_CANDIDATE_SCAN` | no | `200` | Max MongoDB users scanned per search |
-| `PUBLIC_KEY_FETCH_REQUIRE_DIRECT_THREAD` | no | `false` | Restrict **`GET /users/{id}/devices/public-keys`** (other than self) to existing DM |
-| `PUBLIC_KEY_UPDATE_RATE_LIMIT_WINDOW_SEC` | no | `3600` | Device register/delete window per user |
-| `PUBLIC_KEY_UPDATE_RATE_LIMIT_MAX` | no | `30` | Max device register/delete actions per user per window |
-| `PUBLIC_KEY_JSON_BODY_MAX_BYTES` | no | `8192` | Max JSON body for **`POST /users/me/devices`** |
-| `DEVICE_SYNC_RATE_LIMIT_WINDOW_SEC` | no | `3600` | **`POST /v1/users/me/sync/message-keys`** — Redis fixed window per **authenticated user** (batch wrapped-key upload). If unset, **`DEVICE_SYNC_BATCH_RATE_LIMIT_WINDOW_SEC`** is used when set. |
-| `DEVICE_SYNC_RATE_LIMIT_MAX` | no | `120` | Max batch uploads per user per window. If unset, **`DEVICE_SYNC_BATCH_RATE_LIMIT_MAX`** is used when set. |
-| `DEVICE_SYNC_BATCH_JSON_BODY_MAX_BYTES` | no | `524288` | Max JSON body size (bytes) for **`POST /v1/users/me/sync/message-keys`** |
-| `MESSAGE_SEND_RATE_LIMIT_WINDOW_SEC` | no | `60` | Message send window |
-| `MESSAGE_SEND_RATE_LIMIT_MAX_PER_USER` | no | `120` | Max sends per user per window |
-| `MESSAGE_SEND_RATE_LIMIT_MAX_PER_IP` | no | `360` | Max sends per IP per window |
-| `MESSAGE_SEND_RATE_LIMIT_MAX_PER_SOCKET` | no | `120` | Max **`message:send`** per socket per window |
-| `MESSAGE_RECEIPT_RATE_LIMIT_WINDOW_SEC` | no | `60` | Receipt events window |
-| `MESSAGE_RECEIPT_RATE_LIMIT_MAX_PER_USER` | no | `600` | Max receipt events per user per window |
-| `MESSAGE_RECEIPT_RATE_LIMIT_MAX_PER_IP` | no | `2000` | Max receipt events per IP per window |
-| `MESSAGE_RECEIPT_RATE_LIMIT_MAX_PER_SOCKET` | no | `600` | Max receipt events per socket per window |
-| `WEBRTC_SIGNAL_RATE_LIMIT_WINDOW_SEC` | no | `60` | WebRTC signaling (**`webrtc:*`**) window |
-| `WEBRTC_SIGNAL_RATE_LIMIT_MAX_PER_USER` | no | `2000` | Max signaling events per user per window |
-| `WEBRTC_SIGNAL_RATE_LIMIT_MAX_PER_IP` | no | `6000` | Max signaling events per IP per window |
-| `WEBRTC_SIGNAL_RATE_LIMIT_MAX_PER_SOCKET` | no | `2000` | Max signaling events per socket per window |
-| `GLOBAL_RATE_LIMIT_WINDOW_SEC` | no | `60` | Global REST per-IP window (Redis TTL) |
-| `GLOBAL_RATE_LIMIT_MAX` | no | `500` | Max REST requests per IP per window (**~500/min** default) |
-| `SENDGRID_API_KEY` | no | — | SendGrid when **`EMAIL_VERIFICATION_REQUIRED`** |
-| `EMAIL_FROM` | with SendGrid | — | Verified sender |
-| `PUBLIC_APP_BASE_URL` | with SendGrid | — | Web origin for verification links |
-| `EMAIL_VERIFICATION_WEB_PATH` | no | `/verify-email` | Verify page path |
+| Variable                                     | Required           | Default                               | Description                                                                                                                                                                                                                                                                                                                                    |
+| -------------------------------------------- | ------------------ | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`                                   | no                 | `development`                         | `development` \| `production` \| `test`                                                                                                                                                                                                                                                                                                        |
+| `PORT`                                       | no                 | `3000`                                | HTTP listen port                                                                                                                                                                                                                                                                                                                               |
+| `LOG_LEVEL`                                  | no                 | `info` in production, else `debug`    | Pino level: `fatal` \| `error` \| `warn` \| `info` \| `debug` \| `trace` \| `silent`                                                                                                                                                                                                                                                           |
+| `MONGODB_URI`                                | no                 | `mongodb://127.0.0.1:27017/messaging` | MongoDB connection string                                                                                                                                                                                                                                                                                                                      |
+| `MONGODB_DB_NAME`                            | no                 | `messaging`                           | Application database name                                                                                                                                                                                                                                                                                                                      |
+| `MONGODB_MAX_POOL_SIZE`                      | no                 | `10`                                  | Max connections in the MongoDB driver pool                                                                                                                                                                                                                                                                                                     |
+| `RABBITMQ_URL`                               | no                 | `amqp://guest:guest@127.0.0.1:5672`   | RabbitMQ connection URL                                                                                                                                                                                                                                                                                                                        |
+| `MESSAGING_INSTANCE_ID`                      | no                 | host name                             | Unique per process/replica; RabbitMQ queue name                                                                                                                                                                                                                                                                                                |
+| `MESSAGING_REALTIME_DELIVERY_LOGS`           | no                 | `false`                               | When `true`, structured logs for each **`message:new`** / receipt emit from RabbitMQ to Socket.IO (`user:<id>` room, ids) — see **`apps/messaging-service/src/data/messaging/rabbitmq.ts`**                                                                                                                                                    |
+| `SOCKET_IO_CORS_ORIGIN`                      | no                 | —                                     | Optional Socket.IO CORS origin                                                                                                                                                                                                                                                                                                                 |
+| `REDIS_URL`                                  | no                 | `redis://127.0.0.1:6379`              | Redis (last seen, rate limits, runtime config — **not** Socket.IO rooms; see **`docs/PROJECT_PLAN.md` §3.2.2**)                                                                                                                                                                                                                                |
+| `LAST_SEEN_TTL_SECONDS`                      | no                 | `604800`                              | TTL for Redis `presence:lastSeen:{userId}`                                                                                                                                                                                                                                                                                                     |
+| `SOCKET_IO_REDIS_ADAPTER`                    | no                 | `false`                               | **Discouraged** — prefer in-memory rooms + RabbitMQ (**`docs/PROJECT_PLAN.md` §3.2.2**)                                                                                                                                                                                                                                                        |
+| `OPENAPI_SPEC_PATH`                          | no                 | —                                     | Absolute path to **`openapi.yaml`** when default resolution fails                                                                                                                                                                                                                                                                              |
+| `S3_BUCKET`                                  | no                 | —                                     | Enables **`POST /v1/media/upload`** when set                                                                                                                                                                                                                                                                                                   |
+| `S3_REGION`                                  | no                 | `us-east-1`                           | AWS region                                                                                                                                                                                                                                                                                                                                     |
+| `S3_ENDPOINT`                                | no                 | —                                     | S3-compatible API URL; requires **`AWS_ACCESS_KEY_ID`** / **`AWS_SECRET_ACCESS_KEY`**                                                                                                                                                                                                                                                          |
+| `S3_FORCE_PATH_STYLE`                        | no                 | `false`                               | Path-style URLs for some S3-compatible stores                                                                                                                                                                                                                                                                                                  |
+| `S3_KEY_PREFIX`                              | no                 | —                                     | Optional object key prefix                                                                                                                                                                                                                                                                                                                     |
+| `AWS_ACCESS_KEY_ID`                          | with `S3_ENDPOINT` | —                                     | Access key                                                                                                                                                                                                                                                                                                                                     |
+| `AWS_SECRET_ACCESS_KEY`                      | with `S3_ENDPOINT` | —                                     | Secret key                                                                                                                                                                                                                                                                                                                                     |
+| `S3_PUBLIC_BASE_URL`                         | no                 | —                                     | No trailing slash — optional public **`url`** in upload responses                                                                                                                                                                                                                                                                              |
+| `S3_ANONYMOUS_GET_OBJECT`                    | no                 | `false`                               | When **`true`**, applies a bucket policy allowing unauthenticated **`GetObject`** on startup — needed for **MinIO** (objects are private by default) when the browser loads **`img src`** from **`S3_PUBLIC_BASE_URL`**. **Compose** sets this to **`true`** by default. Use **`false`** on AWS if objects stay private behind CloudFront/OAI. |
+| `MEDIA_MAX_BYTES`                            | no                 | `31457280`                            | Max multipart upload size (default **30 MiB**)                                                                                                                                                                                                                                                                                                 |
+| `JWT_SECRET`                                 | no                 | —                                     | **Required** for auth JWT routes; media upload when Bearer auth enabled                                                                                                                                                                                                                                                                        |
+| `EMAIL_VERIFICATION_REQUIRED`                | no                 | `false`                               | Enforce email verification (see tables below)                                                                                                                                                                                                                                                                                                  |
+| `GUEST_SESSIONS_ENABLED`                     | no                 | `true`                                | Until overridden by **`system_config`**                                                                                                                                                                                                                                                                                                        |
+| `EMAIL_VERIFICATION_TOKEN_TTL_HOURS`         | no                 | `48`                                  | Verification JWT lifetime                                                                                                                                                                                                                                                                                                                      |
+| `ACCESS_TOKEN_TTL_SECONDS`                   | no                 | `3600`                                | Access token TTL (registered users)                                                                                                                                                                                                                                                                                                            |
+| `REFRESH_TOKEN_TTL_SECONDS`                  | no                 | `604800`                              | Refresh token TTL in Redis (**7 days** default; registered users)                                                                                                                                                                                                                                                                              |
+| `GUEST_ACCESS_TOKEN_TTL_SECONDS`             | no                 | `1800`                                | Guest access JWT lifetime (**30 min** default); **`POST /auth/guest`** / guest **`POST /auth/refresh`**                                                                                                                                                                                                                                        |
+| `GUEST_REFRESH_TOKEN_TTL_SECONDS`            | no                 | `1800`                                | Guest refresh token TTL in Redis (**30 min** default); align with guest access TTL                                                                                                                                                                                                                                                             |
+| `GUEST_DATA_TTL_ENABLED`                     | no                 | `true`                                | When **`true`**, guest **`users`** / guest↔guest **conversations** / **messages** may set **`guestDataExpiresAt`** for MongoDB TTL (overridable via **`system_config.guestDataTtlEnabled`**)                                                                                                                                                   |
+| `GUEST_DATA_MONGODB_TTL_SECONDS`             | no                 | `86400`                               | Horizon (seconds) from insert for **`guestDataExpiresAt`** when guest data TTL is enabled                                                                                                                                                                                                                                                      |
+| `GUEST_AUTH_RATE_LIMIT_WINDOW_SEC`           | no                 | `3600`                                | **`POST /auth/guest`** fixed window (per IP + optional fingerprint)                                                                                                                                                                                                                                                                            |
+| `GUEST_AUTH_RATE_LIMIT_MAX_PER_IP`           | no                 | `20`                                  | Max guest sign-in attempts per client IP per window                                                                                                                                                                                                                                                                                            |
+| `GUEST_AUTH_RATE_LIMIT_MAX_PER_FINGERPRINT`  | no                 | `10`                                  | Max guest sign-ins per **`X-Client-Fingerprint`** per window (when header sent)                                                                                                                                                                                                                                                                |
+| `GUEST_MESSAGE_SEND_RATE_LIMIT_MAX_PER_USER` | no                 | `30`                                  | Max **`POST /messages`** / **`message:send`** per **guest** **`userId`** per **`MESSAGE_SEND_RATE_LIMIT_WINDOW_SEC`** (registered users use **`MESSAGE_SEND_RATE_LIMIT_MAX_PER_USER`**)                                                                                                                                                        |
+| `PASSWORD_RESET_TOKEN_TTL_HOURS`             | no                 | `1`                                   | Reset JWT lifetime                                                                                                                                                                                                                                                                                                                             |
+| `PASSWORD_RESET_WEB_PATH`                    | no                 | `/reset-password`                     | Web path for reset links                                                                                                                                                                                                                                                                                                                       |
+| `FORGOT_PASSWORD_RATE_LIMIT_WINDOW_SEC`      | no                 | `3600`                                | Forgot-password window per IP                                                                                                                                                                                                                                                                                                                  |
+| `FORGOT_PASSWORD_RATE_LIMIT_MAX`             | no                 | `5`                                   | Max forgot-password per IP per window                                                                                                                                                                                                                                                                                                          |
+| `REGISTER_RATE_LIMIT_WINDOW_SEC`             | no                 | `3600`                                | Register window per IP                                                                                                                                                                                                                                                                                                                         |
+| `REGISTER_RATE_LIMIT_MAX`                    | no                 | `5`                                   | Max registrations per IP per window                                                                                                                                                                                                                                                                                                            |
+| `RESEND_RATE_LIMIT_WINDOW_SEC`               | no                 | `3600`                                | Resend verification window                                                                                                                                                                                                                                                                                                                     |
+| `RESEND_RATE_LIMIT_MAX`                      | no                 | `3`                                   | Max resends per email per window                                                                                                                                                                                                                                                                                                               |
+| `VERIFY_EMAIL_RATE_LIMIT_WINDOW_SEC`         | no                 | `3600`                                | Verify-email attempts window per IP                                                                                                                                                                                                                                                                                                            |
+| `VERIFY_EMAIL_RATE_LIMIT_MAX`                | no                 | `30`                                  | Max verify attempts per IP per window                                                                                                                                                                                                                                                                                                          |
+| `USER_SEARCH_RATE_LIMIT_WINDOW_SEC`          | no                 | `60`                                  | User search window per IP                                                                                                                                                                                                                                                                                                                      |
+| `USER_SEARCH_RATE_LIMIT_MAX`                 | no                 | `60`                                  | Max user searches per IP per window                                                                                                                                                                                                                                                                                                            |
+| `GUEST_USER_SEARCH_RATE_LIMIT_WINDOW_SEC`    | no                 | `60`                                  | Guest **`GET /users/search`** window (separate Redis key **`ratelimit:users-search:guest-ip:*`**)                                                                                                                                                                                                                                              |
+| `GUEST_USER_SEARCH_RATE_LIMIT_MAX`           | no                 | `30`                                  | Max guest searches per IP per window (stricter than **`USER_SEARCH_RATE_LIMIT_MAX`**)                                                                                                                                                                                                                                                          |
+| `USER_SEARCH_MIN_QUERY_LENGTH`               | no                 | `3`                                   | Minimum search query length                                                                                                                                                                                                                                                                                                                    |
+| `USER_SEARCH_MAX_CANDIDATE_SCAN`             | no                 | `200`                                 | Max MongoDB users scanned per search                                                                                                                                                                                                                                                                                                           |
+| `PUBLIC_KEY_FETCH_REQUIRE_DIRECT_THREAD`     | no                 | `false`                               | Restrict **`GET /users/{id}/devices/public-keys`** (other than self) to existing DM                                                                                                                                                                                                                                                            |
+| `PUBLIC_KEY_UPDATE_RATE_LIMIT_WINDOW_SEC`    | no                 | `3600`                                | Device register/delete window per user                                                                                                                                                                                                                                                                                                         |
+| `PUBLIC_KEY_UPDATE_RATE_LIMIT_MAX`           | no                 | `30`                                  | Max device register/delete actions per user per window                                                                                                                                                                                                                                                                                         |
+| `PUBLIC_KEY_JSON_BODY_MAX_BYTES`             | no                 | `8192`                                | Max JSON body for **`POST /users/me/devices`**                                                                                                                                                                                                                                                                                                 |
+| `DEVICE_SYNC_RATE_LIMIT_WINDOW_SEC`          | no                 | `3600`                                | **`POST /v1/users/me/sync/message-keys`** — Redis fixed window per **authenticated user** (batch wrapped-key upload). If unset, **`DEVICE_SYNC_BATCH_RATE_LIMIT_WINDOW_SEC`** is used when set.                                                                                                                                                |
+| `DEVICE_SYNC_RATE_LIMIT_MAX`                 | no                 | `120`                                 | Max batch uploads per user per window. If unset, **`DEVICE_SYNC_BATCH_RATE_LIMIT_MAX`** is used when set.                                                                                                                                                                                                                                      |
+| `DEVICE_SYNC_BATCH_JSON_BODY_MAX_BYTES`      | no                 | `524288`                              | Max JSON body size (bytes) for **`POST /v1/users/me/sync/message-keys`**                                                                                                                                                                                                                                                                       |
+| `MESSAGE_SEND_RATE_LIMIT_WINDOW_SEC`         | no                 | `60`                                  | Message send window                                                                                                                                                                                                                                                                                                                            |
+| `MESSAGE_SEND_RATE_LIMIT_MAX_PER_USER`       | no                 | `120`                                 | Max sends per user per window                                                                                                                                                                                                                                                                                                                  |
+| `MESSAGE_SEND_RATE_LIMIT_MAX_PER_IP`         | no                 | `360`                                 | Max sends per IP per window                                                                                                                                                                                                                                                                                                                    |
+| `MESSAGE_SEND_RATE_LIMIT_MAX_PER_SOCKET`     | no                 | `120`                                 | Max **`message:send`** per socket per window                                                                                                                                                                                                                                                                                                   |
+| `MESSAGE_RECEIPT_RATE_LIMIT_WINDOW_SEC`      | no                 | `60`                                  | Receipt events window                                                                                                                                                                                                                                                                                                                          |
+| `MESSAGE_RECEIPT_RATE_LIMIT_MAX_PER_USER`    | no                 | `600`                                 | Max receipt events per user per window                                                                                                                                                                                                                                                                                                         |
+| `MESSAGE_RECEIPT_RATE_LIMIT_MAX_PER_IP`      | no                 | `2000`                                | Max receipt events per IP per window                                                                                                                                                                                                                                                                                                           |
+| `MESSAGE_RECEIPT_RATE_LIMIT_MAX_PER_SOCKET`  | no                 | `600`                                 | Max receipt events per socket per window                                                                                                                                                                                                                                                                                                       |
+| `WEBRTC_SIGNAL_RATE_LIMIT_WINDOW_SEC`        | no                 | `60`                                  | WebRTC signaling (**`webrtc:*`**) window                                                                                                                                                                                                                                                                                                       |
+| `WEBRTC_SIGNAL_RATE_LIMIT_MAX_PER_USER`      | no                 | `2000`                                | Max signaling events per user per window                                                                                                                                                                                                                                                                                                       |
+| `WEBRTC_SIGNAL_RATE_LIMIT_MAX_PER_IP`        | no                 | `6000`                                | Max signaling events per IP per window                                                                                                                                                                                                                                                                                                         |
+| `WEBRTC_SIGNAL_RATE_LIMIT_MAX_PER_SOCKET`    | no                 | `2000`                                | Max signaling events per socket per window                                                                                                                                                                                                                                                                                                     |
+| `GLOBAL_RATE_LIMIT_WINDOW_SEC`               | no                 | `60`                                  | Global REST per-IP window (Redis TTL)                                                                                                                                                                                                                                                                                                          |
+| `GLOBAL_RATE_LIMIT_MAX`                      | no                 | `500`                                 | Max REST requests per IP per window (**~500/min** default)                                                                                                                                                                                                                                                                                     |
+| `SENDGRID_API_KEY`                           | no                 | —                                     | SendGrid when **`EMAIL_VERIFICATION_REQUIRED`**                                                                                                                                                                                                                                                                                                |
+| `EMAIL_FROM`                                 | with SendGrid      | —                                     | Verified sender                                                                                                                                                                                                                                                                                                                                |
+| `PUBLIC_APP_BASE_URL`                        | with SendGrid      | —                                     | Web origin for verification links                                                                                                                                                                                                                                                                                                              |
+| `EMAIL_VERIFICATION_WEB_PATH`                | no                 | `/verify-email`                       | Verify page path                                                                                                                                                                                                                                                                                                                               |
 
 #### Global vs per-route rate limits (stacking)
 
@@ -426,10 +425,10 @@ Substring match on normalized email and username; abuse controls include **`USER
 
 #### Email verification (`EMAIL_VERIFICATION_REQUIRED`)
 
-| Server setting | Register | New `emailVerified` | Verify / resend routes |
-|----------------|----------|----------------------|-------------------------|
-| **`false`** (default) | Issues tokens | **`true`** immediately | Verify/resend return **400** **`EMAIL_VERIFICATION_DISABLED`** |
-| **`true`** | May return null access until verified | **`false`** until verified | Normal flow |
+| Server setting        | Register                              | New `emailVerified`        | Verify / resend routes                                         |
+| --------------------- | ------------------------------------- | -------------------------- | -------------------------------------------------------------- |
+| **`false`** (default) | Issues tokens                         | **`true`** immediately     | Verify/resend return **400** **`EMAIL_VERIFICATION_DISABLED`** |
+| **`true`**            | May return null access until verified | **`false`** until verified | Normal flow                                                    |
 
 #### Runtime configuration (MongoDB)
 
@@ -450,15 +449,15 @@ Substring match on normalized email and username; abuse controls include **`USER
 
 ### web-client
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `VITE_API_BASE_URL` | no | *(relative)* `/v1` in dev | REST API path prefix — **must** include **`/v1`**. Used by **`getApiBaseUrl()`**; together with **`getSocketUrl()`** it is the single knob for **HTTP + Socket.IO** (see **REST + Socket.IO** below). |
-| `VITE_S3_PUBLIC_BASE_URL` | no | — | Public **read** base URL for object storage (no trailing slash) — e.g. MinIO/S3 API origin, CloudFront, or static CDN. Required with **`VITE_S3_BUCKET`** when the browser must build **`<img src>`** (and similar) from **`Message.mediaKey`** and the **public** object origin **differs** from the API origin. |
-| `VITE_S3_BUCKET` | no | — | Bucket name in public URLs; **must** match **messaging-service** **`S3_BUCKET`** (and the same layout as **`S3_PUBLIC_BASE_URL`** on the server). |
-| `VITE_WEBRTC_STUN_URLS` | no | *(default: public STUN in code)* | Comma-separated **`stun:`** URLs — **`getWebRtcIceServers()`** when unset defaults to **`stun:stun.l.google.com:19302`** |
-| `VITE_WEBRTC_TURN_URLS` | no | — | Comma-separated **`turn:`** / **`turns:`** URLs (e.g. **`turn:127.0.0.1:3478`** with Compose **coturn** on host) |
-| `VITE_WEBRTC_TURN_USERNAME` | no | — | With **`VITE_WEBRTC_TURN_CREDENTIAL`**, applied to each TURN URL (**coturn** **`lt-cred-mech`**) |
-| `VITE_WEBRTC_TURN_CREDENTIAL` | no | — | TURN password |
+| Variable                      | Required | Default                          | Description                                                                                                                                                                                                                                                                                                       |
+| ----------------------------- | -------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VITE_API_BASE_URL`           | no       | _(relative)_ `/v1` in dev        | REST API path prefix — **must** include **`/v1`**. Used by **`getApiBaseUrl()`**; together with **`getSocketUrl()`** it is the single knob for **HTTP + Socket.IO** (see **REST + Socket.IO** below).                                                                                                             |
+| `VITE_S3_PUBLIC_BASE_URL`     | no       | —                                | Public **read** base URL for object storage (no trailing slash) — e.g. MinIO/S3 API origin, CloudFront, or static CDN. Required with **`VITE_S3_BUCKET`** when the browser must build **`<img src>`** (and similar) from **`Message.mediaKey`** and the **public** object origin **differs** from the API origin. |
+| `VITE_S3_BUCKET`              | no       | —                                | Bucket name in public URLs; **must** match **messaging-service** **`S3_BUCKET`** (and the same layout as **`S3_PUBLIC_BASE_URL`** on the server).                                                                                                                                                                 |
+| `VITE_WEBRTC_STUN_URLS`       | no       | _(default: public STUN in code)_ | Comma-separated **`stun:`** URLs — **`getWebRtcIceServers()`** when unset defaults to **`stun:stun.l.google.com:19302`**                                                                                                                                                                                          |
+| `VITE_WEBRTC_TURN_URLS`       | no       | —                                | Comma-separated **`turn:`** / **`turns:`** URLs (e.g. **`turn:127.0.0.1:3478`** with Compose **coturn** on host)                                                                                                                                                                                                  |
+| `VITE_WEBRTC_TURN_USERNAME`   | no       | —                                | With **`VITE_WEBRTC_TURN_CREDENTIAL`**, applied to each TURN URL (**coturn** **`lt-cred-mech`**)                                                                                                                                                                                                                  |
+| `VITE_WEBRTC_TURN_CREDENTIAL` | no       | —                                | TURN password                                                                                                                                                                                                                                                                                                     |
 
 **REST + Socket.IO (same origin):** **`getApiBaseUrl()`** and **`getSocketUrl()`** in **`apps/web-client/src/common/utils/apiConfig.ts`** both read **`VITE_API_BASE_URL`**. For a **relative** value (e.g. **`/v1`**), the SPA’s **`window.location.origin`** is used for Socket.IO as well, so the Vite dev server must proxy both **`/v1`** and **`/socket.io`** to **messaging-service** (**`apps/web-client/vite.config.ts`**). For an **absolute** URL (e.g. **`http://localhost:8080/v1`** to reach Docker nginx), **`getSocketUrl()`** uses **`http://localhost:8080`** only — REST and **`/socket.io`** stay on the **same host and port**. Production HTTPS pages must use an **`https://`** API base to avoid mixed content. **Compose:** **`infra/nginx/nginx.conf`** serves the built SPA at **`/`** ( **`try_files`** → **`index.html`** ) and proxies **`/v1`**, **`/socket.io`**, and **`/api-docs`** to **messaging-service** (**`Upgrade`** / **`Connection`** on **`/socket.io`**).
 
