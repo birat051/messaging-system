@@ -159,14 +159,14 @@ Signaling rides on the **same Socket.IO** connection as chat; media is **peer-to
 
 **Web-client ICE** is read at build time from **`getWebRtcIceServers()`** (**`apps/web-client/src/common/utils/webrtcIceServers.ts`**). Defaults include a **public STUN** host for NAT discovery; set **`VITE_WEBRTC_STUN_URLS`** / **`VITE_WEBRTC_TURN_URLS`** (+ **`VITE_WEBRTC_TURN_USERNAME`** / **`VITE_WEBRTC_TURN_CREDENTIAL`** for **coturn**-style auth) in **`.env.production`** / **`.env.development.local`** as needed.
 
-```
+```mermaid
 sequenceDiagram
   participant A as "Browser A"
   participant SIO as "Socket.IO (messaging-service)"
   participant B as "Browser B"
-  A->>SIO: signaling (offer/answer/ICE candidates)
+  A->>SIO: "signaling: offer, answer, ICE candidates"
   SIO->>B: forward to callee room
-  B->>SIO: signaling (answer/ICE)
+  B->>SIO: "signaling: answer, ICE"
   SIO->>A: forward to caller
 ```
 
