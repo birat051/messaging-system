@@ -15,6 +15,7 @@ import { logger } from '../logger.js';
 import { formatZodError } from '../../validation/formatZodError.js';
 import {
   webrtcAnswerSchema,
+  webrtcHangupSchema,
   webrtcIceCandidateSchema,
   webrtcOfferSchema,
 } from '../../validation/webrtcSignalingSchemas.js';
@@ -37,7 +38,7 @@ function ackOk(ack: ((r: unknown) => void) | undefined): void {
 
 /**
  * **1:1 WebRTC** — relay **SDP** and **ICE** between authenticated peers (**Feature 3**).
- * Events: **`webrtc:offer`**, **`webrtc:answer`**, **`webrtc:candidate`** (client emits; server emits same
+ * Events: **`webrtc:offer`**, **`webrtc:answer`**, **`webrtc:candidate`**, **`webrtc:hangup`** (client emits; server emits same
  * names to **`user:<peerId>`** with **`fromUserId`**).
  */
 export function registerWebRtcSignalingHandlers(
@@ -101,16 +102,22 @@ export function registerWebRtcSignalingHandlers(
         const { toUserId, callId, sdp, conversationId } = parsed.data;
         await assertWebRtcSignalingPeerAllowed(auth.user.id, toUserId);
 
+        const caller = await findUserById(auth.user.id);
+        const callerDisplayName = caller?.displayName?.trim()
+          ? caller.displayName.trim()
+          : null;
+        const callerUsername = caller?.username?.trim()
+          ? caller.username.trim()
+          : null;
+
         io.to(`user:${toUserId}`).emit('webrtc:offer', {
           fromUserId: auth.user.id,
           callId,
           sdp,
           ...(conversationId !== undefined ? { conversationId } : {}),
+          ...(callerDisplayName ? { callerDisplayName } : {}),
+          ...(callerUsername ? { callerUsername } : {}),
         });
-        const caller = await findUserById(auth.user.id);
-        const callerDisplayName = caller?.displayName?.trim()
-          ? caller.displayName.trim()
-          : null;
         const callIncomingPayload = buildCallIncomingKindNotificationPayload({
           callId,
           callerUserId: auth.user.id,
@@ -284,6 +291,79 @@ export function registerWebRtcSignalingHandlers(
           return;
         }
         logger.error({ err, socketId: socket.id }, 'webrtc:candidate failed');
+        ackError(ack, 'INTERNAL_ERROR', 'Internal server error');
+      }
+    },
+  );
+
+  socket.on(
+    'webrtc:hangup',
+    async (raw: unknown, ack?: (r: unknown) => void) => {
+      try {
+        if (typeof ack !== 'function') {
+          logger.warn(
+            { socketId: socket.id },
+            'webrtc:hangup missing acknowledgement callback',
+          );
+          return;
+        }
+        const auth = socket.data.authAtConnect;
+        if (auth.kind === 'email_not_verified') {
+          ackError(
+            ack,
+            'EMAIL_NOT_VERIFIED',
+            'Verify your email before using this resource',
+          );
+          return;
+        }
+        if (auth.kind !== 'ok') {
+          ackError(
+            ack,
+            'UNAUTHORIZED',
+            env.JWT_SECRET?.trim()
+              ? 'Missing or invalid bearer token'
+              : 'Authentication required',
+          );
+          return;
+        }
+
+        const ip = getSocketClientIp(socket);
+        if (
+          await isWebRtcSignalRateLimited(env, {
+            userId: auth.user.id,
+            ip,
+            socketId: socket.id,
+          })
+        ) {
+          ackError(
+            ack,
+            'RATE_LIMIT_EXCEEDED',
+            'Too many WebRTC signaling messages; try again later',
+          );
+          return;
+        }
+
+        const parsed = webrtcHangupSchema.safeParse(raw);
+        if (!parsed.success) {
+          ackError(ack, 'INVALID_REQUEST', formatZodError(parsed.error));
+          return;
+        }
+
+        const { toUserId, callId, conversationId } = parsed.data;
+        await assertWebRtcSignalingPeerAllowed(auth.user.id, toUserId);
+
+        io.to(`user:${toUserId}`).emit('webrtc:hangup', {
+          fromUserId: auth.user.id,
+          callId,
+          ...(conversationId !== undefined ? { conversationId } : {}),
+        });
+        ackOk(ack);
+      } catch (err: unknown) {
+        if (err instanceof AppError) {
+          ackError(ack, err.code, err.message);
+          return;
+        }
+        logger.error({ err, socketId: socket.id }, 'webrtc:hangup failed');
         ackError(ack, 'INTERNAL_ERROR', 'Internal server error');
       }
     },

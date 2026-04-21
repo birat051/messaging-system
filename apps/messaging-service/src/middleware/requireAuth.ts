@@ -11,10 +11,16 @@ import { resolveBearerAuth } from '../utils/auth/resolveBearer.js';
  * enforces **`emailVerified`** only when **`emailVerificationRequired`** is **`true`** (MongoDB **`system_config`** or env default).
  * For **Bearer** JWTs, rejects when **`guest`** claim does not match **`user.isGuest`** (same token shape as Feature 2; branch on either).
  */
+export type AuthenticatedRequestContext = {
+  user: UserDocument;
+  /** From JWT **`sourceDeviceId`** claim (or dev **`X-Source-Device-Id`**) when present. */
+  sourceDeviceId?: string;
+};
+
 export async function requireAuthenticatedUser(
   req: Request,
   env: Env,
-): Promise<UserDocument> {
+): Promise<AuthenticatedRequestContext> {
   const auth = await resolveBearerAuth(req, env);
   if (!auth) {
     throw new AppError(
@@ -49,7 +55,11 @@ export async function requireAuthenticatedUser(
       'Verify your email before using this resource',
     );
   }
-  return user;
+  const sourceDeviceId =
+    auth.sourceDeviceId !== undefined && auth.sourceDeviceId.length > 0
+      ? auth.sourceDeviceId
+      : undefined;
+  return { user, sourceDeviceId };
 }
 
 /** Sets **`req.authUser`** for handlers that need the full user document. */
@@ -60,7 +70,9 @@ export function requireAuthMiddleware(env: Env) {
     next: NextFunction,
   ): Promise<void> => {
     try {
-      req.authUser = await requireAuthenticatedUser(req, env);
+      const ctx = await requireAuthenticatedUser(req, env);
+      req.authUser = ctx.user;
+      req.authSourceDeviceId = ctx.sourceDeviceId;
       next();
     } catch (err: unknown) {
       next(err);

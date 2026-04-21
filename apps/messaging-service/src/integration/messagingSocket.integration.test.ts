@@ -1,5 +1,6 @@
 /**
  * Requires MongoDB, Redis, and RabbitMQ (e.g. `docker compose -f infra/docker-compose.yml up -d mongo redis rabbitmq`).
+ * Broker URL defaults to **`amqp://messaging:messaging@127.0.0.1:5672`** (same as Compose **`RABBITMQ_*`** defaults), not **`guest:guest`**, so integration is not broken by a dev **`.env`** that targets a different broker. Override with **`MESSAGING_INTEGRATION_RABBITMQ_URL`** if needed.
  *
  * Run: `MESSAGING_INTEGRATION=1 npm run test:integration`
  *
@@ -34,6 +35,8 @@ describe.skipIf(!enabled)('integration: A→B Socket.IO + RabbitMQ', () => {
   let baseUrl: string;
   let userA: { id: string };
   let userB: { id: string };
+  /** Stable per-run id for unique **`deviceId`** rows in multi-device tests. */
+  let integrationRunId: string;
   let publishSpy: MockInstance<
     (routingKey: string, payload: unknown) => Promise<boolean>
   >;
@@ -48,7 +51,9 @@ describe.skipIf(!enabled)('integration: A→B Socket.IO + RabbitMQ', () => {
     process.env.MONGODB_URI ??= 'mongodb://127.0.0.1:27017/messaging_integration';
     process.env.MONGODB_DB_NAME ??= 'messaging_integration';
     process.env.REDIS_URL ??= 'redis://127.0.0.1:6379';
-    process.env.RABBITMQ_URL ??= 'amqp://messaging:messaging@127.0.0.1:5672';
+    process.env.RABBITMQ_URL =
+      process.env.MESSAGING_INTEGRATION_RABBITMQ_URL?.trim() ||
+      'amqp://messaging:messaging@127.0.0.1:5672';
     const integrationDir = dirname(fileURLToPath(import.meta.url));
     process.env.OPENAPI_SPEC_PATH = join(
       integrationDir,
@@ -100,7 +105,19 @@ describe.skipIf(!enabled)('integration: A→B Socket.IO + RabbitMQ', () => {
     await ensureMessageIndexes(db);
     await ensureConversationReadsIndexes(db);
     await connectRedis();
-    await rabbitmq.connectRabbit();
+    try {
+      await rabbitmq.connectRabbit();
+    } catch (cause) {
+      throw new Error(
+        [
+          'RabbitMQ connection failed during integration setup.',
+          'Ensure the broker is running, e.g. `docker compose -f infra/docker-compose.yml up -d rabbitmq`.',
+          'This suite uses `amqp://messaging:messaging@127.0.0.1:5672` by default (Compose `RABBITMQ_USER` / `RABBITMQ_PASS`).',
+          'Set `MESSAGING_INTEGRATION_RABBITMQ_URL` if your broker uses different credentials or host.',
+        ].join(' '),
+        { cause },
+      );
+    }
 
     const app = createApp(env);
     const srv = createServer(app);
@@ -122,6 +139,7 @@ describe.skipIf(!enabled)('integration: A→B Socket.IO + RabbitMQ', () => {
     baseUrl = `http://127.0.0.1:${addr.port}`;
 
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    integrationRunId = suffix;
     const t = Date.now();
     userA = await createUser({
       email: `a-${suffix}@example.com`,
@@ -405,6 +423,79 @@ describe.skipIf(!enabled)('integration: A→B Socket.IO + RabbitMQ', () => {
 
       socketA.disconnect();
       socketB.disconnect();
+    },
+    35_000,
+  );
+
+  /**
+   * **Multi-device key sync (server smoke):** **A** sends a hybrid-style message with **`encryptedMessageKeys`**
+   * only for **device A**; **`applyBatchSyncMessageKeys`** (trusted path) adds **device B**’s wrapped copy. Matches
+   * checklist *device A → message → device B registers → A approves sync → B can load key* for the **persisted**
+   * document shape (browser **`decryptMessageBody`** is manual / web-client).
+   */
+  it(
+    'multi-device: hybrid message keyed for device A only; batch sync adds wrapped key for device B; GET sync lists B',
+    async () => {
+      const devA = `int-dev-a-${integrationRunId}`;
+      const devB = `int-dev-b-${integrationRunId}`;
+      const { registerOrUpdateDevice } = await import(
+        '../data/userPublicKeys/repo.js',
+      );
+      const {
+        applyBatchSyncMessageKeys,
+        listSyncMessageKeysForUserDevice,
+      } = await import('../data/messages/syncMessageKeys.js');
+      const { findMessageById } = await import('../data/messages/repo.js');
+
+      await registerOrUpdateDevice(userA.id, `spki-${devA}`, devA);
+      await registerOrUpdateDevice(userA.id, `spki-${devB}`, devB);
+
+      const { sendMessageForUser } = await import(
+        '../data/messages/sendMessage.js',
+      );
+      const msg = await sendMessageForUser(testEnv, userA.id, {
+        recipientUserId: userB.id,
+        body: 'E2EE_INTEGRATION_BODY',
+        encryptedMessageKeys: { [devA]: 'wrapped-symmetric-key-for-device-a' },
+        algorithm: 'aes-256-gcm+p256-hybrid-v1',
+      });
+
+      expect(msg.encryptedMessageKeys?.[devA]).toBe(
+        'wrapped-symmetric-key-for-device-a',
+      );
+      expect(msg.encryptedMessageKeys?.[devB]).toBeUndefined();
+
+      const batch = await applyBatchSyncMessageKeys({
+        userId: userA.id,
+        sourceDeviceId: devA,
+        targetDeviceId: devB,
+        keys: [
+          {
+            messageId: msg.id,
+            encryptedMessageKey: 'wrapped-symmetric-key-for-device-b',
+          },
+        ],
+      });
+      expect(batch.applied).toBe(1);
+      expect(batch.skipped).toBe(0);
+
+      const stored = await findMessageById(msg.id);
+      expect(stored?.encryptedMessageKeys?.[devA]).toBe(
+        'wrapped-symmetric-key-for-device-a',
+      );
+      expect(stored?.encryptedMessageKeys?.[devB]).toBe(
+        'wrapped-symmetric-key-for-device-b',
+      );
+
+      const pageForB = await listSyncMessageKeysForUserDevice({
+        userId: userA.id,
+        deviceId: devB,
+        limit: 50,
+      });
+      const row = pageForB.items.find((i) => i.messageId === msg.id);
+      expect(row?.encryptedMessageKey).toBe(
+        'wrapped-symmetric-key-for-device-b',
+      );
     },
     35_000,
   );

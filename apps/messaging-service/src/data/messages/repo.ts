@@ -15,6 +15,9 @@ export async function insertMessage(params: {
   senderId: string;
   body: string | null;
   mediaKey: string | null;
+  encryptedMessageKeys?: Record<string, string>;
+  iv?: string | null;
+  algorithm?: string | null;
   guestDataExpiresAt?: Date;
 }): Promise<MessageDocument> {
   const id = randomUUID();
@@ -26,6 +29,11 @@ export async function insertMessage(params: {
     body: params.body,
     mediaKey: params.mediaKey,
     createdAt: now,
+    ...(params.encryptedMessageKeys !== undefined
+      ? { encryptedMessageKeys: params.encryptedMessageKeys }
+      : {}),
+    ...(params.iv !== undefined ? { iv: params.iv } : {}),
+    ...(params.algorithm !== undefined ? { algorithm: params.algorithm } : {}),
     ...(params.guestDataExpiresAt !== undefined
       ? { guestDataExpiresAt: params.guestDataExpiresAt }
       : {}),
@@ -148,6 +156,10 @@ export async function listMessagesByConversation(params: {
       senderId: 1,
       body: 1,
       mediaKey: 1,
+      /** Hybrid E2EE — required for client decrypt after REST hydrate (`messageDocumentToApi`, OpenAPI **Message**). */
+      encryptedMessageKeys: 1,
+      iv: 1,
+      algorithm: 1,
       createdAt: 1,
     })
     .sort({ createdAt: -1, id: -1 })

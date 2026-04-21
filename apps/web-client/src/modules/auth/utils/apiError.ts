@@ -117,7 +117,7 @@ export function isTransientHttpRetryableError(err: unknown): boolean {
 }
 
 /**
- * **4xx** responses (except **404** / **429**) from **`GET /users/{id}/public-key`** — fail immediately
+ * **4xx** responses (except **404** / **429**) from **`GET /users/{id}/devices/public-keys`** — fail immediately
  * without backoff (no point retrying **400** / **403** for the same id).
  */
 export function isRecipientPublicKeyNonRetryableClientError(

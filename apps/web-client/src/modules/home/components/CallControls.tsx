@@ -48,7 +48,7 @@ export function CallControls({
           <button
             type="button"
             data-testid="call-control-answer"
-            className={`${btnBase} bg-accent text-accent-foreground hover:opacity-95`}
+            className={`${btnBase} bg-primary text-primary-foreground hover:opacity-95`}
             disabled={disabled || answerDisabled}
             onClick={onAnswer}
             aria-label="Answer call"

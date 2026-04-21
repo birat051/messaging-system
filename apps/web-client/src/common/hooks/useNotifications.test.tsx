@@ -22,7 +22,7 @@ function TestHarness() {
   return null;
 }
 
-describe('useNotifications', () => {
+describe('useNotifications — message vs call_incoming', () => {
   beforeEach(() => {
     mockInfo.mockClear();
     clearInboundToastDedupe();
@@ -35,7 +35,7 @@ describe('useNotifications', () => {
     vi.restoreAllMocks();
   });
 
-  it('shows an info toast for kind message', async () => {
+  it('plays message chime for kind message but does not show a toast (E2EE-safe)', async () => {
     const { store, unmount } = renderWithProviders(<TestHarness />);
 
     store.dispatch(
@@ -54,12 +54,11 @@ describe('useNotifications', () => {
     );
 
     await waitFor(() => {
-      expect(mockInfo).toHaveBeenCalledTimes(1);
+      expect(notificationAlertSounds.playInboundNotificationSound).toHaveBeenCalledTimes(
+        1,
+      );
     });
-    expect(mockInfo).toHaveBeenCalledWith('New message from Sam: Yo');
-    expect(notificationAlertSounds.playInboundNotificationSound).toHaveBeenCalledTimes(
-      1,
-    );
+    expect(mockInfo).not.toHaveBeenCalled();
     expect(notificationAlertSounds.playInboundNotificationSound).toHaveBeenCalledWith(
       'message',
     );
@@ -67,7 +66,7 @@ describe('useNotifications', () => {
     unmount();
   });
 
-  it('shows an info toast for kind call_incoming', async () => {
+  it('call_incoming: sound only, no toast (CallSessionDock is the UI)', async () => {
     const { store, unmount } = renderWithProviders(<TestHarness />);
 
     store.dispatch(
@@ -85,12 +84,11 @@ describe('useNotifications', () => {
     );
 
     await waitFor(() => {
-      expect(mockInfo).toHaveBeenCalledTimes(1);
+      expect(notificationAlertSounds.playInboundNotificationSound).toHaveBeenCalledTimes(
+        1,
+      );
     });
-    expect(mockInfo).toHaveBeenCalledWith('Incoming audio call from Someone');
-    expect(notificationAlertSounds.playInboundNotificationSound).toHaveBeenCalledTimes(
-      1,
-    );
+    expect(mockInfo).not.toHaveBeenCalled();
     expect(notificationAlertSounds.playInboundNotificationSound).toHaveBeenCalledWith(
       'call_incoming',
     );
@@ -98,7 +96,55 @@ describe('useNotifications', () => {
     unmount();
   });
 
-  it('does not append duplicate notificationId to Redux; toast fires once', async () => {
+  it('sequential message then call: both sound-only, no toasts', async () => {
+    const { store, unmount } = renderWithProviders(<TestHarness />);
+
+    store.dispatch(
+      appendInboundNotification({
+        schemaVersion: 1,
+        kind: 'message',
+        notificationId: 'm1',
+        occurredAt: '2026-04-12T12:00:00.000Z',
+        threadType: 'direct',
+        conversationId: 'c1',
+        messageId: 'x1',
+        senderUserId: 'u1',
+        preview: 'secret',
+      }),
+    );
+    await waitFor(() =>
+      expect(notificationAlertSounds.playInboundNotificationSound).toHaveBeenCalledWith(
+        'message',
+      ),
+    );
+    expect(mockInfo).not.toHaveBeenCalled();
+
+    store.dispatch(
+      appendInboundNotification({
+        schemaVersion: 1,
+        kind: 'call_incoming',
+        notificationId: 'c2',
+        occurredAt: '2026-04-12T12:00:01.000Z',
+        media: 'video',
+        callScope: 'direct',
+        callId: 'call-abc',
+        callerUserId: 'peer',
+        callerDisplayName: 'Alex',
+      }),
+    );
+    await waitFor(() =>
+      expect(notificationAlertSounds.playInboundNotificationSound).toHaveBeenCalledTimes(2),
+    );
+    expect(mockInfo).not.toHaveBeenCalled();
+    expect(notificationAlertSounds.playInboundNotificationSound).toHaveBeenNthCalledWith(
+      2,
+      'call_incoming',
+    );
+
+    unmount();
+  });
+
+  it('does not append duplicate notificationId to Redux; chime fires once, no toasts for message', async () => {
     const { store, unmount } = renderWithProviders(<TestHarness />);
 
     const payload = {
@@ -113,14 +159,18 @@ describe('useNotifications', () => {
     };
 
     store.dispatch(appendInboundNotification(payload));
-    await waitFor(() => expect(mockInfo).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(notificationAlertSounds.playInboundNotificationSound).toHaveBeenCalledTimes(
+        1,
+      ),
+    );
 
     store.dispatch(appendInboundNotification(payload));
     await waitFor(() => {
       /* allow microtasks */
     });
 
-    expect(mockInfo).toHaveBeenCalledTimes(1);
+    expect(mockInfo).not.toHaveBeenCalled();
     expect(notificationAlertSounds.playInboundNotificationSound).toHaveBeenCalledTimes(
       1,
     );

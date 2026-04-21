@@ -76,7 +76,7 @@ describe('requireAuthenticatedUser', () => {
     const req = {
       headers: { authorization: `Bearer ${accessToken}` },
     } as Request;
-    const user = await requireAuthenticatedUser(req, baseEnv);
+    const { user } = await requireAuthenticatedUser(req, baseEnv);
     expect(user.isGuest).toBe(true);
   });
 });

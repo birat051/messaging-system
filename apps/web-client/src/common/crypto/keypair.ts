@@ -34,7 +34,7 @@ export async function generateP256EcdhKeyPair(): Promise<{
 }
 
 /**
- * Export the **public** key as **SPKI DER** encoded with standard Base64 (matches **`PUT /users/me/public-key`**).
+ * Export the **public** key as **SPKI DER** encoded with standard Base64 (matches **`POST /users/me/devices`** **`publicKey`**).
  */
 export async function exportPublicKeySpkiBase64(
   publicKey: CryptoKey,

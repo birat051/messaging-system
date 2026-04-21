@@ -4,14 +4,16 @@ import { useAuth } from './useAuth';
 
 /**
  * Restore **private key material** from an encrypted backup file on this device (**new browser** flow).
- * Same underlying import as **`useKeypairMaintenance`**’s **`importBackup`** — split for clearer call sites.
+ * Writes keyring rows and, when the backup includes **`deviceId`**, persists it in **IndexedDB** next to the keyring
+ * (same store as **`ensureUserKeypairReadyForMessaging`**). Same underlying import as **`useKeypairMaintenance`**
+ * **`importBackup`** — split for clearer call sites.
  */
 export function useRestorePrivateKey(): {
   restorePrivateKeyFromBackup: (
     fileBytes: ArrayBuffer,
     backupPassphrase: string,
     storagePassphrase: string,
-  ) => Promise<{ importedVersions: number[] }>;
+  ) => Promise<{ importedVersions: number[]; deviceId: string | null }>;
 } {
   const { user } = useAuth();
 

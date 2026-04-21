@@ -168,7 +168,7 @@ export function ComposerAttachmentToolbar({
             aria-label="Upload progress"
           >
             <div
-              className="bg-accent h-full transition-[width] duration-150 ease-out"
+              className="bg-primary h-full transition-[width] duration-150 ease-out"
               style={{ width: `${pct}%` }}
             />
           </div>

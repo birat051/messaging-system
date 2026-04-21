@@ -96,6 +96,37 @@ function connectSocket(msg: Extract<MainToWorkerMessage, { type: 'connect' }>): 
     post({ type: 'conversation_read', payload });
   });
 
+  socket.on('device:sync_requested', (raw: unknown) => {
+    if (!raw || typeof raw !== 'object') {
+      return;
+    }
+    const o = raw as Record<string, unknown>;
+    const newDeviceId = o.newDeviceId;
+    const newDevicePublicKey = o.newDevicePublicKey;
+    if (typeof newDeviceId !== 'string' || typeof newDevicePublicKey !== 'string') {
+      return;
+    }
+    post({
+      type: 'device_sync_requested',
+      payload: { newDeviceId, newDevicePublicKey },
+    });
+  });
+
+  socket.on('device:sync_complete', (raw: unknown) => {
+    if (!raw || typeof raw !== 'object') {
+      return;
+    }
+    const o = raw as Record<string, unknown>;
+    const targetDeviceId = o.targetDeviceId;
+    if (typeof targetDeviceId !== 'string' || targetDeviceId.trim() === '') {
+      return;
+    }
+    post({
+      type: 'device_sync_complete',
+      payload: { targetDeviceId: targetDeviceId.trim() },
+    });
+  });
+
   socket.on('webrtc:offer', (payload: unknown) => {
     post({ type: 'webrtc_inbound', event: 'webrtc:offer', payload });
   });
@@ -104,6 +135,9 @@ function connectSocket(msg: Extract<MainToWorkerMessage, { type: 'connect' }>): 
   });
   socket.on('webrtc:candidate', (payload: unknown) => {
     post({ type: 'webrtc_inbound', event: 'webrtc:candidate', payload });
+  });
+  socket.on('webrtc:hangup', (payload: unknown) => {
+    post({ type: 'webrtc_inbound', event: 'webrtc:hangup', payload });
   });
 }
 

@@ -1,11 +1,14 @@
+import { http, HttpResponse } from 'msw';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Routes, Route } from 'react-router-dom';
 import type { components } from '@/generated/api-types';
+import { API_PATHS } from '@/common/api/paths';
 import { defaultMockUser } from '@/common/mocks/handlers';
+import { server } from '@/common/mocks/server';
 import { renderWithProviders } from '@/common/test-utils';
-import { ROUTES } from '@/routes/paths';
+import { registerPathFromGuest, ROUTES } from '@/routes/paths';
 import { HomePage } from './HomePage';
 
 const sendMessageSpy = vi.hoisted(() => vi.fn());
@@ -29,7 +32,16 @@ describe('HomePage', () => {
   beforeEach(() => {
     sendMessageSpy.mockClear();
   });
-  it('renders the app title and a link to settings when signed in', () => {
+
+  function getUserSearchBar(): HTMLElement {
+    return screen.getByTestId('user-search-bar');
+  }
+
+  function getUserSearchResults(): HTMLElement {
+    return screen.getByTestId('user-search-results');
+  }
+
+  it('renders the app title and a link to settings when signed in', async () => {
     renderWithProviders(
       <Routes>
         <Route path="/" element={<HomePage />} />
@@ -46,15 +58,15 @@ describe('HomePage', () => {
     );
 
     expect(
-      screen.getByRole('heading', { level: 1, name: /messaging/i }),
+      screen.getByRole('heading', { level: 1, name: /ekko/i }),
     ).toBeInTheDocument();
 
     const settings = screen.getByRole('link', { name: /profile & settings/i });
     expect(settings).toHaveAttribute('href', ROUTES.settings);
 
-    const searchPanel = screen.getByTestId('user-search-panel');
+    const bar = getUserSearchBar();
     expect(
-      within(searchPanel).getByRole('textbox', {
+      within(bar).getByRole('textbox', {
         name: /search users/i,
       }),
     ).toBeInTheDocument();
@@ -122,9 +134,9 @@ describe('HomePage', () => {
     );
 
     const createLinks = screen.getAllByRole('link', { name: /^create account$/i });
-    expect(createLinks.some((el) => el.getAttribute('href') === ROUTES.register)).toBe(
-      true,
-    );
+    expect(
+      createLinks.some((el) => el.getAttribute('href') === registerPathFromGuest()),
+    ).toBe(true);
     expect(
       screen.queryByRole('link', { name: /profile & settings/i }),
     ).not.toBeInTheDocument();
@@ -148,9 +160,9 @@ describe('HomePage', () => {
       },
     );
 
-    const searchPanel = screen.getByTestId('user-search-panel');
+    const bar = getUserSearchBar();
     await user.type(
-      within(searchPanel).getByRole('textbox', {
+      within(bar).getByRole('textbox', {
         name: /search users/i,
       }),
       'nobody@example.com',
@@ -159,7 +171,7 @@ describe('HomePage', () => {
     await waitFor(
       () => {
         expect(
-          within(searchPanel).getByText(/no users match that search text/i),
+          within(getUserSearchResults()).getByText(/no users match that search text/i),
         ).toBeInTheDocument();
       },
       { timeout: 4000 },
@@ -184,9 +196,9 @@ describe('HomePage', () => {
       },
     );
 
-    const searchPanel = screen.getByTestId('user-search-panel');
+    const bar = getUserSearchBar();
     await user.type(
-      within(searchPanel).getByRole('textbox', {
+      within(bar).getByRole('textbox', {
         name: /search users/i,
       }),
       'found@example.com',
@@ -194,14 +206,14 @@ describe('HomePage', () => {
 
     await waitFor(
       () => {
-        expect(within(searchPanel).getByText('Found User')).toBeInTheDocument();
+        expect(within(getUserSearchResults()).getByText('Found User')).toBeInTheDocument();
       },
       { timeout: 4000 },
     );
 
-    expect(within(searchPanel).getByText('FU')).toBeInTheDocument();
+    expect(within(getUserSearchResults()).getByText('FU')).toBeInTheDocument();
     expect(
-      within(searchPanel).getByText(/Conversation ID:/i),
+      within(getUserSearchResults()).getByText(/Conversation ID:/i),
     ).toBeInTheDocument();
   });
 
@@ -223,9 +235,9 @@ describe('HomePage', () => {
       },
     );
 
-    const searchPanel = screen.getByTestId('user-search-panel');
+    const bar = getUserSearchBar();
     await user.type(
-      within(searchPanel).getByRole('textbox', {
+      within(bar).getByRole('textbox', {
         name: /search users/i,
       }),
       'found',
@@ -233,7 +245,7 @@ describe('HomePage', () => {
 
     await waitFor(
       () => {
-        expect(within(searchPanel).getByText('Found User')).toBeInTheDocument();
+        expect(within(getUserSearchResults()).getByText('Found User')).toBeInTheDocument();
       },
       { timeout: 4000 },
     );
@@ -257,9 +269,9 @@ describe('HomePage', () => {
       },
     );
 
-    const searchPanel = screen.getByTestId('user-search-panel');
+    const bar = getUserSearchBar();
     await user.type(
-      within(searchPanel).getByRole('textbox', {
+      within(bar).getByRole('textbox', {
         name: /search users/i,
       }),
       'newonly@example.com',
@@ -268,21 +280,21 @@ describe('HomePage', () => {
     await waitFor(
       () => {
         expect(
-          within(searchPanel).getByText('New Contact'),
+          within(getUserSearchResults()).getByText('New Contact'),
         ).toBeInTheDocument();
       },
       { timeout: 4000 },
     );
 
     expect(
-      within(searchPanel).getByText(/no conversation yet/i),
+      within(getUserSearchResults()).getByText(/no conversation yet/i),
     ).toBeInTheDocument();
   });
 
   it('new direct thread: sends recipientUserId only and stores Message.conversationId', async () => {
     const user = userEvent.setup();
 
-    renderWithProviders(
+    const { store } = renderWithProviders(
       <Routes>
         <Route path="/" element={<HomePage />} />
       </Routes>,
@@ -297,9 +309,9 @@ describe('HomePage', () => {
       },
     );
 
-    const searchPanel = screen.getByTestId('user-search-panel');
+    const bar = getUserSearchBar();
     await user.type(
-      within(searchPanel).getByRole('textbox', {
+      within(bar).getByRole('textbox', {
         name: /search users/i,
       }),
       'newonly@example.com',
@@ -308,45 +320,70 @@ describe('HomePage', () => {
     await waitFor(
       () => {
         expect(
-          within(searchPanel).getByText('New Contact'),
+          within(getUserSearchResults()).getByText('New Contact'),
         ).toBeInTheDocument();
       },
       { timeout: 4000 },
     );
 
     await user.click(
-      within(searchPanel).getByRole('button', { name: /new contact/i }),
+      within(getUserSearchResults()).getByRole('button', { name: /new contact/i }),
     );
 
-    const messageBox = within(searchPanel).getByRole('textbox', {
+    await waitFor(() => {
+      expect(store.getState().messaging.pendingDirectPeer?.userId).toBe(
+        'user-new-1',
+      );
+    });
+
+    const threadRegion = await screen.findByRole('region', {
+      name: /conversation thread/i,
+    });
+    const messageBox = within(threadRegion).getByRole('textbox', {
       name: /^message$/i,
     });
     await user.type(messageBox, 'Hello there');
 
     await user.click(
-      within(searchPanel).getByRole('button', { name: /send message/i }),
+      within(threadRegion).getByRole('button', { name: /send message/i }),
     );
 
     await waitFor(
       () => {
-        expect(screen.getByTestId('stored-conversation-id')).toHaveTextContent(
-          'conv-user-new-1-thread',
-        );
+        expect(sendMessageSpy).toHaveBeenCalled();
       },
       { timeout: 4000 },
     );
 
-    expect(
-      within(searchPanel).getByRole('heading', { name: /continue thread/i }),
-    ).toBeInTheDocument();
-    expect(
-      within(searchPanel).getByRole('form', {
-        name: /send message in thread with new contact/i,
-      }),
-    ).toBeInTheDocument();
+    const newThreadPayload = sendMessageSpy.mock.calls.at(-1)?.[0] as
+      | components['schemas']['SendMessageRequest']
+      | undefined;
+    expect(newThreadPayload).toMatchObject({
+      recipientUserId: 'user-new-1',
+      body: 'Hello there',
+    });
+    expect(newThreadPayload?.conversationId).toBeUndefined();
   });
 
   it('follow-up: send uses conversationId only (no recipientUserId) for existing thread', async () => {
+    server.use(
+      http.get(`*/v1${API_PATHS.conversations.list}`, () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: 'conv-7a3f9e2b-4411-4c0d-9e8a',
+              title: null,
+              isGroup: false,
+              peerUserId: 'user-found-1',
+              updatedAt: '2026-01-02T12:00:00.000Z',
+            },
+          ],
+          nextCursor: null,
+          hasMore: false,
+        }),
+      ),
+    );
+
     const user = userEvent.setup();
 
     renderWithProviders(
@@ -364,9 +401,9 @@ describe('HomePage', () => {
       },
     );
 
-    const searchPanel = screen.getByTestId('user-search-panel');
+    const bar = getUserSearchBar();
     await user.type(
-      within(searchPanel).getByRole('textbox', {
+      within(bar).getByRole('textbox', {
         name: /search users/i,
       }),
       'found@example.com',
@@ -374,22 +411,25 @@ describe('HomePage', () => {
 
     await waitFor(
       () => {
-        expect(within(searchPanel).getByText('Found User')).toBeInTheDocument();
+        expect(within(getUserSearchResults()).getByText('Found User')).toBeInTheDocument();
       },
       { timeout: 4000 },
     );
 
     await user.click(
-      within(searchPanel).getByRole('button', { name: /found user/i }),
+      within(getUserSearchResults()).getByRole('button', { name: /found user/i }),
     );
 
-    const messageBox = within(searchPanel).getByRole('textbox', {
+    const threadRegion = await screen.findByRole('region', {
+      name: /conversation thread/i,
+    });
+    const messageBox = within(threadRegion).getByRole('textbox', {
       name: /^message$/i,
     });
     await user.type(messageBox, 'Hi');
 
     await user.click(
-      within(searchPanel).getByRole('button', { name: /send message/i }),
+      within(threadRegion).getByRole('button', { name: /send message/i }),
     );
 
     await waitFor(

@@ -1,6 +1,6 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type { components } from '../../../generated/api-types';
-import { isE2eeEnvelopeBody } from '@/common/crypto/messageEcies';
+import { isMessageWireE2ee } from '@/common/crypto/messageHybrid';
 import { logout } from '../../auth/stores/authSlice';
 
 export type Message = components['schemas']['Message'];
@@ -16,15 +16,21 @@ export type MessageReceiptEntry = components['schemas']['MessageReceiptEntry'];
 /** Outbound tick level for messages **you** sent (**Feature 12**). Maps to **`ReceiptTicks`** in the UI. */
 export type OutboundReceiptLevel = 'loading' | 'sent' | 'delivered' | 'seen';
 
-type UserPublicKeyResponse = components['schemas']['UserPublicKeyResponse'];
+/**
+ * **New DM from search** — no **`conversationId`** until the first **`message:send`** ack.
+ * Drives the main thread pane (**`NewDirectThreadComposer`**) while **`activeConversationId`** is null.
+ */
+export type PendingDirectPeer = {
+  userId: string;
+  username: string | null;
+  displayName: string | null;
+  profilePicture: string | null;
+  guest: boolean;
+};
 
 export type MessagingState = {
   activeConversationId: string | null;
-  /**
-   * **Peer** directory keys from **`GET /users/{id}/public-key`** (Feature 11 / 1:1 E2EE).
-   * Used before encrypt to avoid redundant fetches after prefetch or a prior send.
-   */
-  recipientDirectoryKeyByUserId: Record<string, UserPublicKeyResponse>;
+  pendingDirectPeer: PendingDirectPeer | null;
   /** Normalized message entities (deduped by **`message.id`**). */
   messagesById: Record<string, StoredMessage>;
   /** **`conversationId` → ordered message ids (oldest → newest, display order). */
@@ -48,13 +54,13 @@ export type MessagingState = {
    * when the server only stores the E2EE envelope.
    */
   senderPlaintextByMessageId: Record<string, string>;
-  /** **Peer** messages: UTF-8 plaintext after **`decryptE2eeBodyToUtf8`**, keyed by **`message.id`**. */
+  /** **Peer** messages: UTF-8 plaintext after hybrid decrypt, keyed by **`message.id`**. */
   decryptedBodyByMessageId: Record<string, string>;
 };
 
 const initialState: MessagingState = {
   activeConversationId: null,
-  recipientDirectoryKeyByUserId: {},
+  pendingDirectPeer: null,
   messagesById: {},
   messageIdsByConversationId: {},
   pendingOutgoingClientIdsByConversationId: {},
@@ -100,7 +106,7 @@ function dedupeIdsStable(ids: string[]): string[] {
 }
 
 /** When the server ack carries ciphertext but the optimistic row had plaintext, keep plaintext in Redux. */
-function mergeOwnE2eeBodyFromOptimistic(
+function mergeOwnHybridWireBodyFromOptimistic(
   serverMsg: Message,
   optimisticBody: string | null | undefined,
 ): Message {
@@ -109,19 +115,39 @@ function mergeOwnE2eeBodyFromOptimistic(
     return serverMsg;
   }
   const ob = optimisticBody;
-  if (!ob.trim() || isE2eeEnvelopeBody(ob)) {
+  if (!ob.trim()) {
     return serverMsg;
   }
-  if (!isE2eeEnvelopeBody(wire)) {
+  if (!isMessageWireE2ee(serverMsg)) {
     return serverMsg;
   }
   return { ...serverMsg, body: ob };
 }
 
 /**
+ * **`Message`** from the server never includes **`mediaPreviewUrl`** (client-only). Preserve it from the
+ * optimistic **`StoredMessage`** so image **`src`** survives **`message:send`** ack / **`message:new`** when
+ * **`getMediaPublicObjectUrl(mediaKey)`** is unavailable (missing **`VITE_S3_*`**) — otherwise both sides
+ * effectively lose the thumbnail until reload.
+ */
+function mergeServerMessageWithOptimisticClientFields(
+  serverMsg: Message,
+  optimistic: Message | undefined,
+): StoredMessage {
+  const bodyMerged = optimistic
+    ? mergeOwnHybridWireBodyFromOptimistic(serverMsg, optimistic.body ?? undefined)
+    : serverMsg;
+  const preview = (optimistic as StoredMessage | undefined)?.mediaPreviewUrl?.trim();
+  if (preview) {
+    return { ...bodyMerged, mediaPreviewUrl: preview };
+  }
+  return bodyMerged;
+}
+
+/**
  * After **`client:…` → server `id`**, store typing-time plaintext for **`resolveMessageDisplayBody`**
- * and **`hydrateMessagesFromFetch`** (server row stays E2EE wire). Prefer **optimistic** non-envelope
- * **`body`** when **`mergeOwnE2eeBodyFromOptimistic`** did not replace **`merged.body`** (e.g. empty
+ * and **`hydrateMessagesFromFetch`** (server row stays hybrid wire). Prefer **optimistic** plaintext
+ * **`body`** when **`mergeOwnHybridWireBodyFromOptimistic`** did not replace **`merged.body`** (e.g. empty
  * optimistic body with media-only send, or merge early-return).
  */
 function setSenderPlaintextAfterOptimisticMerge(
@@ -131,14 +157,9 @@ function setSenderPlaintextAfterOptimisticMerge(
   optimisticPrev: Message | undefined,
 ): void {
   const opt = optimisticPrev?.body;
-  const fromOptimistic =
-    opt != null &&
-    opt !== '' &&
-    !isE2eeEnvelopeBody(opt)
-      ? opt
-      : '';
+  const fromOptimistic = opt != null && opt !== '' ? opt : '';
   const fromMerged =
-    merged.body && !isE2eeEnvelopeBody(merged.body) ? merged.body : '';
+    merged.body && !isMessageWireE2ee(merged) ? merged.body : '';
   const plain = fromOptimistic || fromMerged;
   if (plain) {
     state.senderPlaintextByMessageId[serverMessageId] = plain;
@@ -154,16 +175,18 @@ const messagingSlice = createSlice({
   reducers: {
     setActiveConversationId(state, action: PayloadAction<string | null>) {
       state.activeConversationId = action.payload;
-    },
-    setRecipientDirectoryKey(
-      state,
-      action: PayloadAction<{ userId: string; key: UserPublicKeyResponse }>,
-    ) {
-      const id = action.payload.userId.trim();
-      if (!id) {
-        return;
+      if (action.payload) {
+        state.pendingDirectPeer = null;
       }
-      state.recipientDirectoryKeyByUserId[id] = action.payload.key;
+    },
+    setPendingDirectPeer(
+      state,
+      action: PayloadAction<PendingDirectPeer | null>,
+    ) {
+      state.pendingDirectPeer = action.payload;
+      if (action.payload) {
+        state.activeConversationId = null;
+      }
     },
     /**
      * Replaces the in-memory thread for **`conversationId`** from **`GET /conversations/{id}/messages`**
@@ -199,7 +222,7 @@ const messagingSlice = createSlice({
           selfId &&
           m.senderId === selfId &&
           body &&
-          isE2eeEnvelopeBody(body)
+          isMessageWireE2ee(m)
         ) {
           const plain = state.senderPlaintextByMessageId[m.id];
           if (plain) {
@@ -263,9 +286,9 @@ const messagingSlice = createSlice({
           const optimisticId = q[0];
           const optimistic = state.messagesById[optimisticId];
           if (optimistic) {
-            const merged = mergeOwnE2eeBodyFromOptimistic(
+            const merged = mergeServerMessageWithOptimisticClientFields(
               message,
-              optimistic.body ?? undefined,
+              optimistic,
             );
             delete state.messagesById[optimisticId];
             state.messagesById[message.id] = merged;
@@ -307,6 +330,22 @@ const messagingSlice = createSlice({
       }
     },
     /**
+     * **`NewDirectThreadComposer`** (first DM): there is no **`client:…`** optimistic row, so
+     * **`replaceOptimisticMessage`** never runs. Record the typed plaintext for the server **`message.id`**
+     * so **`resolveMessageDisplayBody`** shows it after **`hydrateMessagesFromFetch`** (E2EE wire body only).
+     */
+    recordOwnSendPlaintext(
+      state,
+      action: PayloadAction<{ messageId: string; plaintext: string }>,
+    ) {
+      const messageId = action.payload.messageId?.trim() ?? '';
+      const t = action.payload.plaintext;
+      if (!messageId || t === undefined || t === '') {
+        return;
+      }
+      state.senderPlaintextByMessageId[messageId] = t;
+    },
+    /**
      * Replaces a **client** optimistic id (**`client:…`**) with the **`Message`** returned from **`message:send`** ack.
      */
     replaceOptimisticMessage(
@@ -325,10 +364,7 @@ const messagingSlice = createSlice({
       const ids = state.messageIdsByConversationId[conversationId] ?? [];
       const idx = ids.indexOf(optimisticId);
       const prev = state.messagesById[optimisticId];
-      let merged = message;
-      if (prev) {
-        merged = mergeOwnE2eeBodyFromOptimistic(message, prev.body ?? undefined);
-      }
+      const merged = mergeServerMessageWithOptimisticClientFields(message, prev);
       delete state.messagesById[optimisticId];
       state.messagesById[message.id] = merged;
       delete state.outboundReceiptByMessageId[optimisticId];
@@ -466,11 +502,12 @@ const messagingSlice = createSlice({
 
 export const {
   setActiveConversationId,
-  setRecipientDirectoryKey,
+  setPendingDirectPeer,
   hydrateMessagesFromFetch,
   hydrateSenderPlaintextFromDisk,
   appendMessageFromSend,
   appendIncomingMessageIfNew,
+  recordOwnSendPlaintext,
   replaceOptimisticMessage,
   setPeerDecryptedBody,
   removeOptimisticMessage,

@@ -4,11 +4,16 @@ import {
   describeOutboundReceiptStatus,
   type ReceiptTickState,
 } from './ReceiptTicks';
+import { MessageBubble } from './MessageBubble';
 import { ThreadMessageMedia } from './ThreadMessageMedia';
+
+export type ThreadMessageBodyPresentation = 'default' | 'decrypt_error';
 
 export type ThreadMessageItem = {
   id: string;
   body: string;
+  /** When **`decrypt_error`**, the bubble is styled as an inline alert (peer decrypt failures). */
+  bodyPresentation?: ThreadMessageBodyPresentation;
   /** S3 object key when the row has an attachment (see **`Message.mediaKey`**). */
   mediaKey?: string | null;
   /** Client-only optimistic preview (**`blob:`** or API **`url`**) until public URL from **`mediaKey`** is available. */
@@ -82,23 +87,17 @@ function ThreadMessageRow({
           : 'flex min-w-0 max-w-[min(85%,20rem)] w-full flex-col items-start gap-1 self-start'
       }
     >
-      <div
-        className={
-          m.isOwn
-            ? 'bg-accent text-accent-foreground min-w-0 max-w-full rounded-2xl rounded-br-md px-3 py-2 shadow-sm'
-            : 'bg-surface text-foreground border-border min-w-0 max-w-full rounded-2xl rounded-bl-md border px-3 py-2 shadow-sm'
-        }
-      >
+      <MessageBubble isOwn={m.isOwn}>
         {bubbleParagraph(m)}
-        {m.mediaKey ? (
+        {m.mediaKey?.trim() ? (
           <ThreadMessageMedia
-            mediaKey={m.mediaKey}
+            mediaKey={m.mediaKey.trim()}
             messageId={m.id}
             isOwn={m.isOwn}
             previewUrlOverride={m.mediaPreviewUrl ?? null}
           />
         ) : null}
-      </div>
+      </MessageBubble>
       {m.isOwn ? (
         m.outboundReceipt ? (
           <div
@@ -164,6 +163,16 @@ function bubbleParagraph(m: ThreadMessageItem): ReactNode {
   const t = m.body?.trim() ?? '';
   if (t.length === 0) {
     return null;
+  }
+  if (m.bodyPresentation === 'decrypt_error') {
+    return (
+      <p
+        role="alert"
+        className="text-destructive min-w-0 text-sm break-words italic whitespace-pre-wrap"
+      >
+        {m.body ?? ''}
+      </p>
+    );
   }
   return (
     <p className="min-w-0 text-sm break-words whitespace-pre-wrap">{m.body ?? ''}</p>

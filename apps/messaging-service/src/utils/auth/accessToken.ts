@@ -20,6 +20,10 @@ export type SignAccessTokenOptions = {
   expiresInSeconds?: number;
   /** When true, JWT payload includes **`guest: true`** (clients may branch without loading **`User`**). */
   guest?: boolean;
+  /**
+   * When set, JWT includes **`sourceDeviceId`** — the caller’s registered device for **`POST /users/me/sync/message-keys`** authz.
+   */
+  sourceDeviceId?: string;
 };
 
 /**
@@ -38,6 +42,10 @@ export async function signAccessToken(
   };
   if (options?.guest === true) {
     payload.guest = true;
+  }
+  const sdi = options?.sourceDeviceId?.trim();
+  if (sdi !== undefined && sdi.length > 0) {
+    payload.sourceDeviceId = sdi;
   }
   const token = await new SignJWT(payload)
     .setProtectedHeader({ alg: 'HS256' })

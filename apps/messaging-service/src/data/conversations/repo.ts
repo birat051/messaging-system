@@ -163,3 +163,20 @@ export async function listDirectConversationsForParticipant(params: {
   const items = hasMore ? docs.slice(0, cap) : docs;
   return { items: items as DirectConversationDocument[], hasMore };
 }
+
+/** All conversation ids where **`userId`** appears in **`participantIds`** (direct and future group rows). */
+export async function findConversationIdsForParticipant(
+  userId: string,
+): Promise<string[]> {
+  const uid = userId.trim();
+  if (uid.length === 0) {
+    return [];
+  }
+  const docs = await getDb()
+    .collection(CONVERSATIONS_COLLECTION)
+    .find({ participantIds: uid }, { projection: { _id: 0, id: 1 } })
+    .toArray();
+  return docs
+    .map((d) => (d as { id?: unknown }).id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0);
+}

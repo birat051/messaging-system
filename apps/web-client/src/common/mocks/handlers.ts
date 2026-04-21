@@ -1,22 +1,19 @@
 import { http, HttpResponse } from 'msw';
 import { API_PATHS } from '../api/paths';
 import type { components } from '../../generated/api-types';
+import {
+  createEmptyConversationPage,
+  createEmptyMessagePage,
+  createEmptyMessageReceiptPage,
+  defaultMockUser,
+} from './__fixtures__';
+
+export { defaultMockUser } from './__fixtures__';
 
 type User = components['schemas']['User'];
 type UserSearchResult = components['schemas']['UserSearchResult'];
-type UserPublicKeyResponse = components['schemas']['UserPublicKeyResponse'];
-
-/** Default profile used by **`PATCH /v1/users/me`** when tests do not override handlers. */
-export const defaultMockUser: User = {
-  id: 'test-user-1',
-  email: 'test@example.com',
-  username: 'testuser',
-  displayName: 'Test User',
-  emailVerified: true,
-  status: 'Hello',
-  profilePicture: null,
-  guest: false,
-};
+type DevicePublicKeyListResponse =
+  components['schemas']['DevicePublicKeyListResponse'];
 
 /**
  * REST handlers aligned with **`docs/openapi/openapi.yaml`** — paths are **`/v1/...`** relative to origin.
@@ -24,26 +21,13 @@ export const defaultMockUser: User = {
  */
 export const handlers = [
   http.get(`*/v1${API_PATHS.conversations.list}`, () =>
-    HttpResponse.json({
-      items: [],
-      nextCursor: null,
-      hasMore: false,
-    }),
+    HttpResponse.json(createEmptyConversationPage()),
   ),
   http.get('*/v1/conversations/:conversationId/messages', () =>
-    HttpResponse.json({
-      items: [],
-      nextCursor: null,
-      hasMore: false,
-    }),
+    HttpResponse.json(createEmptyMessagePage()),
   ),
   http.get('*/v1/conversations/:conversationId/message-receipts', () =>
-    HttpResponse.json({
-      items: [],
-      nextCursor: null,
-      hasMore: false,
-      readCursor: null,
-    }),
+    HttpResponse.json(createEmptyMessageReceiptPage()),
   ),
   http.get('*/v1/users/search', ({ request }) => {
     const url = new URL(request.url);
@@ -97,22 +81,38 @@ export const handlers = [
       .map(({ row }) => row);
     return HttpResponse.json(results);
   }),
-  http.get('*/v1/users/:userId/public-key', ({ params }) => {
+  http.get('*/v1/users/:userId/devices/public-keys', ({ params }) => {
     const userId = params.userId as string;
-    if (userId !== defaultMockUser.id) {
+    if (userId !== defaultMockUser.id && userId !== 'me') {
       return HttpResponse.json(
-        { code: 'NOT_FOUND', message: 'No public key registered' },
+        { code: 'NOT_FOUND', message: 'No device keys' },
         { status: 404 },
       );
     }
-    const body: UserPublicKeyResponse = {
-      userId: defaultMockUser.id,
-      publicKey:
-        'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEeWtZ0jiCzy6i7c1fhDNcct9WUer1FC9027TeJwYmimeYcCDeAauszT90CsuigDh12qwCJ3yFUDcZurT22BWJrJA',
-      keyVersion: 1,
-      updatedAt: '2026-01-01T00:00:00.000Z',
+    const body: DevicePublicKeyListResponse = {
+      items: [
+        {
+          deviceId: 'default',
+          publicKey:
+            'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEeWtZ0jiCzy6i7c1fhDNcct9WUer1FC9027TeJwYmimeYcCDeAauszT90CsuigDh12qwCJ3yFUDcZurT22BWJrJA',
+          keyVersion: 1,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ],
     };
     return HttpResponse.json(body);
+  }),
+  http.get('*/v1/users/me', () => HttpResponse.json(defaultMockUser)),
+  http.get('*/v1/users/:userId', ({ params }) => {
+    const id = params.userId as string;
+    return HttpResponse.json({
+      id,
+      guest: false,
+      displayName: null,
+      profilePicture: null,
+      status: null,
+    });
   }),
   http.patch('*/v1/users/me', async ({ request }) => {
     let next: User = { ...defaultMockUser };

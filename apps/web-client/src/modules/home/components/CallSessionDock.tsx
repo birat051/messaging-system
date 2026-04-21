@@ -1,9 +1,6 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   answerCall,
-  hangupCall,
-  rejectCall,
-  setCallError,
   toggleCallMic,
   toggleCallVideo,
 } from '@/modules/home/stores/callSlice';
@@ -22,8 +19,10 @@ export type CallSessionDockProps = {
   peerDisplayName: string | null;
 };
 
+type CallChrome = 'fullscreen' | 'minimized';
+
 /**
- * Redux-backed call UI: **remote/local video**, hidden **remote audio** when audio-only, **WebRTC** session hook, and **toolbar** controls.
+ * Redux-backed 1:1 call UI: **full viewport** while expanded, **Minimize** → floating bar; **Expand** restores.
  */
 export function CallSessionDock({
   activeConversationId,
@@ -34,6 +33,9 @@ export function CallSessionDock({
   const dispatch = useAppDispatch();
   const { phase, micMuted, cameraOff, peerUserId, errorMessage, pendingRemoteSdp } =
     useAppSelector((s) => s.call);
+
+  const [callChrome, setCallChrome] = useState<CallChrome>('fullscreen');
+  const prevPhase = useRef<typeof phase | null>(null);
 
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -48,17 +50,22 @@ export function CallSessionDock({
     [],
   );
 
-  const { localVideoVisible, remoteVideoVisible } = useWebRtcCallSession(
-    activeConversationId,
-    mediaRefs,
-  );
+  const { localVideoVisible, remoteVideoVisible, requestLocalEndCall } =
+    useWebRtcCallSession(activeConversationId, mediaRefs);
+
+  useEffect(() => {
+    if (prevPhase.current === 'idle' && phase !== 'idle') {
+      setCallChrome('fullscreen');
+    }
+    prevPhase.current = phase;
+  }, [phase]);
 
   useEffect(() => {
     if (phase === 'idle') {
       return;
     }
     if (isGroupThread) {
-      dispatch(hangupCall());
+      requestLocalEndCall();
       return;
     }
     if (peerUserId == null) {
@@ -66,7 +73,7 @@ export function CallSessionDock({
     }
     if (activeConversationId == null) {
       if (phase === 'outgoing_ring' || phase === 'active') {
-        dispatch(hangupCall());
+        requestLocalEndCall();
       }
       return;
     }
@@ -75,15 +82,15 @@ export function CallSessionDock({
       selectedPeerUserId != null &&
       selectedPeerUserId !== peerUserId
     ) {
-      dispatch(hangupCall());
+      requestLocalEndCall();
     }
   }, [
-    dispatch,
     phase,
     peerUserId,
     activeConversationId,
     isGroupThread,
     selectedPeerUserId,
+    requestLocalEndCall,
   ]);
 
   if (phase === 'idle') {
@@ -104,24 +111,123 @@ export function CallSessionDock({
 
   const remoteLabel = peerDisplayName?.trim() || 'Remote participant';
 
+  const videoStageProps = {
+    phase,
+    remotePeerLabel: remoteLabel,
+    remoteVideoRef,
+    localVideoRef,
+    remoteHasVideo: remoteVideoVisible,
+    localHasVideo: localVideoVisible,
+    cameraOff,
+  };
+
+  const controls = (
+    <CallControls
+      phase={phase}
+      micMuted={micMuted}
+      cameraOff={cameraOff}
+      answerDisabled={
+        phase === 'incoming_ring' &&
+        (!pendingRemoteSdp || pendingRemoteSdp.length === 0)
+      }
+      onAnswer={() => dispatch(answerCall())}
+      onReject={requestLocalEndCall}
+      onToggleMute={() => dispatch(toggleCallMic())}
+      onToggleVideo={() => dispatch(toggleCallVideo())}
+      onHangup={requestLocalEndCall}
+    />
+  );
+
+  const errorBlock =
+    errorMessage ? (
+      <p
+        role="alert"
+        className="text-foreground text-sm opacity-90"
+        data-testid="call-session-error"
+      >
+        {errorMessage}
+      </p>
+    ) : null;
+
+  const btnBar =
+    'focus:ring-accent/50 min-h-11 shrink-0 rounded-md border border-border bg-surface px-3 py-2 text-sm font-medium text-foreground outline-none transition-colors hover:bg-surface/80 focus:ring-2 disabled:pointer-events-none disabled:opacity-50';
+
   return (
     <div
       role="region"
       aria-label={statusLabel}
       data-testid="call-session-dock"
-      className="border-border bg-surface/95 supports-[backdrop-filter]:bg-surface/90 fixed inset-x-0 bottom-0 z-50 flex max-h-[min(92vh,920px)] flex-col border-t shadow-[0_-4px_24px_rgba(0,0,0,0.08)] backdrop-blur-sm dark:shadow-[0_-4px_24px_rgba(0,0,0,0.35)]"
+      data-call-chrome={callChrome}
+      className={
+        callChrome === 'fullscreen'
+          ? 'bg-background/98 supports-[backdrop-filter]:bg-background/95 fixed inset-0 z-50 flex flex-col backdrop-blur-md dark:bg-background/95'
+          : 'border-border bg-surface/98 supports-[backdrop-filter]:bg-surface/95 fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-3 right-3 z-50 max-h-[min(85vh,340px)] overflow-y-auto rounded-2xl border shadow-[0_8px_40px_rgba(0,0,0,0.18)] backdrop-blur-md sm:left-auto sm:right-4 sm:max-h-none sm:w-full sm:max-w-[min(100%,28rem)] dark:shadow-[0_8px_40px_rgba(0,0,0,0.45)]'
+      }
     >
-      <div className="pointer-events-auto max-h-[min(58vh,520px)] min-h-0 shrink-0 overflow-y-auto px-[max(1rem,env(safe-area-inset-left))] pt-3 pr-[max(1rem,env(safe-area-inset-right))]">
-        <CallVideoStage
-          phase={phase}
-          remotePeerLabel={remoteLabel}
-          remoteVideoRef={remoteVideoRef}
-          localVideoRef={localVideoRef}
-          remoteHasVideo={remoteVideoVisible}
-          localHasVideo={localVideoVisible}
-          cameraOff={cameraOff}
-        />
-      </div>
+      {callChrome === 'fullscreen' ? (
+        <>
+          <div className="border-border flex shrink-0 items-start justify-between gap-3 border-b px-[max(1rem,env(safe-area-inset-left))] py-3 pr-[max(1rem,env(safe-area-inset-right))] pt-[max(0.5rem,env(safe-area-inset-top))]">
+            <div className="min-w-0 flex-1 space-y-1">
+              <p
+                className="text-foreground text-sm font-semibold sm:text-base"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                {statusLabel}
+              </p>
+              {errorBlock}
+            </div>
+            <button
+              type="button"
+              className={btnBar}
+              onClick={() => setCallChrome('minimized')}
+              aria-label="Minimize call"
+              data-testid="call-minimize"
+            >
+              Minimize
+            </button>
+          </div>
+
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-[max(1rem,env(safe-area-inset-left))] py-3 pr-[max(1rem,env(safe-area-inset-right))] sm:px-6 sm:py-4">
+              <CallVideoStage {...videoStageProps} layout="default" />
+            </div>
+
+            <div
+              className="border-border flex shrink-0 flex-col gap-3 border-t px-[max(1rem,env(safe-area-inset-left))] py-3 pr-[max(1rem,env(safe-area-inset-right))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row sm:items-end sm:justify-end"
+              data-testid="call-session-dock-controls"
+            >
+              {controls}
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:gap-4 sm:p-4">
+          <CallVideoStage {...videoStageProps} layout="compact" />
+
+          <div className="flex min-w-0 flex-1 flex-col justify-center gap-2">
+            <p
+              className="text-foreground text-sm font-semibold sm:text-base"
+              aria-live="polite"
+            >
+              {statusLabel}
+            </p>
+            {errorBlock}
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+              <button
+                type="button"
+                className={btnBar}
+                onClick={() => setCallChrome('fullscreen')}
+                aria-label="Expand call to full screen"
+                data-testid="call-expand"
+              >
+                Expand
+              </button>
+              <div className="min-w-0 flex-1 sm:flex-initial">{controls}</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <audio
         ref={remoteAudioRef}
@@ -130,50 +236,6 @@ export function CallSessionDock({
         autoPlay
         playsInline
       />
-
-      <div
-        className="border-border flex shrink-0 flex-col gap-3 border-t px-[max(1rem,env(safe-area-inset-left))] py-3 pr-[max(1rem,env(safe-area-inset-right))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row sm:items-end sm:justify-between"
-        data-testid="call-session-dock-controls"
-      >
-        <div className="min-w-0 flex-1 space-y-2 text-center sm:text-left">
-          <p
-            className="text-foreground text-sm font-medium"
-            aria-live="polite"
-            aria-atomic="true"
-          >
-            {statusLabel}
-          </p>
-          {errorMessage ? (
-            <p
-              role="alert"
-              className="text-foreground text-sm opacity-90"
-              data-testid="call-session-error"
-            >
-              {errorMessage}
-            </p>
-          ) : null}
-        </div>
-        <CallControls
-          phase={phase}
-          micMuted={micMuted}
-          cameraOff={cameraOff}
-          answerDisabled={
-            phase === 'incoming_ring' &&
-            (!pendingRemoteSdp || pendingRemoteSdp.length === 0)
-          }
-          onAnswer={() => dispatch(answerCall())}
-          onReject={() => {
-            dispatch(setCallError(null));
-            dispatch(rejectCall());
-          }}
-          onToggleMute={() => dispatch(toggleCallMic())}
-          onToggleVideo={() => dispatch(toggleCallVideo())}
-          onHangup={() => {
-            dispatch(setCallError(null));
-            dispatch(hangupCall());
-          }}
-        />
-      </div>
     </div>
   );
 }

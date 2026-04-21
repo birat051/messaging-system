@@ -10,6 +10,8 @@ describe('E2eeMessagingIndicator', () => {
     const region = screen.getByTestId('e2ee-messaging-indicator');
     expect(region).toHaveAttribute('role', 'status');
     expect(region).toHaveTextContent(/end-to-end encrypted/i);
+    /** Unchanged product copy — chat-thread cue (no Settings encryption UI). */
+    expect(region).toHaveTextContent('End-to-end encrypted');
   });
 
   it('exposes supplemental detail via title for hover and assistive context', () => {

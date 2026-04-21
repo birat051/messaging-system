@@ -12,7 +12,7 @@ export function requireUploadAuth(env: Env) {
     next: NextFunction,
   ): Promise<void> => {
     try {
-      const user = await requireAuthenticatedUser(req, env);
+      const { user } = await requireAuthenticatedUser(req, env);
       req.uploadUserId = user.id;
       req.authUser = user;
       next();

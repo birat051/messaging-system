@@ -1,35 +1,50 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
 } from 'react';
-import useSWR from 'swr';
+import type { components } from '@/generated/api-types';
+import useSWR, { useSWRConfig } from 'swr';
 import { listConversations } from '@/common/api';
 import { useAuth } from '@/common/hooks/useAuth';
-import { usePrefetchRecipientPublicKey } from '@/common/hooks/usePrefetchRecipientPublicKey';
+import { usePrefetchDevicePublicKeys } from '@/common/hooks/usePrefetchDevicePublicKeys';
+import { usePeerPublicProfiles } from '@/modules/home/hooks/usePeerPublicProfiles';
 import { usePeerPresenceDisplay } from '@/modules/home/hooks/usePeerPresenceDisplay';
 import { useSocketWorker } from '@/common/realtime/SocketWorkerProvider';
 import { parseApiError } from '@/modules/auth/utils/apiError';
 import { useConversation } from '@/modules/home/hooks/useConversation';
+import { useUserSearchQuery } from '@/modules/home/hooks/useUserSearchQuery';
+import { handleUserSearchSelection } from '@/modules/home/utils/userSearchSelection';
 import { usePeerMessageDecryption } from '@/modules/home/hooks/usePeerMessageDecryption';
 import { useSendMessage } from '@/modules/home/hooks/useSendMessage';
 import { resolveMessageDisplayBody } from '@/modules/home/utils/messageDisplayBody';
+import { isPeerDecryptInlineError } from '@/modules/home/utils/peerDecryptInline';
 import {
   conversationListAvatarInitials,
   lastMessagePreviewLine,
 } from '@/modules/home/utils/conversationListPreview';
+import {
+  formatMissingPeerProfileLabel,
+  formatUserPublicLabel,
+  isDirectPeerSelf,
+  SELF_DIRECT_THREAD_LABEL,
+} from '@/modules/home/utils/userPublicLabel';
 import { peerPresenceTextClassName } from '@/modules/home/utils/peerPresenceDisplay';
 import {
   currentUserHasSeenMessage,
   hydratePeerReadDedupeFromReceipts,
 } from '@/modules/home/utils/receiptEmitGuards';
 import { CallSessionDock } from '@/modules/home/components/CallSessionDock';
+import { RemoteCallEndedToast } from '@/modules/home/components/RemoteCallEndedToast';
 import { startOutgoingCall } from '@/modules/home/stores/callSlice';
 import {
   setActiveConversationId,
+  setPendingDirectPeer,
   setSendError,
+  type PendingDirectPeer,
   type StoredMessage,
 } from '@/modules/home/stores/messagingSlice';
 import {
@@ -39,13 +54,29 @@ import {
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { ConversationList } from './ConversationList';
 import { E2eeMessagingIndicator } from './E2eeMessagingIndicator';
+import { NewDirectThreadComposer } from './NewDirectThreadComposer';
 import { ThreadComposer } from './ThreadComposer';
 import { ThreadMessageList, type ThreadMessageItem } from './ThreadMessageList';
-import { UserSearchPanel } from './UserSearchPanel';
+import { UserSearchBar } from './UserSearchBar';
+import { UserSearchResultsPane } from './UserSearchResultsPane';
 
 const EMPTY_MESSAGE_IDS: string[] = [];
 const EMPTY_USER_IDS: string[] = [];
 const EMPTY_THREAD_MESSAGES: ThreadMessageItem[] = [];
+
+type UserSearchResult = components['schemas']['UserSearchResult'];
+
+function directThreadLabelFromPending(p: PendingDirectPeer): string {
+  const name = p.displayName?.trim();
+  if (name) {
+    return name;
+  }
+  const handle = p.username?.trim();
+  if (handle) {
+    return `@${handle}`;
+  }
+  return `User ${p.userId.slice(0, 8)}`;
+}
 
 function formatConversationListSubtitle(iso: string): string {
   const d = new Date(iso);
@@ -63,7 +94,14 @@ function formatConversationListSubtitle(iso: string): string {
  */
 export function HomeConversationShell() {
   const dispatch = useAppDispatch();
+  const { mutate } = useSWRConfig();
   const { user } = useAuth();
+  const searchShellId = useId();
+  const userSearchHeadingId = `user-search-heading-${searchShellId}`;
+  const userSearchInputId = `user-search-query-${searchShellId}`;
+  const userSearch = useUserSearchQuery();
+  const isGuestUserSearch = user?.guest === true;
+
   const socketWorker = useSocketWorker();
   const emitReceipt = socketWorker?.emitReceipt;
   const socketConnected = socketWorker?.status.kind === 'connected';
@@ -73,6 +111,9 @@ export function HomeConversationShell() {
 
   const activeConversationId = useAppSelector(
     (s) => s.messaging.activeConversationId,
+  );
+  const pendingDirectPeer = useAppSelector(
+    (s) => s.messaging.pendingDirectPeer,
   );
   const callPhase = useAppSelector((s) => s.call.phase);
 
@@ -104,6 +145,25 @@ export function HomeConversationShell() {
     { revalidateOnFocus: false },
   );
 
+  const peerUserIdsForPublicLabels = useMemo(() => {
+    if (!data?.items) {
+      return [];
+    }
+    return data.items
+      .filter(
+        (c) =>
+          c.isGroup !== true &&
+          Boolean(c.peerUserId?.trim()) &&
+          !c.title?.trim(),
+      )
+      .map((c) => c.peerUserId!.trim());
+  }, [data?.items]);
+
+  const {
+    data: peerProfilesById,
+    isLoading: peerProfilesLoading,
+  } = usePeerPublicProfiles(peerUserIdsForPublicLabels);
+
   const selectedConversation = useMemo(
     () => data?.items?.find((c) => c.id === activeConversationId) ?? null,
     [data?.items, activeConversationId],
@@ -112,16 +172,23 @@ export function HomeConversationShell() {
   const isGroupThread = selectedConversation?.isGroup === true;
 
   const selectedPeerUserId = useMemo(() => {
+    if (pendingDirectPeer) {
+      return pendingDirectPeer.userId;
+    }
     if (!activeConversationId || !data?.items) {
       return null;
     }
     return (
       data.items.find((c) => c.id === activeConversationId)?.peerUserId ?? null
     );
-  }, [data, activeConversationId]);
+  }, [pendingDirectPeer, data, activeConversationId]);
 
-  usePrefetchRecipientPublicKey(
-    !isGroupThread ? selectedPeerUserId : null,
+  usePrefetchDevicePublicKeys(
+    !isGroupThread &&
+      selectedPeerUserId &&
+      !isDirectPeerSelf(selectedPeerUserId, user?.id)
+      ? selectedPeerUserId
+      : null,
   );
 
   const threadParticipantUserIds = useMemo(() => {
@@ -205,14 +272,18 @@ export function HomeConversationShell() {
         ? selectOutboundReceiptDisplay(messaging, m.id, user.id, receiptContext)
         : null;
       const stored = m as StoredMessage;
+      const body = resolveMessageDisplayBody(
+        m,
+        isOwn,
+        messaging.senderPlaintextByMessageId,
+        messaging.decryptedBodyByMessageId,
+      );
       out.push({
         id: m.id,
-        body: resolveMessageDisplayBody(
-          m,
-          isOwn,
-          messaging.senderPlaintextByMessageId,
-          messaging.decryptedBodyByMessageId,
-        ),
+        body,
+        ...(!isOwn && isPeerDecryptInlineError(body)
+          ? { bodyPresentation: 'decrypt_error' as const }
+          : {}),
         mediaKey: m.mediaKey ?? null,
         mediaPreviewUrl: stored.mediaPreviewUrl ?? null,
         isOwn,
@@ -331,7 +402,29 @@ export function HomeConversationShell() {
     }
     const uid = user.id;
     return data.items.map((c) => {
-      const title = c.title ?? (c.isGroup ? 'Group' : 'Direct message');
+      let title: string;
+      if (c.isGroup === true) {
+        title = c.title?.trim() || 'Group';
+        } else {
+          const explicit = c.title?.trim();
+          if (explicit) {
+            title = explicit;
+          } else {
+            const pid = c.peerUserId?.trim();
+            if (!pid) {
+              title = 'Chat';
+            } else if (isDirectPeerSelf(pid, uid)) {
+              title = SELF_DIRECT_THREAD_LABEL;
+            } else if (peerProfilesById === undefined && peerProfilesLoading) {
+              title = '…';
+            } else {
+              const prof = peerProfilesById?.[pid];
+              title = prof
+                ? formatUserPublicLabel(prof)
+                : formatMissingPeerProfileLabel(pid);
+            }
+          }
+        }
       const ids = messaging.messageIdsByConversationId[c.id] ?? [];
       const lastId = ids.length > 0 ? ids[ids.length - 1]! : null;
       const lastMsg = lastId ? messaging.messagesById[lastId] : null;
@@ -347,15 +440,27 @@ export function HomeConversationShell() {
       } else {
         subtitle = formatConversationListSubtitle(c.updatedAt);
       }
+      const peerForPresence =
+        c.isGroup === true
+          ? null
+          : isDirectPeerSelf(c.peerUserId, uid)
+            ? null
+            : (c.peerUserId ?? null);
       return {
         id: c.id,
         title,
         subtitle,
         avatarInitials: conversationListAvatarInitials(title),
-        peerUserId: c.isGroup === true ? null : (c.peerUserId ?? null),
+        peerUserId: peerForPresence,
       };
     });
-  }, [data, messaging, user?.id]);
+  }, [
+    data,
+    messaging,
+    user?.id,
+    peerProfilesById,
+    peerProfilesLoading,
+  ]);
 
   const composerDisabled =
     messagesLoading ||
@@ -363,12 +468,82 @@ export function HomeConversationShell() {
     (!isGroupThread &&
       (selectedPeerUserId == null || selectedPeerUserId === ''));
 
-  const threadTitle =
-    selectedConversation?.title?.trim() ||
-    (selectedConversation?.isGroup ? 'Group' : 'Direct message');
+  const threadHeaderDisplay = useMemo(() => {
+    if (pendingDirectPeer) {
+      if (isDirectPeerSelf(pendingDirectPeer.userId, user?.id)) {
+        return { text: SELF_DIRECT_THREAD_LABEL, loading: false };
+      }
+      return {
+        text: directThreadLabelFromPending(pendingDirectPeer),
+        loading: false,
+      };
+    }
+    if (isGroupThread) {
+      return {
+        text: selectedConversation?.title?.trim() || 'Group',
+        loading: false,
+      };
+    }
+    const explicit = selectedConversation?.title?.trim();
+    if (explicit) {
+      return { text: explicit, loading: false };
+    }
+    const pid = selectedPeerUserId?.trim();
+    if (!pid) {
+      return { text: 'Direct message', loading: false };
+    }
+    if (isDirectPeerSelf(pid, user?.id)) {
+      return { text: SELF_DIRECT_THREAD_LABEL, loading: false };
+    }
+    if (peerProfilesById === undefined && peerProfilesLoading) {
+      return { text: 'Loading…', loading: true };
+    }
+    const prof = peerProfilesById?.[pid];
+    if (prof) {
+      return { text: formatUserPublicLabel(prof), loading: false };
+    }
+    return { text: formatMissingPeerProfileLabel(pid), loading: false };
+  }, [
+    pendingDirectPeer,
+    isGroupThread,
+    selectedConversation,
+    selectedPeerUserId,
+    peerProfilesById,
+    peerProfilesLoading,
+    user?.id,
+  ]);
+
+  const threadPaneOpen = Boolean(activeConversationId || pendingDirectPeer);
 
   const headerPeerPresence = usePeerPresenceDisplay(
-    !isGroupThread ? selectedPeerUserId : null,
+    !isGroupThread &&
+      selectedPeerUserId &&
+      !isDirectPeerSelf(selectedPeerUserId, user?.id)
+      ? selectedPeerUserId
+      : null,
+  );
+
+  const handleSearchSelectUser = useCallback(
+    (hit: UserSearchResult) => {
+      handleUserSearchSelection(hit, {
+        onOpenConversation: (conversationId) => {
+          dispatch(setActiveConversationId(conversationId));
+        },
+        onStartDirectFromSearch: (u) => {
+          dispatch(
+            setPendingDirectPeer({
+              userId: u.userId,
+              displayName: u.displayName ?? null,
+              username: u.username ?? null,
+              profilePicture: u.profilePicture ?? null,
+              guest: u.guest === true,
+            }),
+          );
+        },
+        resetAfterNavigate: userSearch.resetSearch,
+      });
+    },
+    [dispatch, userSearch.resetSearch],
   );
 
   return (
@@ -376,53 +551,46 @@ export function HomeConversationShell() {
       className="border-border bg-surface/40 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border md:flex-row"
       data-testid="home-conversation-shell"
     >
-      {/* Left: search + list — full width on phone; hidden on small screens when a thread is open (master/detail). */}
+      {/*
+        Thread pane (messages): first on mobile, **right** on md+ — WhatsApp-style list+search is **left**.
+      */}
       <div
-        className={`border-border flex min-h-0 flex-col md:h-full md:w-80 md:shrink-0 md:border-r md:bg-background/30 ${
-          activeConversationId ? 'max-md:hidden' : 'w-full max-md:flex-1'
+        className={`border-border relative flex min-h-0 min-w-0 flex-1 flex-col md:order-2 md:min-h-0 md:min-w-[min(100%,18rem)] lg:min-w-[22rem] ${
+          threadPaneOpen ? 'order-1 max-md:min-h-0' : 'order-2'
         }`}
       >
-        <div className="border-border shrink-0 border-b">
-          <UserSearchPanel embedInSidebar />
-        </div>
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-2 md:p-3">
-          <ConversationList
-            className="flex-1 rounded-none border-0 bg-transparent p-0 shadow-none"
-            items={items}
-            isLoading={isLoading}
-            errorMessage={parsedError?.message ?? null}
-            selectedId={activeConversationId}
-            onSelect={(id) => dispatch(setActiveConversationId(id))}
-          />
-        </div>
-      </div>
-      {/* Right: thread — hidden on phone until a chat is selected; min width on md+ for readable pane. */}
-      <div
-        className={`flex min-h-0 min-w-0 flex-1 flex-col md:min-w-[min(100%,18rem)] lg:min-w-[22rem] ${
-          activeConversationId ? 'max-md:min-h-0' : 'max-md:hidden'
-        }`}
-      >
-        {activeConversationId ? (
-          <section
-            className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-hidden p-2 sm:p-3"
-            role="region"
-            aria-label="Conversation thread"
-          >
-            <div className="border-border flex shrink-0 items-center gap-2 border-b pb-2">
+        <section
+          className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+          role="region"
+          aria-label="Conversation thread"
+        >
+          {threadPaneOpen ? (
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-hidden p-2 sm:p-3">
+              <div className="border-border flex shrink-0 items-center gap-2 border-b pb-2">
               <button
                 type="button"
                 data-testid="thread-mobile-back"
                 className="border-border text-foreground hover:bg-surface/80 focus:ring-accent/50 min-h-11 min-w-11 shrink-0 rounded-md border px-3 text-sm font-medium outline-none focus:ring-2 md:hidden"
                 aria-label="Back to conversations"
                 onClick={() => {
+                  if (pendingDirectPeer) {
+                    dispatch(setPendingDirectPeer(null));
+                    return;
+                  }
                   dispatch(setActiveConversationId(null));
                 }}
               >
                 ←
               </button>
               <div className="min-w-0 flex-1 flex flex-col justify-center gap-0.5">
-                <span className="text-foreground truncate text-sm font-medium">
-                  {threadTitle}
+                <span
+                  data-testid="thread-header-title"
+                  className={`truncate text-sm font-medium ${
+                    threadHeaderDisplay.loading ? 'text-muted' : 'text-foreground'
+                  }`}
+                  aria-busy={threadHeaderDisplay.loading || undefined}
+                >
+                  {threadHeaderDisplay.text}
                 </span>
                 {!isGroupThread &&
                 headerPeerPresence.variant !== 'hidden' &&
@@ -434,7 +602,9 @@ export function HomeConversationShell() {
                   </span>
                 ) : null}
               </div>
-              {!isGroupThread && selectedPeerUserId ? (
+              {!isGroupThread &&
+              selectedPeerUserId &&
+              !isDirectPeerSelf(selectedPeerUserId, user?.id) ? (
                 <button
                   type="button"
                   data-testid="thread-start-call"
@@ -447,72 +617,161 @@ export function HomeConversationShell() {
                   }
                   aria-label="Start voice or video call"
                   onClick={() => {
-                    dispatch(startOutgoingCall(selectedPeerUserId));
+                    const peerDisplayName =
+                      (!threadHeaderDisplay.loading
+                        ? threadHeaderDisplay.text
+                        : pendingDirectPeer?.displayName?.trim()) ||
+                      selectedConversation?.title?.trim() ||
+                      null;
+                    const peerUsername = pendingDirectPeer?.username?.trim() ?? null;
+                    dispatch(
+                      startOutgoingCall({
+                        peerUserId: selectedPeerUserId,
+                        peerDisplayName,
+                        peerUsername,
+                      }),
+                    );
                   }}
                 >
                   Call
                 </button>
               ) : null}
-            </div>
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+              </div>
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
               <ThreadMessageList
-                messages={threadMessages}
-                isLoading={messagesLoading}
-                isValidating={messagesValidating}
-                errorMessage={messagesParsedError ?? null}
+                messages={
+                  activeConversationId ? threadMessages : EMPTY_THREAD_MESSAGES
+                }
+                isLoading={activeConversationId ? messagesLoading : false}
+                isValidating={activeConversationId ? messagesValidating : false}
+                errorMessage={
+                  activeConversationId ? (messagesParsedError ?? null) : null
+                }
                 onPeerMessageVisible={
-                  emitReceipt ? onPeerMessageVisible : undefined
+                  activeConversationId && emitReceipt
+                    ? onPeerMessageVisible
+                    : undefined
                 }
               />
-            </div>
-            <div className="border-border shrink-0 space-y-2 border-t pt-2">
+              </div>
+              <div className="border-border shrink-0 space-y-2 border-t pt-2">
               <E2eeMessagingIndicator />
-              <ThreadComposer
-                onSend={sendMessage}
-                disabled={composerDisabled || sendPending}
-                errorMessage={sendError}
-                onExternalErrorClear={() => {
-                  if (activeConversationId) {
-                    dispatch(
-                      setSendError({
-                        conversationId: activeConversationId,
-                        error: null,
-                      }),
-                    );
+              {activeConversationId ? (
+                <ThreadComposer
+                  onSend={sendMessage}
+                  disabled={composerDisabled || sendPending}
+                  errorMessage={sendError}
+                  onExternalErrorClear={() => {
+                    if (activeConversationId) {
+                      dispatch(
+                        setSendError({
+                          conversationId: activeConversationId,
+                          error: null,
+                        }),
+                      );
+                    }
+                  }}
+                  placeholder={
+                    messagesLoading
+                      ? 'Loading messages…'
+                      : isGroupThread
+                        ? 'Group chat is not available in this client yet.'
+                        : composerDisabled
+                          ? 'Cannot send until the thread is ready.'
+                          : isDirectPeerSelf(selectedPeerUserId, user?.id)
+                            ? 'Message yourself…'
+                            : undefined
                   }
-                }}
-                placeholder={
-                  messagesLoading
-                    ? 'Loading messages…'
-                    : isGroupThread
-                      ? 'Group messaging is not available in this client yet.'
-                      : composerDisabled
-                        ? 'Cannot send until the thread is ready.'
-                        : undefined
-                }
-              />
+                />
+              ) : pendingDirectPeer ? (
+                <NewDirectThreadComposer
+                  recipient={{
+                    userId: pendingDirectPeer.userId,
+                    displayName: pendingDirectPeer.displayName,
+                    username: pendingDirectPeer.username,
+                    profilePicture: pendingDirectPeer.profilePicture,
+                    conversationId: null,
+                    guest: pendingDirectPeer.guest,
+                  }}
+                  onConversationIdStored={(cid) => {
+                    dispatch(setActiveConversationId(cid));
+                    const uid = user?.id?.trim();
+                    if (uid) {
+                      void mutate(['conversations', uid]);
+                    }
+                  }}
+                />
+              ) : null}
+              </div>
             </div>
-          </section>
-        ) : (
-          <section
-            data-testid="thread-empty-placeholder"
-            role="region"
-            aria-label="Conversation thread"
-            className="text-muted flex min-h-0 w-full flex-1 flex-col items-center justify-center p-4 text-center text-sm md:min-w-0"
-            aria-live="polite"
-          >
-            <p role="status" className="max-w-sm">
-              Select a conversation to open the thread.
-            </p>
-          </section>
-        )}
+          ) : (
+            <div
+              data-testid="thread-empty-placeholder"
+              className="text-muted flex min-h-0 w-full flex-1 flex-col items-center justify-center px-4 py-6 text-center text-sm md:min-h-0 md:min-w-0 md:flex-1 md:py-8"
+              aria-live="polite"
+            >
+              <p role="status" className="max-w-sm">
+                Select a conversation to open the thread.
+              </p>
+            </div>
+          )}
+        </section>
       </div>
+      {/*
+        Left column (WhatsApp-style): **search on top**, chats or search hits below. On md+ this is the
+        leading column; on mobile it stacks under the thread when both visible, or full-width when no thread.
+      */}
+      <aside
+        className={`border-border flex min-h-0 flex-col border-t md:order-1 md:h-full md:w-80 md:shrink-0 md:border-r md:border-t-0 md:bg-background/30 ${
+          threadPaneOpen
+            ? 'order-2 max-md:hidden'
+            : 'order-1 min-h-0 min-w-0 flex-1 md:flex-none'
+        }`}
+      >
+        <div className="border-border bg-surface/95 supports-[backdrop-filter]:bg-surface/90 sticky top-0 z-20 shrink-0 border-b backdrop-blur-sm">
+          <UserSearchBar
+            headingId={userSearchHeadingId}
+            inputId={userSearchInputId}
+            isGuest={isGuestUserSearch}
+            query={userSearch.query}
+            onQueryChange={userSearch.setQuery}
+          />
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-2 md:p-3">
+          {userSearch.canSearch ? (
+            <UserSearchResultsPane
+              idPrefix={`home-user-search-${searchShellId}`}
+              isGuest={isGuestUserSearch}
+              canSearch={userSearch.canSearch}
+              showLoading={userSearch.showLoading}
+              parsedError={userSearch.parsedError}
+              data={userSearch.data}
+              selectedUserId={null}
+              onSelectUser={handleSearchSelectUser}
+            />
+          ) : (
+            <ConversationList
+              className="flex-1 rounded-none border-0 bg-transparent p-0 shadow-none"
+              items={items}
+              isLoading={isLoading}
+              errorMessage={parsedError?.message ?? null}
+              selectedId={activeConversationId}
+              onSelect={(id) => dispatch(setActiveConversationId(id))}
+            />
+          )}
+        </div>
+      </aside>
       <CallSessionDock
         activeConversationId={activeConversationId}
         isGroupThread={isGroupThread}
         selectedPeerUserId={selectedPeerUserId}
-        peerDisplayName={threadTitle}
+        peerDisplayName={
+          threadHeaderDisplay.loading
+            ? pendingDirectPeer?.displayName?.trim() ?? null
+            : threadHeaderDisplay.text
+        }
       />
+      <RemoteCallEndedToast />
     </div>
   );
 }

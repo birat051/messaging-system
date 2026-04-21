@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { AuthLegalFooter } from '@/common/components/AuthLegalFooter';
 import { useToast } from '@/common/components/toast/useToast';
 import { updateCurrentUserProfile } from '@/common/api/usersApi';
 import { isRateLimitedError, parseApiError } from '../../auth/utils/apiError';
@@ -176,11 +177,21 @@ export function SettingsPage() {
           type="submit"
           disabled={submitting}
           aria-busy={submitting}
-          className="bg-accent text-accent-foreground hover:bg-accent/90 focus:ring-accent/50 w-full rounded-md px-4 py-2 text-sm font-medium focus:ring-2 focus:outline-none disabled:opacity-60 sm:w-auto"
+          className="bg-primary text-primary-foreground hover:bg-primary/90 focus:ring-accent/50 w-full rounded-md px-4 py-2 text-sm font-medium focus:ring-2 focus:outline-none disabled:opacity-60 sm:w-auto"
         >
           {submitting ? 'Saving…' : 'Save changes'}
         </button>
       </form>
+
+      <section
+        aria-labelledby="settings-legal-heading"
+        className="border-border mt-10 border-t pt-8"
+      >
+        <h2 id="settings-legal-heading" className="text-foreground text-sm font-semibold">
+          Legal
+        </h2>
+        <AuthLegalFooter compact />
+      </section>
     </div>
     </div>
   );

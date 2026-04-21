@@ -8,7 +8,7 @@ export type PublicKeyFetchAuthz =
   | 'forbidden';
 
 /**
- * **GET `/users/{userId}/public-key`** — who may read another user's directory row.
+ * **GET `/users/{userId}/devices/public-keys`** — who may read another user's device directory rows.
  *
  * - **Self** (`caller === target`): always allowed (caller still needs a registered key for **200**).
  * - **Strict mode** (`PUBLIC_KEY_FETCH_REQUIRE_DIRECT_THREAD`): allowed only if an existing **direct**

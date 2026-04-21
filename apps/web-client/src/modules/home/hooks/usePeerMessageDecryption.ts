@@ -1,19 +1,43 @@
 import { useEffect } from 'react';
 import { useStore } from 'react-redux';
-import { decryptE2eeBodyToUtf8, isE2eeEnvelopeBody } from '@/common/crypto/messageEcies';
+import {
+  decryptHybridMessageToUtf8,
+  isHybridE2eeMessage,
+} from '@/common/crypto/messageHybrid';
+import { getStoredDeviceId } from '@/common/crypto/privateKeyStorage';
 import { loadMessagingEcdhPrivateKey } from '@/common/crypto/loadMessagingEcdhPrivateKey';
 import { setPeerDecryptedBody } from '@/modules/home/stores/messagingSlice';
 import type { Message } from '@/modules/home/stores/messagingSlice';
+import {
+  PEER_DECRYPT_CRYPTO_FAILED,
+  PEER_DECRYPT_NO_DEVICE_KEY_ENTRY,
+  PEER_DECRYPT_NO_LOCAL_KEY,
+} from '@/modules/home/utils/peerDecryptInline';
+import { shouldRetryPeerDecryptAfterCachedFailure } from '@/modules/home/utils/peerDecryptRetry';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import type { RootState } from '@/store/store';
 
-const NO_KEY_MSG =
-  'Could not decrypt this message. Your encryption key is not available on this device.';
-const DECRYPT_FAIL_MSG = 'Could not decrypt this message.';
+const DEBUG_PEER_DECRYPT =
+  import.meta.env.DEV &&
+  import.meta.env.VITE_DEBUG_PEER_DECRYPT === 'true';
+
+function debugPeerDecrypt(message: string, details: Record<string, unknown>): void {
+  if (!DEBUG_PEER_DECRYPT) {
+    return;
+  }
+  // eslint-disable-next-line no-console -- gated by VITE_DEBUG_PEER_DECRYPT
+  console.debug(`[peer-decrypt] ${message}`, details);
+}
 
 /**
  * Decrypts **inbound** E2EE bodies for the active thread using the local ECDH private key
  * and stores plaintext in **`decryptedBodyByMessageId`** for **`resolveMessageDisplayBody`**.
+ *
+ * **Multi-device:** when **`message:new`** or REST hydrate adds a hybrid row with
+ * **`encryptedMessageKeys[myDeviceId]`**, the next effect run decrypts normally; rows without that entry
+ * stay **`PEER_DECRYPT_NO_DEVICE_KEY_ENTRY`** until another device uploads wrapped keys (new device sync).
+ *
+ * **Trace:** `e2eeInboundDecryptTrace.ts`, **`e2eeReceiveTrace.ts`**. **Dev log:** set **`VITE_DEBUG_PEER_DECRYPT=true`** (dev server restart).
  */
 export function usePeerMessageDecryption(
   conversationId: string | null,
@@ -22,6 +46,7 @@ export function usePeerMessageDecryption(
   const dispatch = useAppDispatch();
   const store = useStore();
   const userId = useAppSelector((s) => s.auth.user?.id ?? null);
+  const cryptoDeviceId = useAppSelector((s) => s.crypto.deviceId);
   const idsKey = messageIds.join(',');
   /** Changes when peer message bodies load (e.g. REST hydrate) even if **`idsKey`** is unchanged. */
   const peerInboundSig = useAppSelector((s) => {
@@ -36,7 +61,10 @@ export function usePeerMessageDecryption(
       if (!m || m.senderId === uid) {
         continue;
       }
-      acc += `${mid}:${m.body ?? ''}|`;
+      const emk = m.encryptedMessageKeys
+        ? Object.keys(m.encryptedMessageKeys).sort().join(',')
+        : '';
+      acc += `${mid}:${m.body ?? ''}|${m.iv ?? ''}|${m.algorithm ?? ''}|${emk}|`;
     }
     return acc;
   });
@@ -53,20 +81,20 @@ export function usePeerMessageDecryption(
     void (async () => {
       const { messagesById, decryptedBodyByMessageId } = (store.getState() as RootState)
         .messaging;
-      const targets: { id: string; body: string }[] = [];
+      const targets: Message[] = [];
       for (const mid of midList) {
         const m: Message | undefined = messagesById[mid];
         if (!m || m.senderId === uid) {
           continue;
         }
-        const raw = m.body ?? '';
-        if (!isE2eeEnvelopeBody(raw)) {
+        if (!isHybridE2eeMessage(m)) {
           continue;
         }
-        if (decryptedBodyByMessageId[mid] !== undefined) {
+        const cached = decryptedBodyByMessageId[mid];
+        if (!shouldRetryPeerDecryptAfterCachedFailure(cached)) {
           continue;
         }
-        targets.push({ id: mid, body: raw });
+        targets.push(m);
       }
 
       if (targets.length === 0 || cancelled) {
@@ -76,28 +104,74 @@ export function usePeerMessageDecryption(
       const pk = await loadMessagingEcdhPrivateKey(uid);
       if (!pk) {
         if (!cancelled) {
+          debugPeerDecrypt('no local ECDH key — decryptMessageBody not reached', {
+            messageIds: targets.map((t) => t.id),
+          });
           for (const t of targets) {
             dispatch(
-              setPeerDecryptedBody({ messageId: t.id, plaintext: NO_KEY_MSG }),
+              setPeerDecryptedBody({
+                messageId: t.id,
+                plaintext: PEER_DECRYPT_NO_LOCAL_KEY,
+              }),
             );
           }
         }
         return;
       }
 
-      for (const t of targets) {
+      const deviceId = await getStoredDeviceId(uid);
+
+      for (const m of targets) {
         if (cancelled) {
           break;
         }
         try {
-          const pt = await decryptE2eeBodyToUtf8(t.body, pk);
-          if (!cancelled) {
-            dispatch(setPeerDecryptedBody({ messageId: t.id, plaintext: pt }));
+          if (
+            !deviceId?.trim() ||
+            !m.encryptedMessageKeys?.[deviceId.trim()]
+          ) {
+            debugPeerDecrypt('hybrid: missing deviceId or encryptedMessageKeys[deviceId] — decryptMessageBody skipped', {
+              messageId: m.id,
+              hasDeviceId: Boolean(deviceId?.trim()),
+              keyIds: m.encryptedMessageKeys
+                ? Object.keys(m.encryptedMessageKeys)
+                : [],
+            });
+            dispatch(
+              setPeerDecryptedBody({
+                messageId: m.id,
+                plaintext: PEER_DECRYPT_NO_DEVICE_KEY_ENTRY,
+              }),
+            );
+            continue;
           }
-        } catch {
+          debugPeerDecrypt('hybrid: unwrap + decryptMessageBody', {
+            messageId: m.id,
+            deviceId: deviceId.trim(),
+          });
+          const pt = await decryptHybridMessageToUtf8(
+            {
+              body: m.body!,
+              iv: m.iv!,
+              encryptedMessageKeys: m.encryptedMessageKeys!,
+            },
+            deviceId.trim(),
+            pk,
+          );
+          if (!cancelled) {
+            dispatch(setPeerDecryptedBody({ messageId: m.id, plaintext: pt }));
+          }
+        } catch (err) {
+          debugPeerDecrypt('unwrap or decryptMessageBody threw', {
+            messageId: m.id,
+            err: err instanceof Error ? err.message : String(err),
+          });
           if (!cancelled) {
             dispatch(
-              setPeerDecryptedBody({ messageId: t.id, plaintext: DECRYPT_FAIL_MSG }),
+              setPeerDecryptedBody({
+                messageId: m.id,
+                plaintext: PEER_DECRYPT_CRYPTO_FAILED,
+              }),
             );
           }
         }
@@ -107,5 +181,13 @@ export function usePeerMessageDecryption(
     return () => {
       cancelled = true;
     };
-  }, [conversationId, userId, idsKey, peerInboundSig, store, dispatch]);
+  }, [
+    conversationId,
+    userId,
+    idsKey,
+    peerInboundSig,
+    cryptoDeviceId,
+    store,
+    dispatch,
+  ]);
 }

@@ -6,7 +6,9 @@ import { useAuth } from '@/common/hooks/useAuth';
 import { useComposerMediaAttachment } from '@/common/hooks/useComposerMediaAttachment';
 import { useSendEncryptedMessage } from '@/common/hooks/useSendEncryptedMessage';
 import { parseApiError } from '@/modules/auth/utils/apiError';
-import { ROUTES } from '@/routes/paths';
+import { recordOwnSendPlaintext } from '@/modules/home/stores/messagingSlice';
+import { registerPathFromGuest } from '@/routes/paths';
+import { useAppDispatch } from '@/store/hooks';
 import { ComposerImagePreviewStrip } from './ComposerImagePreviewStrip';
 import {
   ComposerAttachButton,
@@ -26,6 +28,7 @@ type Props = {
  * On success the parent unmounts this and shows **`FollowUpThreadComposer`**.
  */
 export function NewDirectThreadComposer({ recipient, onConversationIdStored }: Props) {
+  const dispatch = useAppDispatch();
   const { user } = useAuth();
   const { sendMessage } = useSendEncryptedMessage();
   const [body, setBody] = useState('');
@@ -58,6 +61,14 @@ export function NewDirectThreadComposer({ recipient, onConversationIdStored }: P
         body: trimmed.length > 0 ? trimmed : undefined,
         mediaKey: mediaKey ?? undefined,
       });
+      if (trimmed.length > 0) {
+        dispatch(
+          recordOwnSendPlaintext({
+            messageId: message.id,
+            plaintext: trimmed,
+          }),
+        );
+      }
       setBody('');
       attachment.clearAttachment();
       onConversationIdStored(message.conversationId);
@@ -123,7 +134,7 @@ export function NewDirectThreadComposer({ recipient, onConversationIdStored }: P
           aria-busy={sending}
           aria-label={sending ? 'Sending message' : 'Send message'}
           title={sending ? 'Sending…' : 'Send message'}
-          className="bg-accent text-accent-foreground hover:bg-accent/90 focus:ring-accent/50 inline-flex min-h-11 min-w-11 shrink-0 touch-manipulation items-center justify-center rounded-md px-2.5 text-sm font-medium focus:ring-2 focus:outline-none disabled:opacity-60"
+          className="bg-primary text-primary-foreground hover:bg-primary/90 focus:ring-accent/50 inline-flex min-h-11 min-w-11 shrink-0 touch-manipulation items-center justify-center rounded-md px-2.5 text-sm font-medium focus:ring-2 focus:outline-none disabled:opacity-60"
         >
           {sending ? (
             <span
@@ -143,7 +154,7 @@ export function NewDirectThreadComposer({ recipient, onConversationIdStored }: P
           {showGuestRegisterHint ? (
             <p className="text-muted text-xs">
               <Link
-                to={ROUTES.register}
+                to={registerPathFromGuest()}
                 className="text-accent font-medium underline-offset-4 hover:underline"
               >
                 Register

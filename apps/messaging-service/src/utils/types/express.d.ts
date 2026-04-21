@@ -9,6 +9,10 @@ declare global {
       uploadUserId?: string;
       /** Set by `requireAuthMiddleware` / `requireUploadAuth` after DB load. */
       authUser?: UserDocument;
+      /**
+       * When the access JWT includes **`sourceDeviceId`** (device-bound session), set by **`requireAuthMiddleware`**.
+       */
+      authSourceDeviceId?: string;
     }
   }
 }

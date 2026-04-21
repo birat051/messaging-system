@@ -1,5 +1,11 @@
 import { type FormEvent, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import {
+  AUTH_LEGAL_CONSENT_REQUIRED_MESSAGE,
+  AuthLegalConsentCheckbox,
+} from '@/common/components/AuthLegalConsentCheckbox';
+import { AuthLegalFooter } from '@/common/components/AuthLegalFooter';
+import { BrandedPageHeading } from '@/common/components/BrandedPageHeading';
 import { createGuestSession } from '../../../common/api/authApi';
 import { loadSenderPlaintextIntoRedux } from '../../../common/senderPlaintext/loadSenderPlaintextIntoRedux';
 import { ApiErrorAlert } from '../../../common/components/ApiErrorAlert';
@@ -37,6 +43,8 @@ export function GuestEntryPage() {
   >({});
   const [apiError, setApiError] = useState<ParsedApiError | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [acceptedLegal, setAcceptedLegal] = useState(false);
+  const [consentError, setConsentError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -50,9 +58,14 @@ export function GuestEntryPage() {
     e.preventDefault();
     setFieldErrors({});
     setApiError(null);
+    setConsentError(null);
     const v = validateGuestEntryForm({ username, displayName });
     if (!v.valid) {
       setFieldErrors(v.fields);
+      return;
+    }
+    if (!acceptedLegal) {
+      setConsentError(AUTH_LEGAL_CONSENT_REQUIRED_MESSAGE);
       return;
     }
     setSubmitting(true);
@@ -76,10 +89,13 @@ export function GuestEntryPage() {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="text-foreground mx-auto max-w-md px-6 py-16">
-        <h1 className="text-2xl font-semibold tracking-tight">Continue as guest</h1>
+        <BrandedPageHeading
+          horizontal={false}
+          titleRowClassName="justify-center"
+        ></BrandedPageHeading>
         <p className="text-muted mt-2 text-sm">
-          Pick a username for your temporary session. When it expires, you can sign in again here
-          with a new name.
+          Pick a username for your temporary session. When it expires, you can
+          sign in again here with a new name.
         </p>
 
         <form onSubmit={onSubmit} className="mt-8 space-y-4">
@@ -111,7 +127,8 @@ export function GuestEntryPage() {
           </div>
           <div>
             <label htmlFor="guest-display" className="text-sm font-medium">
-              Display name <span className="text-muted font-normal">(optional)</span>
+              Display name{' '}
+              <span className="text-muted font-normal">(optional)</span>
             </label>
             <input
               id="guest-display"
@@ -135,11 +152,34 @@ export function GuestEntryPage() {
               </p>
             ) : null}
           </div>
+          <div>
+            <AuthLegalConsentCheckbox
+              id="guest-legal-consent"
+              checked={acceptedLegal}
+              onChange={(next) => {
+                setAcceptedLegal(next);
+                if (next) {
+                  setConsentError(null);
+                }
+              }}
+              invalid={Boolean(consentError)}
+              errorId={consentError ? 'guest-consent-error' : undefined}
+            />
+            {consentError ? (
+              <p
+                id="guest-consent-error"
+                className="text-destructive mt-2 text-sm"
+                role="alert"
+              >
+                {consentError}
+              </p>
+            ) : null}
+          </div>
           {apiError ? <ApiErrorAlert error={apiError} /> : null}
           <button
             type="submit"
             disabled={submitting}
-            className="bg-accent text-accent-foreground hover:bg-accent/90 focus:ring-accent/50 rounded-md px-4 py-2 text-sm font-medium focus:ring-2 focus:outline-none disabled:opacity-50"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 focus:ring-accent/50 rounded-md px-4 py-2 text-sm font-medium focus:ring-2 focus:outline-none disabled:opacity-50"
           >
             {submitting ? 'Starting…' : 'Start guest session'}
           </button>
@@ -160,6 +200,8 @@ export function GuestEntryPage() {
             Create an account
           </Link>
         </p>
+
+        <AuthLegalFooter />
       </div>
     </div>
   );

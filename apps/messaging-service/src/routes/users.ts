@@ -2,30 +2,41 @@ import { Router } from 'express';
 import multer from 'multer';
 import type { Env } from '../config/env.js';
 import {
+  deleteMyDevice,
   getMe,
+  getMyDevices,
+  getSyncMessageKeys,
+  postBatchSyncMessageKeys,
   getSearchUsers,
-  getUserPublicKey,
+  getUserDevicePublicKeys,
   patchMe,
   patchMeMultipart,
-  postRotatePublicKey,
-  putPublicKey,
+  postRegisterDevice,
+  rateLimitDeviceSyncBatch,
   rateLimitPublicKeyWrites,
 } from '../controllers/users.js';
 import { requireAuthMiddleware } from '../middleware/requireAuth.js';
 import { rejectGuestUserMiddleware } from '../middleware/rejectGuestUser.js';
 import { getS3Client } from '../data/storage/s3Client.js';
-import { validateBody, validateParams, validateQuery } from '../validation/middleware.js';
 import {
+  validateBody,
+  validateParams,
+  validateQuery,
+} from '../validation/middleware.js';
+import {
+  batchSyncMessageKeysRequestSchema,
   createSearchUsersQuerySchema,
-  putPublicKeyRequestSchema,
-  rotatePublicKeyRequestSchema,
+  deviceIdPathSchema,
+  listMyDevicesQuerySchema,
+  listSyncMessageKeysQuerySchema,
+  registerDeviceRequestSchema,
   userIdPathSchema,
 } from '../validation/schemas.js';
 
 /**
  * User profile, search, E2EE public key directory — **wiring only**. Handlers live in **`src/controllers/users.ts`**.
  * **`PATCH /users/me`** uses **`rejectGuestUserMiddleware`** after auth (guests cannot update profile — **Feature 2a**).
- * User-search and public-key PUT/POST rate limits **stack** with the global REST cap (global middleware runs first).
+ * User-search and device-key **`POST`/`DELETE`** rate limits **stack** with the global REST cap (global middleware runs first).
  */
 export function createUsersRouter(env: Env): Router {
   const router = Router();
@@ -52,27 +63,49 @@ export function createUsersRouter(env: Env): Router {
     patchMe(env, s3Client),
   );
 
-  router.put(
-    '/users/me/public-key',
+  router.get(
+    '/users/me/devices',
     requireAuthMiddleware(env),
-    rateLimitPublicKeyWrites(env),
-    validateBody(putPublicKeyRequestSchema),
-    putPublicKey(),
-  );
-
-  router.post(
-    '/users/me/public-key/rotate',
-    requireAuthMiddleware(env),
-    rateLimitPublicKeyWrites(env),
-    validateBody(rotatePublicKeyRequestSchema),
-    postRotatePublicKey(),
+    validateQuery(listMyDevicesQuerySchema),
+    getMyDevices(),
   );
 
   router.get(
-    '/users/:userId/public-key',
+    '/users/me/sync/message-keys',
+    requireAuthMiddleware(env),
+    validateQuery(listSyncMessageKeysQuerySchema),
+    getSyncMessageKeys(),
+  );
+
+  router.post(
+    '/users/me/sync/message-keys',
+    requireAuthMiddleware(env),
+    rateLimitDeviceSyncBatch(env),
+    validateBody(batchSyncMessageKeysRequestSchema),
+    postBatchSyncMessageKeys(),
+  );
+
+  router.post(
+    '/users/me/devices',
+    requireAuthMiddleware(env),
+    rateLimitPublicKeyWrites(env),
+    validateBody(registerDeviceRequestSchema),
+    postRegisterDevice(),
+  );
+
+  router.delete(
+    '/users/me/devices/:deviceId',
+    requireAuthMiddleware(env),
+    rateLimitPublicKeyWrites(env),
+    validateParams(deviceIdPathSchema),
+    deleteMyDevice(),
+  );
+
+  router.get(
+    '/users/:userId/devices/public-keys',
     requireAuthMiddleware(env),
     validateParams(userIdPathSchema),
-    getUserPublicKey(env),
+    getUserDevicePublicKeys(env),
   );
 
   return router;

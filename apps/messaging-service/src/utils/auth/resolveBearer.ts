@@ -10,6 +10,8 @@ export type VerifiedAccessToken = {
   sub: string;
   /** True when the JWT payload includes **`guest: true`** (guest session from **`POST /auth/guest`** or refresh). */
   guest: boolean;
+  /** Present when the access token was issued with a device-bound session (see **`POST /auth/login`** / **`refresh`**). */
+  sourceDeviceId?: string;
 };
 
 /**
@@ -37,7 +39,18 @@ export async function verifyAccessTokenJwt(
       return undefined;
     }
     const guest = payload.guest === true;
-    return { sub: sub.trim(), guest };
+    const rawSdi = payload.sourceDeviceId;
+    const sourceDeviceIdTrimmed =
+      typeof rawSdi === 'string' && rawSdi.trim() !== ''
+        ? rawSdi.trim()
+        : undefined;
+    return {
+      sub: sub.trim(),
+      guest,
+      ...(sourceDeviceIdTrimmed !== undefined
+        ? { sourceDeviceId: sourceDeviceIdTrimmed }
+        : {}),
+    };
   } catch {
     return undefined;
   }
@@ -48,8 +61,8 @@ export async function verifyAccessTokenJwt(
  * **`guest`** claim vs **`users.isGuest`** for Bearer tokens only.
  */
 export type ResolveBearerAuthResult =
-  | { kind: 'jwt'; sub: string; guest: boolean }
-  | { kind: 'dev'; sub: string };
+  | { kind: 'jwt'; sub: string; guest: boolean; sourceDeviceId?: string }
+  | { kind: 'dev'; sub: string; sourceDeviceId?: string };
 
 export async function resolveBearerAuth(
   req: Request,
@@ -65,13 +78,29 @@ export async function resolveBearerAuth(
     if (!v) {
       return undefined;
     }
-    return { kind: 'jwt', sub: v.sub, guest: v.guest };
+    return {
+      kind: 'jwt',
+      sub: v.sub,
+      guest: v.guest,
+      ...(v.sourceDeviceId !== undefined
+        ? { sourceDeviceId: v.sourceDeviceId }
+        : {}),
+    };
   }
 
   if (env.NODE_ENV !== 'production') {
     const raw = req.headers['x-user-id'];
     if (typeof raw === 'string' && raw.trim() !== '') {
-      return { kind: 'dev', sub: raw.trim() };
+      const devSdi = req.headers['x-source-device-id'];
+      const sourceDeviceId =
+        typeof devSdi === 'string' && devSdi.trim() !== ''
+          ? devSdi.trim()
+          : undefined;
+      return {
+        kind: 'dev',
+        sub: raw.trim(),
+        ...(sourceDeviceId !== undefined ? { sourceDeviceId } : {}),
+      };
     }
   }
 

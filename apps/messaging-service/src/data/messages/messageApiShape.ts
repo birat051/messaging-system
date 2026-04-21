@@ -13,6 +13,11 @@ export function messageDocumentToApi(msg: MessageDocument) {
     body: msg.body,
     mediaKey: msg.mediaKey,
     createdAt: msg.createdAt.toISOString(),
+    ...(msg.encryptedMessageKeys !== undefined
+      ? { encryptedMessageKeys: msg.encryptedMessageKeys }
+      : {}),
+    ...(msg.iv !== undefined ? { iv: msg.iv } : {}),
+    ...(msg.algorithm !== undefined ? { algorithm: msg.algorithm } : {}),
   };
 }
 

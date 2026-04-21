@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from 'react';
+import { selectIsAuthenticated } from '@/modules/auth/stores/selectors';
 import { ensureUserKeypairReadyForMessaging } from '../crypto/ensureMessagingKeypair';
 import { isSecureContext } from '../crypto/secureContext';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
@@ -12,9 +13,13 @@ import { useAppDispatch, useAppSelector } from '@/store/hooks';
  */
 export function useSenderKeypairBootstrap(sessionReady: boolean): boolean {
   const dispatch = useAppDispatch();
+  const isAuthenticated = useAppSelector(selectIsAuthenticated);
   const userId = useAppSelector((s) => s.auth.user?.id?.trim() ?? '');
   const needsSecureKeypair = Boolean(
-    sessionReady && userId.length > 0 && isSecureContext(),
+    sessionReady &&
+      isAuthenticated &&
+      userId.length > 0 &&
+      isSecureContext(),
   );
   const [gateOpen, setGateOpen] = useState(false);
 
@@ -40,6 +45,33 @@ export function useSenderKeypairBootstrap(sessionReady: boolean): boolean {
     );
     return () => {
       cancelled = true;
+    };
+  }, [needsSecureKeypair, userId, dispatch]);
+
+  /**
+   * When the tab becomes visible again, **silently** re-run directory alignment (**re-register** if the
+   * server row for this browser was removed) — no Settings UI.
+   */
+  useEffect(() => {
+    if (!needsSecureKeypair) {
+      return;
+    }
+    let debounce: ReturnType<typeof setTimeout> | undefined;
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') {
+        return;
+      }
+      clearTimeout(debounce);
+      debounce = setTimeout(() => {
+        void ensureUserKeypairReadyForMessaging(userId, dispatch).catch(() => {
+          /* non-fatal — decrypt/send paths surface their own errors */
+        });
+      }, 400);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      clearTimeout(debounce);
     };
   }, [needsSecureKeypair, userId, dispatch]);
 

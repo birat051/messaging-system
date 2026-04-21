@@ -22,15 +22,6 @@ export async function getUserById(userId: string): Promise<S['UserPublic']> {
   return res.data;
 }
 
-export async function getUserPublicKeyById(
-  userId: string,
-): Promise<S['UserPublicKeyResponse']> {
-  const res = await httpClient.get<S['UserPublicKeyResponse']>(
-    API_PATHS.users.publicKeyById(userId),
-  );
-  return res.data;
-}
-
 /**
  * `GET /users/search` — **substring** match on stored **email** and **username** (case-insensitive; see OpenAPI).
  * Sends preferred **`q`** query param; pass **`query`** trimmed and lowercased; length **3–254**; charset **`[a-z0-9@._+_-]`**.
@@ -55,22 +46,75 @@ export async function searchUsersByEmail(params: {
   return searchUsers({ query: params.email, limit: params.limit });
 }
 
-export async function putMyPublicKey(
-  body: S['PutPublicKeyRequest'],
-): Promise<S['UserPublicKeyResponse']> {
-  const res = await httpClient.put<S['UserPublicKeyResponse']>(
-    API_PATHS.users.mePublicKey,
+/**
+ * `POST /users/me/devices` — register or update one device row (server assigns **`deviceId`** when omitted).
+ * Body may use **`publicKey`** or **`pubKey`** (SPKI); optional **`deviceLabel`**; **`bootstrap: true`** → **201** and
+ * **`RegisterDeviceBootstrapResponse`** (`deviceId` only).
+ */
+export async function registerMyDevice(
+  body: S['RegisterDeviceRequest'],
+): Promise<S['RegisterDeviceResponse']> {
+  const res = await httpClient.post<S['RegisterDeviceResponse']>(
+    API_PATHS.users.meDevices,
     body,
   );
   return res.data;
 }
 
-export async function rotateMyPublicKey(
-  body: S['RotatePublicKeyRequest'],
-): Promise<S['UserPublicKeyResponse']> {
-  const res = await httpClient.post<S['UserPublicKeyResponse']>(
-    API_PATHS.users.mePublicKeyRotate,
+/** `GET /users/me/devices` — caller’s device rows including **`publicKey`** (SPKI) per row. */
+export async function listMyDevices(): Promise<S['DeviceListResponse']> {
+  const res = await httpClient.get<S['DeviceListResponse']>(API_PATHS.users.meDevices);
+  return res.data;
+}
+
+/**
+ * `DELETE /users/me/devices/{deviceId}` — remove this device from the server registry (**204**).
+ * Does not rewrite historical **`Message.encryptedMessageKeys`** (see OpenAPI **`deleteMyDevice`**).
+ */
+export async function deleteMyDevice(deviceId: string): Promise<void> {
+  await httpClient.delete(API_PATHS.users.meDeviceById(deviceId));
+}
+
+/**
+ * `GET /users/me/sync/message-keys` — paginated **`encryptedMessageKeys[deviceId]`** for hybrid messages (**`deviceId`** query required).
+ */
+export async function listMySyncMessageKeys(params: {
+  deviceId: string;
+  afterMessageId?: string;
+  limit?: components['parameters']['LimitQuery'];
+}): Promise<S['SyncMessageKeysListResponse']> {
+  const res = await httpClient.get<S['SyncMessageKeysListResponse']>(
+    API_PATHS.users.meSyncMessageKeys,
+    {
+      params: {
+        deviceId: params.deviceId,
+        afterMessageId: params.afterMessageId,
+        limit: params.limit,
+      },
+    },
+  );
+  return res.data;
+}
+
+/** `POST /users/me/sync/message-keys` — batch upsert wrapped keys for **`targetDeviceId`** (requires JWT **`sourceDeviceId`** claim). */
+export async function postBatchSyncMessageKeys(
+  body: S['BatchKeyUploadRequest'],
+): Promise<S['BatchKeyUploadResponse']> {
+  const res = await httpClient.post<S['BatchKeyUploadResponse']>(
+    API_PATHS.users.meSyncMessageKeys,
     body,
+  );
+  return res.data;
+}
+
+/**
+ * `GET /users/{userId}/devices/public-keys` — list devices for **`userId`** (use **`'me'`** for the signed-in user).
+ */
+export async function listUserDevicePublicKeys(
+  userId: string,
+): Promise<S['DevicePublicKeyListResponse']> {
+  const res = await httpClient.get<S['DevicePublicKeyListResponse']>(
+    API_PATHS.users.devicePublicKeysByUserId(userId),
   );
   return res.data;
 }

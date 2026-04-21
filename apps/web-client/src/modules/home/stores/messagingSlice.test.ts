@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { arrayBufferToBase64 } from '@/common/crypto/encoding';
-import { encryptUtf8ToE2eeBody } from '@/common/crypto/messageEcies';
-import { generateP256EcdhKeyPair } from '@/common/crypto/keypair';
+import {
+  encryptUtf8ToHybridSendPayload,
+  mergeHybridDeviceRows,
+} from '@/common/crypto/messageHybrid';
+import { exportPublicKeySpkiBase64, generateP256EcdhKeyPair } from '@/common/crypto/keypair';
 import type { components } from '@/generated/api-types';
 import {
   appendIncomingMessageIfNew,
@@ -10,16 +12,25 @@ import {
   hydrateSenderPlaintextFromDisk,
   mergeReceiptFanoutFromSocket,
   messagingReducer,
+  recordOwnSendPlaintext,
   replaceOptimisticMessage,
-  setRecipientDirectoryKey,
 } from './messagingSlice';
 import { selectOutboundReceiptTickState } from './messagingSelectors';
 
 type Message = components['schemas']['Message'];
 
+async function hybridWireFromPlaintext(plain: string) {
+  const pair = await generateP256EcdhKeyPair();
+  const spki = await exportPublicKeySpkiBase64(pair.publicKey);
+  const devices = mergeHybridDeviceRows([
+    { deviceId: 'slice-wire-dev', publicKey: spki },
+  ]);
+  return encryptUtf8ToHybridSendPayload(plain, devices);
+}
+
 const base = {
   activeConversationId: null,
-  recipientDirectoryKeyByUserId: {},
+  pendingDirectPeer: null,
   messagesById: {} as Record<string, Message>,
   messageIdsByConversationId: {} as Record<string, string[]>,
   pendingOutgoingClientIdsByConversationId: {} as Record<string, string[]>,
@@ -31,20 +42,16 @@ const base = {
   decryptedBodyByMessageId: {},
 };
 
-describe('messagingSlice recipient directory keys', () => {
-  it('setRecipientDirectoryKey stores the peer directory key', () => {
-    const key = {
-      userId: 'peer-x',
-      publicKey:
-        'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEeWtZ0jiCzy6i7c1fhDNcct9WUer1FC9027TeJwYmimeYcCDeAauszT90CsuigDh12qwCJ3yFUDcZurT22BWJrJA',
-      keyVersion: 1,
-      updatedAt: '2026-01-01T00:00:00.000Z',
-    };
+describe('recordOwnSendPlaintext', () => {
+  it('stores plaintext for first-DM send when there was no optimistic client id', () => {
     const state = messagingReducer(
       base,
-      setRecipientDirectoryKey({ userId: 'peer-x', key }),
+      recordOwnSendPlaintext({
+        messageId: 'msg-server-1',
+        plaintext: 'Hello new thread',
+      }),
     );
-    expect(state.recipientDirectoryKeyByUserId['peer-x']).toEqual(key);
+    expect(state.senderPlaintextByMessageId['msg-server-1']).toBe('Hello new thread');
   });
 });
 
@@ -114,20 +121,19 @@ describe('messagingSlice optimistic reconciliation', () => {
     expect(state.outboundReceiptByMessageId[optimisticId]).toBeUndefined();
   });
 
-  it('replaceOptimisticMessage keeps plaintext when server ack body is E2EE envelope', async () => {
+  it('replaceOptimisticMessage keeps plaintext when server ack body is hybrid wire', async () => {
     const optimisticId = 'client:eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
     const plain = 'Hello from me';
-    const pair = await generateP256EcdhKeyPair();
-    const subtle = globalThis.crypto.subtle;
-    const spkiDer = await subtle.exportKey('spki', pair.publicKey);
-    const recipientSpkiB64 = arrayBufferToBase64(spkiDer);
-    const wire = await encryptUtf8ToE2eeBody(plain, recipientSpkiB64);
+    const hybrid = await hybridWireFromPlaintext(plain);
 
     const serverMsg: Message = {
-      id: 'm-e2ee',
+      id: 'm-hybrid',
       conversationId: cid,
       senderId: userId,
-      body: wire,
+      body: hybrid.body,
+      iv: hybrid.iv,
+      algorithm: hybrid.algorithm,
+      encryptedMessageKeys: hybrid.encryptedMessageKeys,
       mediaKey: null,
       createdAt: new Date().toISOString(),
     };
@@ -157,14 +163,87 @@ describe('messagingSlice optimistic reconciliation', () => {
     expect(state.senderPlaintextByMessageId[serverMsg.id]).toBe(plain);
   });
 
-  it('appendIncomingMessageIfNew keeps senderPlaintext when server body is E2EE and optimistic had plaintext', async () => {
+  it('replaceOptimisticMessage preserves mediaPreviewUrl from optimistic StoredMessage', () => {
+    const optimisticId = 'client:media-1111-1111-1111-111111111111';
+    const preview = 'blob:mock-preview';
+    const serverMsg: Message = {
+      id: 'm-with-key',
+      conversationId: cid,
+      senderId: userId,
+      body: null,
+      mediaKey: 'users/x/photo.png',
+      createdAt: new Date().toISOString(),
+    };
+    const state = messagingReducer(
+      {
+        ...base,
+        messagesById: {
+          [optimisticId]: {
+            id: optimisticId,
+            conversationId: cid,
+            senderId: userId,
+            body: null,
+            mediaKey: 'users/x/photo.png',
+            mediaPreviewUrl: preview,
+            createdAt: new Date().toISOString(),
+          },
+        },
+        messageIdsByConversationId: { [cid]: [optimisticId] },
+        pendingOutgoingClientIdsByConversationId: { [cid]: [optimisticId] },
+      },
+      replaceOptimisticMessage({
+        conversationId: cid,
+        optimisticId,
+        message: serverMsg,
+      }),
+    );
+    expect(state.messagesById[serverMsg.id]?.mediaKey).toBe('users/x/photo.png');
+    expect(
+      (state.messagesById[serverMsg.id] as { mediaPreviewUrl?: string })
+        .mediaPreviewUrl,
+    ).toBe(preview);
+  });
+
+  it('appendIncomingMessageIfNew preserves mediaPreviewUrl when reconciling optimistic', () => {
+    const optimisticId = 'client:media-2222-2222-2222-222222222222';
+    const preview = 'https://api.example/presigned';
+    let state = messagingReducer(
+      base,
+      appendMessageFromSend({
+        conversationId: cid,
+        message: {
+          id: optimisticId,
+          conversationId: cid,
+          senderId: userId,
+          body: null,
+          mediaKey: 'k/image.png',
+          mediaPreviewUrl: preview,
+          createdAt: new Date().toISOString(),
+        },
+      }),
+    );
+    const serverMsg: Message = {
+      id: 'm-srv-media',
+      conversationId: cid,
+      senderId: userId,
+      body: null,
+      mediaKey: 'k/image.png',
+      createdAt: new Date().toISOString(),
+    };
+    state = messagingReducer(
+      state,
+      appendIncomingMessageIfNew({ message: serverMsg, currentUserId: userId }),
+    );
+    expect(
+      (state.messagesById[serverMsg.id] as { mediaPreviewUrl?: string })
+        .mediaPreviewUrl,
+    ).toBe(preview);
+  });
+
+  it('appendIncomingMessageIfNew keeps senderPlaintext when server body is hybrid and optimistic had plaintext', async () => {
     const optimisticId = 'client:ffffffff-ffff-ffff-ffff-ffffffffffff';
     const plain = 'Hello via message:new';
-    const pair = await generateP256EcdhKeyPair();
-    const subtle = globalThis.crypto.subtle;
-    const spkiDer = await subtle.exportKey('spki', pair.publicKey);
-    const recipientSpkiB64 = arrayBufferToBase64(spkiDer);
-    const wire = await encryptUtf8ToE2eeBody(plain, recipientSpkiB64);
+    const hybrid = await hybridWireFromPlaintext(plain);
 
     let state = messagingReducer(
       base,
@@ -184,7 +263,10 @@ describe('messagingSlice optimistic reconciliation', () => {
       id: 'm-new-socket',
       conversationId: cid,
       senderId: userId,
-      body: wire,
+      body: hybrid.body,
+      iv: hybrid.iv,
+      algorithm: hybrid.algorithm,
+      encryptedMessageKeys: hybrid.encryptedMessageKeys,
       mediaKey: null,
       createdAt: new Date().toISOString(),
     };
@@ -199,17 +281,16 @@ describe('messagingSlice optimistic reconciliation', () => {
   it('appendIncomingMessageIfNew reconciles optimistic when client id is missing from id list (stale list)', async () => {
     const optimisticId = 'client:bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
     const plain = 'Stale list fix';
-    const pair = await generateP256EcdhKeyPair();
-    const subtle = globalThis.crypto.subtle;
-    const spkiDer = await subtle.exportKey('spki', pair.publicKey);
-    const recipientSpkiB64 = arrayBufferToBase64(spkiDer);
-    const wire = await encryptUtf8ToE2eeBody(plain, recipientSpkiB64);
+    const hybrid = await hybridWireFromPlaintext(plain);
 
     const serverMsg: Message = {
       id: 'm-stale',
       conversationId: cid,
       senderId: userId,
-      body: wire,
+      body: hybrid.body,
+      iv: hybrid.iv,
+      algorithm: hybrid.algorithm,
+      encryptedMessageKeys: hybrid.encryptedMessageKeys,
       mediaKey: null,
       createdAt: new Date().toISOString(),
     };
@@ -375,20 +456,19 @@ describe('hydrateSenderPlaintextFromDisk', () => {
     });
   });
 
-  it('overlays E2EE wire body in hydrateMessagesFromFetch when plaintext is present', async () => {
+  it('overlays hybrid wire body in hydrateMessagesFromFetch when plaintext is present', async () => {
     const cid = 'conv-1';
     const userId = 'user-self';
     const plain = 'Hi there';
-    const pair = await generateP256EcdhKeyPair();
-    const subtle = globalThis.crypto.subtle;
-    const spkiDer = await subtle.exportKey('spki', pair.publicKey);
-    const recipientSpkiB64 = arrayBufferToBase64(spkiDer);
-    const wire = await encryptUtf8ToE2eeBody(plain, recipientSpkiB64);
+    const hybrid = await hybridWireFromPlaintext(plain);
     const msg: Message = {
-      id: 'm-e2ee',
+      id: 'm-hybrid',
       conversationId: cid,
       senderId: userId,
-      body: wire,
+      body: hybrid.body,
+      iv: hybrid.iv,
+      algorithm: hybrid.algorithm,
+      encryptedMessageKeys: hybrid.encryptedMessageKeys,
       mediaKey: null,
       createdAt: new Date().toISOString(),
     };

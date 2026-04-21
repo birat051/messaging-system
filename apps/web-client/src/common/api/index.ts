@@ -29,11 +29,11 @@ export { API_PATHS } from './paths';
 export { swrConfigValue, swrFetcher } from './swrConfig';
 export { getHealth, getReady } from './systemApi';
 export {
+  deleteMyDevice,
   getCurrentUser,
   getUserById,
-  getUserPublicKeyById,
-  putMyPublicKey,
-  rotateMyPublicKey,
+  listUserDevicePublicKeys,
+  registerMyDevice,
   searchUsers,
   searchUsersByEmail,
   updateCurrentUserProfile,

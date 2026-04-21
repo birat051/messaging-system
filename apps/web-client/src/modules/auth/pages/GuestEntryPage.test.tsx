@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { Routes, Route } from 'react-router-dom';
@@ -7,6 +7,7 @@ import { API_PATHS } from '@/common/api/paths';
 import { server } from '@/common/mocks/server';
 import { renderWithProviders } from '@/common/test-utils';
 import type { components } from '@/generated/api-types';
+import { ROUTES } from '@/routes/paths';
 import { GuestEntryPage } from './GuestEntryPage';
 
 type GuestAuthResponse = components['schemas']['GuestAuthResponse'];
@@ -32,6 +33,23 @@ function guestAuthResponse(username: string): GuestAuthResponse {
 }
 
 describe('GuestEntryPage', () => {
+  it('renders footer links to privacy policy and terms', () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/guest" element={<GuestEntryPage />} />
+      </Routes>,
+      { route: '/guest' },
+    );
+
+    const footer = screen.getByRole('contentinfo');
+    expect(
+      within(footer).getByRole('link', { name: /privacy policy/i }),
+    ).toHaveAttribute('href', ROUTES.privacy);
+    expect(
+      within(footer).getByRole('link', { name: /terms and conditions/i }),
+    ).toHaveAttribute('href', ROUTES.terms);
+  });
+
   it('shows validation when username is empty', async () => {
     const user = userEvent.setup();
 
@@ -106,6 +124,7 @@ describe('GuestEntryPage', () => {
     );
 
     await user.type(screen.getByLabelText(/^username/i), 'valid_guest');
+    await user.click(screen.getByRole('checkbox', { name: /i agree to the/i }));
     await user.click(screen.getByRole('button', { name: /start guest session/i }));
 
     await waitFor(() => {
@@ -139,6 +158,7 @@ describe('GuestEntryPage', () => {
 
     await user.type(screen.getByLabelText(/^username/i), 'valid_guest');
     await user.type(screen.getByLabelText(/^display name/i), 'Party Ghost');
+    await user.click(screen.getByRole('checkbox', { name: /i agree to the/i }));
     await user.click(screen.getByRole('button', { name: /start guest session/i }));
 
     await waitFor(() => {

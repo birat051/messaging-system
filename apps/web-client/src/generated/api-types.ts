@@ -246,30 +246,39 @@ export interface paths {
         patch: operations["updateCurrentUserProfile"];
         trace?: never;
     };
-    "/users/me/public-key": {
+    "/users/me/devices": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
         /**
-         * Register or replace the current user's E2EE public key
-         * @description **Upsert** the authenticated user's **long-term** public key (one document per user in MongoDB;
-         *     no per-device rows). Encoding of **`publicKey`** is fixed server-side (e.g. SPKI Base64 per
-         *     **`docs/PROJECT_PLAN.md` §14**). **Never** send a private key.
-         *     On first registration, **`keyVersion`** may be omitted and assigned by the server (typically **`1`**).
+         * List registered devices for the current user
+         * @description Returns **`deviceId`**, **`deviceLabel`**, **`createdAt`**, and **`lastSeenAt`** for each device row owned by the caller.
+         *     Omits **`publicKey`** (use **`GET /users/{userId}/devices/public-keys`** when key material is required). Intended for
+         *     trusted-device UX (e.g. confirming a new device is registered pending sync). No query parameters; unknown keys yield **400**.
          */
-        put: operations["putMyPublicKey"];
-        post?: never;
+        get: operations["listMyDevices"];
+        put?: never;
+        /**
+         * Register or update a device E2EE public key
+         * @description Inserts or updates a **`(userId, deviceId)`** row. Send **`publicKey`** or **`pubKey`** (P-256 SPKI Base64).
+         *     Optional **`deviceLabel`** is stored for UX (e.g. "Chrome on MacBook"). When **`deviceId`** is omitted, the server
+         *     assigns a new id (UUID). When **`deviceId`** is sent, the same device can re-register an updated key idempotently.
+         *     With **`bootstrap: true`**, the response is **201** and **`RegisterDeviceBootstrapResponse`** (`deviceId` only).
+         *     On **first insert** of a new row (not idempotent update), the server emits Socket.IO **`device:sync_requested`**
+         *     to room **`user:<userId>`** with **`{ newDeviceId, newDevicePublicKey }`** so other connected clients can react
+         *     (same-process delivery; not brokered).
+         */
+        post: operations["registerMyDevice"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/users/me/public-key/rotate": {
+    "/users/me/devices/{deviceId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -278,20 +287,29 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        post?: never;
         /**
-         * Rotate the current user's E2EE public key
-         * @description **New** public key material with a server-assigned **`keyVersion`** greater than the previous value.
-         *     Use when the user generates a new key pair client-side. If no key exists yet, the server may
-         *     treat this as **400** or as first registration — implementation choice.
+         * Revoke a device public key for the current user
+         * @description **Authorization:** only the **authenticated account** may remove **its own** device rows. The path is always
+         *     **`/users/me/...`** — there is no API to delete another user’s devices.
+         *
+         *     Deletes the **`user_device_public_keys`** document for **`(authenticatedUserId, deviceId)`**. **204** if a row was
+         *     removed; **404** if no matching row exists.
+         *
+         *     **Historical messages are not updated:** existing **`Message`** documents may still contain
+         *     **`encryptedMessageKeys[deviceId]`** for this device. Stripping those entries would require scanning and patching
+         *     many message documents (write amplification, races with concurrent sends). The chosen tradeoff is **registry-only
+         *     revocation**: the device no longer appears in **`GET …/devices/public-keys`**, so senders must not wrap new keys
+         *     for it; old wrapped-key blobs remain as opaque metadata until optional future compaction. Clients must tolerate
+         *     orphaned map entries for revoked devices when reading history.
          */
-        post: operations["rotateMyPublicKey"];
-        delete?: never;
+        delete: operations["deleteMyDevice"];
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/users/{userId}/public-key": {
+    "/users/me/sync/message-keys": {
         parameters: {
             query?: never;
             header?: never;
@@ -299,11 +317,42 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get a user's registered E2EE public key by user id
-         * @description Fetch **public** key material for **ECIES** to this user. **Authorization:** the server may return
-         *     **403** or **404** when the caller must not learn this key (e.g. not an allowed messaging peer).
+         * List wrapped message keys for a registered device (multi-device sync)
+         * @description Returns **`messageId`** and this device’s **`encryptedMessageKeys[deviceId]`** for hybrid-E2EE messages in every
+         *     conversation the user participates in. Does **not** return **`body`**, **`iv`**, or other devices’ wrapped keys.
+         *     **`deviceId`** must match an active device row for the caller (see **`GET /users/me/devices`**).
+         *     Pagination uses keyset order **`(createdAt ascending, id ascending)`**. Omit **`afterMessageId`** for the first page;
+         *     when **`hasMore`** is true, pass **`nextAfterMessageId`** as **`afterMessageId`** on the next request.
          */
-        get: operations["getUserPublicKeyById"];
+        get: operations["listMySyncMessageKeys"];
+        put?: never;
+        /**
+         * Batch-upload wrapped message keys for another registered device
+         * @description Requires a **device-bound** access JWT (**`sourceDeviceId`** claim). Obtain it by **`POST /auth/login`** or **`POST /auth/refresh`**
+         *     with optional **`sourceDeviceId`** in the JSON body (must match an active row from **`GET /users/me/devices`**).
+         *     For each **`keys`** item, the server **`$set`s** **`encryptedMessageKeys[targetDeviceId]`** when the caller’s **`sourceDeviceId`**
+         *     already has a non-empty wrapped key on that message and the user participates in the thread. Re-sending the same pair is safe (**idempotent**).
+         */
+        post: operations["batchUploadMySyncMessageKeys"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{userId}/devices/public-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List active device public keys for a user
+         * @description Returns all registered devices for **`userId`**. **Authorization:** self, loose peer fetch, or direct-thread-only when
+         *     **`PUBLIC_KEY_FETCH_REQUIRE_DIRECT_THREAD`** is set (**`README.md`**).
+         */
+        get: operations["listUserDevicePublicKeys"];
         put?: never;
         post?: never;
         delete?: never;
@@ -553,12 +602,16 @@ export interface components {
             profilePicture?: string | null;
             /** @description Optional short status line at signup */
             status?: string | null;
+            /** @description When set and registered for this user, the access JWT includes **`sourceDeviceId`**. */
+            sourceDeviceId?: components["schemas"]["RegisteredDeviceIdWire"];
         };
         GuestRequest: {
             /** @description Unique handle for the guest session; stored lowercase (same rules as register **`username`**). */
             username: string;
             /** @description Optional; may match or differ from **`username`** (trimmed on the server). */
             displayName?: string;
+            /** @description When set and registered for this guest user, the access JWT includes **`sourceDeviceId`**. */
+            sourceDeviceId?: components["schemas"]["RegisteredDeviceIdWire"];
         };
         GuestAuthResponse: {
             /** @description HS256 access JWT; includes a boolean **`guest`** custom claim (true for guest sessions) */
@@ -615,9 +668,13 @@ export interface components {
             email: string;
             /** Format: password */
             password: string;
+            /** @description When set and registered for this user, the access JWT includes **`sourceDeviceId`** for device-bound APIs. */
+            sourceDeviceId?: components["schemas"]["RegisteredDeviceIdWire"];
         };
         RefreshRequest: {
             refreshToken: string;
+            /** @description When set and registered for this user, the new access JWT includes **`sourceDeviceId`**. */
+            sourceDeviceId?: components["schemas"]["RegisteredDeviceIdWire"];
         };
         LogoutRequest: {
             refreshToken: string;
@@ -679,28 +736,94 @@ export interface components {
             profilePicture?: string | null;
             status?: string | null;
         };
-        /** @description Register or replace the caller's public key — **never** include a private key; unknown properties are rejected */
-        PutPublicKeyRequest: {
-            /** @description Base64 or Base64url **SPKI** DER for **P-256** (`prime256v1`); server rejects non-P-256 curves and invalid DER (see **`docs/PROJECT_PLAN.md` §14**). */
-            publicKey: string;
-            /** @description Optional on first put; server may assign **1** when omitted */
-            keyVersion?: number;
+        /**
+         * @description Register or update one device — **never** include a private key. Supply **`publicKey`** *or* **`pubKey`**
+         *     (same P-256 SPKI Base64 rules); if both are sent they must be identical.
+         */
+        RegisterDeviceRequest: {
+            /** @description P-256 SPKI Base64 (**`docs/PROJECT_PLAN.md` §14**) */
+            publicKey?: string;
+            /** @description Alias for **`publicKey`** (bootstrap / mobile naming) */
+            pubKey?: string;
+            /** @description Optional human-readable label (e.g. "Chrome on MacBook") */
+            deviceLabel?: string | null;
+            /** @description Optional client-chosen id so the same physical device can re-register; when omitted the server assigns a new id */
+            deviceId?: string;
+            /** @description When true, HTTP **201** with **`RegisterDeviceBootstrapResponse`** (only **`deviceId`** in the JSON body). */
+            bootstrap?: boolean;
         };
-        /** @description New public key after client-side keypair generation — **never** include a private key; unknown properties are rejected */
-        RotatePublicKeyRequest: {
-            /** @description Same encoding rules as **`PutPublicKeyRequest.publicKey`** (P-256 SPKI). */
-            publicKey: string;
+        /** @description Returned for **`POST /users/me/devices`** when the request sets **`bootstrap`** to true. */
+        RegisterDeviceBootstrapResponse: {
+            /** @description Server-assigned or client-supplied device id for this row */
+            deviceId: string;
         };
-        /** @description User-level public key directory row — no device dimension */
-        UserPublicKeyResponse: {
-            /** @description Same as **`User.id`** */
-            userId: string;
-            /** @description Opaque to clients except as encryption input; encoding matches **`PutPublicKeyRequest`** */
+        RegisterDeviceResponse: {
+            deviceId: string;
             publicKey: string;
-            /** @description Monotonic per user; increments on **rotate** */
             keyVersion: number;
             /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
             updatedAt: string;
+        };
+        DevicePublicKeyEntry: {
+            deviceId: string;
+            publicKey: string;
+            /** @description Monotonic per **`(userId, deviceId)`** row; increments when the device re-registers a new SPKI */
+            keyVersion: number;
+            /** @description Present when the device was registered with a label */
+            deviceLabel?: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        DevicePublicKeyListResponse: {
+            items: components["schemas"]["DevicePublicKeyEntry"][];
+        };
+        DeviceListItem: {
+            /** @description Server-assigned or client-supplied device id for this row */
+            deviceId: string;
+            /** @description Human-readable label when set; otherwise null */
+            deviceLabel: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description Last activity recorded for this row (e.g. device re-registration). Legacy rows without a stored value use **`updatedAt`**.
+             */
+            lastSeenAt: string;
+            /** @description P-256 ECDH public key (**SPKI** DER, standard Base64) for this device row — same material as **`POST /users/me/devices`**. */
+            publicKey: string;
+        };
+        /** @description Response body for **`GET /users/me/devices`** — caller-owned device rows including **`publicKey`** for hybrid E2EE and sync verification */
+        DeviceListResponse: {
+            items: components["schemas"]["DeviceListItem"][];
+        };
+        /** @description One wrapped symmetric key for a single message and device (GET sync list or **`BatchKeyUploadRequest.keys`** item) */
+        SyncMessageKeyEntry: {
+            /** @description Stable **`Message`** primary key (**`id`** field) for the row that contains this wrapped key. */
+            messageId: string;
+            /** @description Opaque wrapped symmetric key for the requested device (same storage semantics as **`Message.encryptedMessageKeys`** values). */
+            encryptedMessageKey: string;
+        };
+        SyncMessageKeysListResponse: {
+            items: components["schemas"]["SyncMessageKeyEntry"][];
+            hasMore: boolean;
+            /** @description When **`hasMore`** is true, set **`afterMessageId`** on the next request to this value. Otherwise null. */
+            nextAfterMessageId: string | null;
+        };
+        /** @description Device id as stored in **`user_device_public_keys`** (e.g. UUID or **`default`**) */
+        RegisteredDeviceIdWire: string;
+        /** @description Body for **`POST /users/me/sync/message-keys`** — each **`keys`** element matches **`SyncMessageKeyEntry`** */
+        BatchKeyUploadRequest: {
+            targetDeviceId: components["schemas"]["RegisteredDeviceIdWire"];
+            keys: components["schemas"]["SyncMessageKeyEntry"][];
+        };
+        /** @description Result counts for **`POST /users/me/sync/message-keys`** */
+        BatchKeyUploadResponse: {
+            applied: number;
+            skipped: number;
         };
         /** @description One row from user search — includes existing direct conversation when present */
         UserSearchResult: {
@@ -764,14 +887,26 @@ export interface components {
             conversationId: string;
             senderId: string;
             /**
-             * @description **Text or opaque E2EE payload.** Plain UTF-8 text, or client-encrypted ciphertext (e.g. envelopes described in
-             *     **`docs/PROJECT_PLAN.md` §14**) when end-to-end encryption is enabled. The server **stores and routes**
-             *     this value **without** decrypting. Requires user-level public-key APIs (`PUT /users/me/public-key`,
-             *     `GET /users/{userId}/public-key`) per **Prerequisite — User keypair** in **`docs/TASK_CHECKLIST.md`**.
+             * @description **Text or opaque E2EE payload.** Plain UTF-8 text, or **AES-256-GCM** ciphertext of the message plaintext
+             *     when hybrid E2EE is enabled (see **`docs/PROJECT_PLAN.md` §7.1**). The server **stores and routes**
+             *     this value **without** decrypting. Use **`encryptedMessageKeys`** + **`iv`** with device-key APIs
+             *     (`POST /users/me/devices`, `GET /users/{userId}/devices/public-keys`) per **Prerequisite — User keypair**
+             *     in **`docs/TASK_CHECKLIST.md`**.
              */
             body?: string | null;
             /** @description S3 object key when message has an attachment */
             mediaKey?: string | null;
+            /** @description Per-device wrapped symmetric keys (**deviceId** → opaque base64). Omitted for plaintext messages. See **`docs/PROJECT_PLAN.md` §7.1**. */
+            encryptedMessageKeys?: {
+                [key: string]: string;
+            } | null;
+            /** @description AES-GCM IV/nonce for **`body`** when E2EE — opaque to the server */
+            iv?: string | null;
+            /**
+             * @description Client-only tag naming the E2EE scheme (e.g. **`aes-256-gcm+p256-hybrid-v1`** for hybrid
+             *     **`body`** + **`encryptedMessageKeys`**). The server stores this **without** interpreting or validating it.
+             */
+            algorithm?: string | null;
             /** Format: date-time */
             createdAt: string;
         };
@@ -822,6 +957,14 @@ export interface components {
             body?: string;
             /** @description From prior upload response */
             mediaKey?: string | null;
+            /** @description Hybrid E2EE — per-device wrapped message keys; server stores opaquely */
+            encryptedMessageKeys?: {
+                [key: string]: string;
+            } | null;
+            /** @description AES-GCM IV for **`body`** when using **`encryptedMessageKeys`** */
+            iv?: string | null;
+            /** @description Same semantics as **`Message.algorithm`** — required when **`encryptedMessageKeys`** is non-empty. */
+            algorithm?: string | null;
         };
         Group: {
             id: string;
@@ -883,6 +1026,8 @@ export interface components {
     parameters: {
         /** @description User identifier */
         UserIdPath: string;
+        /** @description Device identifier (e.g. UUID from **`POST /users/me/devices`**, or **`default`** for migrated single-key rows). Letters, digits, underscore, hyphen only. */
+        DeviceIdPath: string;
         /** @description Conversation identifier */
         ConversationIdPath: string;
         /** @description Opaque cursor from a previous list response */
@@ -1409,7 +1554,29 @@ export interface operations {
             };
         };
     };
-    putMyPublicKey: {
+    listMyDevices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Device metadata list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    registerMyDevice: {
         parameters: {
             query?: never;
             header?: never;
@@ -1418,22 +1585,31 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PutPublicKeyRequest"];
+                "application/json": components["schemas"]["RegisterDeviceRequest"];
             };
         };
         responses: {
-            /** @description Public key stored */
+            /** @description Device registered (full payload; default when **`bootstrap`** is omitted or false) */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UserPublicKeyResponse"];
+                    "application/json": components["schemas"]["RegisterDeviceResponse"];
+                };
+            };
+            /** @description Bootstrap registration — request body included bootstrap true */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegisterDeviceBootstrapResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
-            /** @description JSON body exceeds the smaller limit used for public-key routes */
+            /** @description JSON body exceeds the smaller limit used for **`POST /users/me/devices`** */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -1442,7 +1618,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Per-user rate limit on public key updates exceeded */
+            /** @description Per-user rate limit on device registration / deletion exceeded */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -1453,41 +1629,29 @@ export interface operations {
             };
         };
     };
-    rotateMyPublicKey: {
+    deleteMyDevice: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                /** @description Device identifier (e.g. UUID from **`POST /users/me/devices`**, or **`default`** for migrated single-key rows). Letters, digits, underscore, hyphen only. */
+                deviceId: components["parameters"]["DeviceIdPath"];
+            };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RotatePublicKeyRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description New public key active */
-            200: {
+            /** @description Device removed from registry */
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["UserPublicKeyResponse"];
-                };
+                content?: never;
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
-            /** @description JSON body exceeds the smaller limit used for public-key routes */
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Per-user rate limit on public key updates exceeded */
+            /** @description Per-user rate limit on device register/delete exceeded */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -1498,7 +1662,86 @@ export interface operations {
             };
         };
     };
-    getUserPublicKeyById: {
+    listMySyncMessageKeys: {
+        parameters: {
+            query: {
+                /** @description Registered device id — selects **`encryptedMessageKeys[deviceId]`** on each message */
+                deviceId: string;
+                /** @description Exclusive cursor. Next page returns messages strictly after this **`Message`** **`id`** in sort order. */
+                afterMessageId?: string;
+                /**
+                 * @description Optional page size; **default `20`** when omitted on all paginated list endpoints that
+                 *     support this parameter. Server may enforce a lower cap.
+                 */
+                limit?: components["parameters"]["LimitQuery"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of wrapped keys for the requested device (each row is **`SyncMessageKeyEntry`**) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncMessageKeysListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    batchUploadMySyncMessageKeys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchKeyUploadRequest"];
+            };
+        };
+        responses: {
+            /** @description Counts of applied vs skipped updates */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchKeyUploadResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JSON body exceeds the device-sync batch size limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Per-user Redis fixed-window cap on batch sync uploads exceeded (**`DEVICE_SYNC_RATE_LIMIT_*`** in **`README.md`** Configuration; stacks with **`GLOBAL_RATE_LIMIT_*`**). */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listUserDevicePublicKeys: {
         parameters: {
             query?: never;
             header?: never;
@@ -1510,13 +1753,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Public key for encryption to this user */
+            /** @description Device public keys */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UserPublicKeyResponse"];
+                    "application/json": components["schemas"]["DevicePublicKeyListResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];

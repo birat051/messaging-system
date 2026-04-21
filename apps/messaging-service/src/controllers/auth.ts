@@ -31,8 +31,14 @@ import {
   setUserEmailVerified,
   setUserPasswordAndBumpVersion,
 } from '../data/users/repo.js';
+import { resolveSourceDeviceIdForAccessToken } from '../data/userPublicKeys/index.js';
 import { toUserApiShape } from '../data/users/publicUser.js';
-import type { GuestRequest, RegisterRequest } from '../validation/schemas.js';
+import type {
+  GuestRequest,
+  LoginRequest,
+  RefreshRequest,
+  RegisterRequest,
+} from '../validation/schemas.js';
 import { sendPasswordResetEmail } from '../utils/email/sendPasswordResetEmail.js';
 import { sendVerificationEmail } from '../utils/email/sendVerificationEmail.js';
 import { computeGuestDataExpiresAt } from '../config/guestDataTtl.js';
@@ -179,7 +185,15 @@ export function postRegister(env: Env): RequestHandler {
         return;
       }
 
-      const tokens = await issueAuthTokens(env, user);
+      const sourceDeviceId = await resolveSourceDeviceIdForAccessToken(
+        user.id,
+        body.sourceDeviceId,
+      );
+      const tokens = await issueAuthTokens(
+        env,
+        user,
+        sourceDeviceId !== undefined ? { sourceDeviceId } : undefined,
+      );
       res.status(201).json({
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
@@ -216,7 +230,7 @@ export function postLogin(env: Env): RequestHandler {
   return async (req, res, next) => {
     try {
       requireJwtForAuth(env);
-      const body = req.body as { email: string; password: string };
+      const body = req.body as LoginRequest;
       const user = await findUserByEmail(body.email);
       if (
         !user ||
@@ -241,7 +255,15 @@ export function postLogin(env: Env): RequestHandler {
         );
         return;
       }
-      const tokens = await issueAuthTokens(env, user);
+      const sourceDeviceId = await resolveSourceDeviceIdForAccessToken(
+        user.id,
+        body.sourceDeviceId,
+      );
+      const tokens = await issueAuthTokens(
+        env,
+        user,
+        sourceDeviceId !== undefined ? { sourceDeviceId } : undefined,
+      );
       res.status(200).json({
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
@@ -258,7 +280,8 @@ export function postRefresh(env: Env): RequestHandler {
   return async (req, res, next) => {
     try {
       requireJwtForAuth(env);
-      const { refreshToken: rawRefresh } = req.body as { refreshToken: string };
+      const body = req.body as RefreshRequest;
+      const { refreshToken: rawRefresh } = body;
       const stored = await getRefreshPayload(rawRefresh);
       if (!stored) {
         next(
@@ -307,8 +330,13 @@ export function postRefresh(env: Env): RequestHandler {
         );
         return;
       }
+      const sourceDeviceId = await resolveSourceDeviceIdForAccessToken(
+        user.id,
+        body.sourceDeviceId,
+      );
       const tokens = await issueAuthTokens(env, user, {
         guest: user.isGuest === true,
+        ...(sourceDeviceId !== undefined ? { sourceDeviceId } : {}),
       });
       await revokeRefreshToken(rawRefresh);
       res.status(200).json({
@@ -639,7 +667,14 @@ export function postGuest(env: Env): RequestHandler {
         }
         throw err;
       }
-      const tokens = await issueAuthTokens(env, user, { guest: true });
+      const sourceDeviceId = await resolveSourceDeviceIdForAccessToken(
+        user.id,
+        body.sourceDeviceId,
+      );
+      const tokens = await issueAuthTokens(env, user, {
+        guest: true,
+        ...(sourceDeviceId !== undefined ? { sourceDeviceId } : {}),
+      });
       res.status(200).json({
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,

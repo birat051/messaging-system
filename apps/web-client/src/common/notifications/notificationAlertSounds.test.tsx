@@ -56,12 +56,12 @@ describe('notificationAlertSounds — playInboundNotificationSound', () => {
     expect(osc.start).toHaveBeenCalled();
   });
 
-  it('kind call_incoming: two-ring pattern (two oscillators)', () => {
+  it('kind call_incoming: multi-pulse ring (more oscillators than message — louder / longer)', () => {
     const mockCtx = createMockAudioContext();
     vi.stubGlobal('AudioContext', vi.fn(() => mockCtx));
 
     playInboundNotificationSound('call_incoming');
 
-    expect(mockCtx.createOscillator).toHaveBeenCalledTimes(2);
+    expect(mockCtx.createOscillator).toHaveBeenCalledTimes(3);
   });
 });

@@ -3,7 +3,7 @@ import { rateLimitExceeded } from '../../utils/auth/rateLimitRedis.js';
 
 /**
  * Redis fixed-window limits for Socket.IO **WebRTC signaling** (**`webrtc:offer`**, **`webrtc:answer`**,
- * **`webrtc:candidate`**) — per **user**, **IP**, and **socket**.
+ * **`webrtc:candidate`**, **`webrtc:hangup`**) — per **user**, **IP**, and **socket**.
  */
 export async function isWebRtcSignalRateLimited(
   env: Env,

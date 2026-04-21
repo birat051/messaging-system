@@ -44,3 +44,14 @@ export const webrtcIceCandidateSchema = z.object({
 });
 
 export type WebrtcIceCandidatePayload = z.infer<typeof webrtcIceCandidateSchema>;
+
+/**
+ * Client → server: notify peer that the **1:1** call is ending (**`webrtc:hangup`**).
+ */
+export const webrtcHangupSchema = z.object({
+  toUserId: userIdSchema,
+  callId: callIdSchema,
+  conversationId: optionalConversationId,
+});
+
+export type WebrtcHangupPayload = z.infer<typeof webrtcHangupSchema>;

@@ -17,13 +17,43 @@ const sampleMessage: MessageApiPayload = {
 describe('messageNotification', () => {
   it('buildMessagePreview truncates long body', () => {
     const long = 'x'.repeat(200);
-    const p = buildMessagePreview(long, null);
+    const p = buildMessagePreview({
+      ...sampleMessage,
+      body: long,
+    });
     expect(p).toHaveLength(160);
     expect(p?.endsWith('…')).toBe(true);
   });
 
   it('buildMessagePreview uses Attachment label for media-only', () => {
-    expect(buildMessagePreview(null, 's3://key')).toBe('Attachment');
+    expect(
+      buildMessagePreview({
+        ...sampleMessage,
+        body: null,
+        mediaKey: 's3://key',
+      }),
+    ).toBe('Attachment');
+  });
+
+  it('buildMessagePreview hides hybrid ciphertext from preview', () => {
+    expect(
+      buildMessagePreview({
+        ...sampleMessage,
+        body: 'dGVzdA==',
+        iv: 'aXZpdjEyMzQ1Njc4OQ==',
+        algorithm: 'aes-256-gcm+p256-hybrid-v1',
+        encryptedMessageKeys: { dev1: '{}' },
+      }),
+    ).toBe('Encrypted message');
+  });
+
+  it('buildMessagePreview hides legacy E2EE_JSON_V1 envelope from preview', () => {
+    expect(
+      buildMessagePreview({
+        ...sampleMessage,
+        body: 'E2EE_JSON_V1:{"v":1}',
+      }),
+    ).toBe('Encrypted message');
   });
 
   it('buildMessageKindNotificationPayload matches direct thread shape', () => {

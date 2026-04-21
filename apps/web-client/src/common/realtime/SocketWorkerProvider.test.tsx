@@ -1,4 +1,5 @@
 import { renderWithProviders } from '@/common/test-utils';
+import * as deviceBootstrapSync from '@/common/crypto/deviceBootstrapSync';
 import { defaultMockUser } from '@/common/mocks/handlers';
 import { waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -151,6 +152,156 @@ describe('SocketWorkerProvider — message:new receive path', () => {
     );
 
     warnSpy.mockRestore();
+    unmount();
+  });
+
+  it('dispatches syncRequested when another device requests sync', async () => {
+    const { store, unmount } = renderWithProviders(
+      <SocketWorkerProvider>
+        <div />
+      </SocketWorkerProvider>,
+      {
+        preloadedState: {
+          auth: {
+            user: defaultMockUser,
+            accessToken: 'tok',
+          },
+          crypto: {
+            registeredOnServer: true,
+            keyVersion: 1,
+            deviceId: 'dev-trusted',
+            registeredPublicKeySpki: 'mine',
+            lastUpdatedAt: '2026-01-01T00:00:00.000Z',
+            status: 'succeeded',
+            error: null,
+            syncState: 'idle',
+            pendingSyncFromDeviceId: null,
+            pendingSyncFromDevicePublicKey: null,
+            syncCompletedForNewDeviceId: null,
+          },
+        },
+      },
+    );
+
+    await waitFor(() => {
+      expect(bridgeHandler).not.toBeNull();
+    });
+
+    bridgeHandler!({
+      type: 'device_sync_requested',
+      payload: {
+        newDeviceId: 'dev-new',
+        newDevicePublicKey: 'peer-spki',
+      },
+    });
+
+    expect(store.getState().crypto.pendingSyncFromDeviceId).toBe('dev-new');
+    expect(store.getState().crypto.pendingSyncFromDevicePublicKey).toBe(
+      'peer-spki',
+    );
+
+    unmount();
+  });
+
+  it('does not dispatch syncRequested when newDeviceId is this device', async () => {
+    const { store, unmount } = renderWithProviders(
+      <SocketWorkerProvider>
+        <div />
+      </SocketWorkerProvider>,
+      {
+        preloadedState: {
+          auth: {
+            user: defaultMockUser,
+            accessToken: 'tok',
+          },
+          crypto: {
+            registeredOnServer: true,
+            keyVersion: 1,
+            deviceId: 'dev-self',
+            registeredPublicKeySpki: 'mine',
+            lastUpdatedAt: '2026-01-01T00:00:00.000Z',
+            status: 'succeeded',
+            error: null,
+            syncState: 'idle',
+            pendingSyncFromDeviceId: null,
+            pendingSyncFromDevicePublicKey: null,
+            syncCompletedForNewDeviceId: null,
+          },
+        },
+      },
+    );
+
+    await waitFor(() => {
+      expect(bridgeHandler).not.toBeNull();
+    });
+
+    bridgeHandler!({
+      type: 'device_sync_requested',
+      payload: {
+        newDeviceId: 'dev-self',
+        newDevicePublicKey: 'mine',
+      },
+    });
+
+    expect(store.getState().crypto.pendingSyncFromDeviceId).toBeNull();
+    expect(store.getState().crypto.pendingSyncFromDevicePublicKey).toBeNull();
+
+    unmount();
+  });
+
+  it('re-evaluates device sync when device_sync_complete targets this device', async () => {
+    const spy = vi
+      .spyOn(deviceBootstrapSync, 'evaluateDeviceSyncBootstrapState')
+      .mockResolvedValue('complete');
+
+    const { unmount } = renderWithProviders(
+      <SocketWorkerProvider>
+        <div />
+      </SocketWorkerProvider>,
+      {
+        preloadedState: {
+          auth: {
+            user: defaultMockUser,
+            accessToken: 'tok',
+          },
+          crypto: {
+            registeredOnServer: true,
+            keyVersion: 1,
+            deviceId: 'dev-new',
+            registeredPublicKeySpki: 'mine',
+            lastUpdatedAt: '2026-01-01T00:00:00.000Z',
+            status: 'succeeded',
+            error: null,
+            syncState: 'pending',
+            pendingSyncFromDeviceId: null,
+            pendingSyncFromDevicePublicKey: null,
+            syncCompletedForNewDeviceId: null,
+          },
+        },
+      },
+    );
+
+    await waitFor(() => {
+      expect(bridgeHandler).not.toBeNull();
+    });
+
+    bridgeHandler!({
+      type: 'device_sync_complete',
+      payload: { targetDeviceId: 'dev-new' },
+    });
+
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith(
+        expect.any(Function),
+        'dev-new',
+        expect.objectContaining({
+          getState: expect.any(Function),
+          onHistoryMayDecryptNow: expect.any(Function),
+        }),
+      );
+    });
+
+    spy.mockRestore();
     unmount();
   });
 });

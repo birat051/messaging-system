@@ -11,6 +11,9 @@ const webClientRoot = join(import.meta.dirname, '../../..');
 const KEY_LIFECYCLE_SOURCES = [
   'src/modules/crypto/stores/cryptoSlice.ts',
   'src/common/crypto/ensureMessagingKeypair.ts',
+  'src/common/crypto/messageHybrid.ts',
+  'src/common/hooks/useKeypairStatus.ts',
+  'src/common/hooks/useRegisterDevice.ts',
   'src/common/hooks/useSendEncryptedMessage.ts',
   'src/common/hooks/useDevEnsureMessagingKeys.ts',
 ] as const;

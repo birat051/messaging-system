@@ -44,6 +44,28 @@ describe('useSenderKeypairBootstrap', () => {
     expect(ensureMock).not.toHaveBeenCalled();
   });
 
+  it('does not run ensure when the user is present but not authenticated (no access token)', () => {
+    const store = createTestStore({
+      auth: {
+        user: { ...defaultMockUser, emailVerified: true },
+        accessToken: null,
+      },
+    });
+
+    const { result, rerender } = renderHook(
+      ({ sessionReady }: { sessionReady: boolean }) =>
+        useSenderKeypairBootstrap(sessionReady),
+      {
+        wrapper: createWrapper(store),
+        initialProps: { sessionReady: false },
+      },
+    );
+
+    rerender({ sessionReady: true });
+    expect(result.current).toBe(true);
+    expect(ensureMock).not.toHaveBeenCalled();
+  });
+
   it('runs ensureUserKeypairReadyForMessaging when session is ready and user is signed in', async () => {
     const store = createTestStore({
       auth: {

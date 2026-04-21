@@ -5,10 +5,12 @@
 
 import { arrayBufferToBase64, base64ToArrayBuffer } from './encoding';
 import {
+  getStoredDeviceId,
   listKeyringVersions,
   loadEncryptedPrivateKeyPkcs8,
   loadKeyringPrivateKeyPkcs8,
   PBKDF2_ITERATIONS_DEFAULT,
+  setStoredDeviceId,
   storeKeyringPrivateKeyPkcs8,
 } from './privateKeyStorage';
 import type { WrappedPrivateKeyPayload } from './privateKeyWrap';
@@ -20,6 +22,8 @@ export type KeyringBackupPlaintextV1 = {
   format: typeof KEYRING_BACKUP_FILE_FORMAT;
   userId: string;
   exportedAt: string;
+  /** Same **`deviceId`** as **`deviceIdentity`** IndexedDB — restored on import when present. */
+  deviceId?: string;
   /** keyVersion string → PKCS#8 DER as standard Base64 */
   entries: Record<string, string>;
 };
@@ -84,10 +88,12 @@ export async function buildKeyringBackupBlob(
   }
 
   const exportedAt = new Date().toISOString();
+  const deviceId = await getStoredDeviceId(userId);
   const plaintext: KeyringBackupPlaintextV1 = {
     format: KEYRING_BACKUP_FILE_FORMAT,
     userId,
     exportedAt,
+    ...(deviceId ? { deviceId } : {}),
     entries,
   };
   const jsonUtf8 = new TextEncoder().encode(JSON.stringify(plaintext));
@@ -120,7 +126,7 @@ export async function importKeyringBackupFromArrayBuffer(
   backupPassphrase: string,
   storagePassphrase: string,
   iterations: number = PBKDF2_ITERATIONS_DEFAULT,
-): Promise<{ importedVersions: number[] }> {
+): Promise<{ importedVersions: number[]; deviceId: string | null }> {
   const text = new TextDecoder('utf-8', { fatal: true }).decode(fileBytes);
   const raw = parseBackupJson(text);
   if (!isRecord(raw)) {
@@ -178,5 +184,13 @@ export async function importKeyringBackupFromArrayBuffer(
   if (importedVersions.length === 0) {
     throw new Error('No key entries found in backup');
   }
-  return { importedVersions };
+
+  const fromBackup =
+    typeof inner.deviceId === 'string' ? inner.deviceId.trim() : '';
+  const deviceIdRestored = fromBackup.length > 0 ? fromBackup : null;
+  if (deviceIdRestored) {
+    await setStoredDeviceId(userId, deviceIdRestored);
+  }
+
+  return { importedVersions, deviceId: deviceIdRestored };
 }

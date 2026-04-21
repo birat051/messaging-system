@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   webrtcAnswerSchema,
+  webrtcHangupSchema,
   webrtcIceCandidateSchema,
   webrtcOfferSchema,
 } from './webrtcSignalingSchemas.js';
@@ -38,6 +39,14 @@ describe('webrtcSignalingSchemas', () => {
       toUserId: 'peer',
       callId: 'call-id-123456',
       sdp: 'v=0\r\n',
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('accepts hangup payload', () => {
+    const r = webrtcHangupSchema.safeParse({
+      toUserId: 'peer',
+      callId: 'call-id-123456',
     });
     expect(r.success).toBe(true);
   });

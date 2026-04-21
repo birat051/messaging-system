@@ -1,7 +1,10 @@
 import { loadSenderPlaintextIntoRedux } from '../../../common/senderPlaintext/loadSenderPlaintextIntoRedux';
 import { refreshTokens } from '../../../common/api/authApi';
 import { getCurrentUser } from '../../../common/api/usersApi';
+import { getStoredDeviceId } from '../../../common/crypto/privateKeyStorage';
+import { isSecureContext } from '../../../common/crypto/secureContext';
 import type { AppDispatch } from '../../../store/store';
+import { hydrateMessagingDeviceId } from '../../crypto/stores/cryptoSlice';
 import { applyAuthResponse } from './applyAuthResponse';
 import { logout, setUser } from '../stores/authSlice';
 import { clearRefreshToken, readRefreshToken } from './authStorage';
@@ -33,6 +36,19 @@ export function bootstrapSessionIfNeeded(dispatch: AppDispatch): Promise<void> {
         const user = await getCurrentUser();
         dispatch(setUser(user));
         syncGuestReauthPreferenceFromUser(user);
+        if (isSecureContext()) {
+          const uid = user.id?.trim() ?? '';
+          if (uid.length > 0) {
+            try {
+              const did = await getStoredDeviceId(uid);
+              if (did) {
+                dispatch(hydrateMessagingDeviceId(did));
+              }
+            } catch {
+              /* IndexedDB unavailable — `ensureUserKeypairReadyForMessaging` retries */
+            }
+          }
+        }
         await loadSenderPlaintextIntoRedux(dispatch, user.id);
       } catch {
         clearRefreshToken();

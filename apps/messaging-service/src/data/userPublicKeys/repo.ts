@@ -1,128 +1,268 @@
+import { randomUUID } from 'node:crypto';
 import { getDb } from '../../data/db/mongo.js';
 import { AppError } from '../../utils/errors/AppError.js';
 import {
-  USER_PUBLIC_KEYS_COLLECTION,
+  USER_DEVICE_PUBLIC_KEYS_COLLECTION,
   type UserPublicKeyDocument,
 } from './user_public_keys.collection.js';
 
-export type UserPublicKeyApiShape = {
-  userId: string;
+/**
+ * All registered devices for **`userId`** (ordered by **`updatedAt`** desc for stable “primary” if needed later).
+ */
+export async function findUserDeviceRow(
+  userId: string,
+  deviceId: string,
+): Promise<UserPublicKeyDocument | null> {
+  const col = getDb().collection<UserPublicKeyDocument>(
+    USER_DEVICE_PUBLIC_KEYS_COLLECTION,
+  );
+  return col.findOne({
+    userId: userId.trim(),
+    deviceId: deviceId.trim(),
+  });
+}
+
+/**
+ * When **`raw`** is set, ensures **`(userId, deviceId)`** exists — otherwise throws **`INVALID_REQUEST`**.
+ * Used when embedding **`sourceDeviceId`** in access JWTs at login / refresh.
+ */
+export async function resolveSourceDeviceIdForAccessToken(
+  userId: string,
+  raw?: string | null,
+): Promise<string | undefined> {
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  const trimmed = typeof raw === 'string' ? raw.trim() : '';
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  const row = await findUserDeviceRow(userId, trimmed);
+  if (!row) {
+    throw new AppError(
+      'INVALID_REQUEST',
+      400,
+      'sourceDeviceId is not a registered device for this user',
+    );
+  }
+  return trimmed;
+}
+
+export async function findDevicePublicKeysByUserId(
+  userId: string,
+): Promise<UserPublicKeyDocument[]> {
+  const trimmed = userId.trim();
+  if (trimmed.length === 0) {
+    return [];
+  }
+  const col = getDb().collection<UserPublicKeyDocument>(
+    USER_DEVICE_PUBLIC_KEYS_COLLECTION,
+  );
+  return col
+    .find({ userId: trimmed })
+    .sort({ updatedAt: -1 })
+    .toArray();
+}
+
+/** `POST /users/me/devices` — **200** JSON (**`RegisterDeviceResponse`**). */
+export type RegisterDeviceResponseApi = {
+  deviceId: string;
   publicKey: string;
   keyVersion: number;
+  createdAt: string;
   updatedAt: string;
 };
 
-export function toUserPublicKeyResponse(
+export function toRegisterDeviceResponse(
   doc: UserPublicKeyDocument,
-): UserPublicKeyApiShape {
+): RegisterDeviceResponseApi {
   return {
-    userId: doc.userId,
+    deviceId: doc.deviceId,
     publicKey: doc.publicKey,
     keyVersion: doc.keyVersion ?? 1,
+    createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
   };
 }
 
-export async function findPublicKeyByUserId(
-  userId: string,
-): Promise<UserPublicKeyDocument | null> {
-  const trimmed = userId.trim();
-  if (trimmed.length === 0) {
-    return null;
-  }
-  const col = getDb().collection<UserPublicKeyDocument>(
-    USER_PUBLIC_KEYS_COLLECTION,
-  );
-  return col.findOne({ userId: trimmed });
+/** **`POST /users/me/devices`** with **`bootstrap: true`** — **201** body. */
+export type RegisterDeviceBootstrapResponseApi = {
+  deviceId: string;
+};
+
+export function toRegisterDeviceBootstrapResponse(
+  doc: UserPublicKeyDocument,
+): RegisterDeviceBootstrapResponseApi {
+  return { deviceId: doc.deviceId };
 }
 
+export type DevicePublicKeysListResponseApi = {
+  items: Array<{
+    deviceId: string;
+    publicKey: string;
+    keyVersion: number;
+    deviceLabel?: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+};
+
+/** **`GET /users/me/devices`** — includes **`publicKey`** (SPKI) so clients can verify **`device:sync_requested`** payloads. */
+export type MyDevicesListResponseApi = {
+  items: Array<{
+    deviceId: string;
+    deviceLabel: string | null;
+    createdAt: string;
+    lastSeenAt: string;
+    publicKey: string;
+  }>;
+};
+
+function lastSeenAtForWire(doc: UserPublicKeyDocument): Date {
+  return doc.lastSeenAt ?? doc.updatedAt;
+}
+
+export function toMyDevicesListResponse(
+  docs: UserPublicKeyDocument[],
+): MyDevicesListResponseApi {
+  return {
+    items: docs.map((d) => ({
+      deviceId: d.deviceId,
+      deviceLabel: d.deviceLabel ?? null,
+      createdAt: d.createdAt.toISOString(),
+      lastSeenAt: lastSeenAtForWire(d).toISOString(),
+      publicKey: d.publicKey,
+    })),
+  };
+}
+
+export function toDevicePublicKeysListResponse(
+  docs: UserPublicKeyDocument[],
+): DevicePublicKeysListResponseApi {
+  return {
+    items: docs.map((d) => ({
+      deviceId: d.deviceId,
+      publicKey: d.publicKey,
+      keyVersion: d.keyVersion ?? 1,
+      ...(d.deviceLabel != null && d.deviceLabel !== ''
+        ? { deviceLabel: d.deviceLabel }
+        : {}),
+      createdAt: d.createdAt.toISOString(),
+      updatedAt: d.updatedAt.toISOString(),
+    })),
+  };
+}
+
+export type RegisterDeviceOutcome = {
+  document: UserPublicKeyDocument;
+  /** True only when a new **`(userId, deviceId)`** document was inserted (not an update / idempotent touch). */
+  isNewDeviceRow: boolean;
+};
+
 /**
- * **`PUT /users/me/public-key`** — insert or replace; **`keyVersion`** optional on first write only
- * in practice (updates preserve version unless the client sends a new **`keyVersion`**).
+ * **`POST /users/me/devices`** — register or update a device row. Server assigns **`deviceId`** when omitted.
  */
-export async function upsertPublicKeyPut(
+export async function registerOrUpdateDevice(
   userId: string,
   publicKey: string,
-  optionalKeyVersion?: number,
-): Promise<UserPublicKeyDocument> {
+  clientDeviceId?: string,
+  deviceLabel?: string,
+): Promise<RegisterDeviceOutcome> {
   const col = getDb().collection<UserPublicKeyDocument>(
-    USER_PUBLIC_KEYS_COLLECTION,
+    USER_DEVICE_PUBLIC_KEYS_COLLECTION,
   );
   const now = new Date();
-  const existing = await findPublicKeyByUserId(userId);
+  const trimmed =
+    clientDeviceId !== undefined ? clientDeviceId.trim() : undefined;
+  const deviceId =
+    trimmed !== undefined && trimmed.length > 0 ? trimmed : randomUUID();
+  if (deviceId.length > 128) {
+    throw new AppError('INVALID_REQUEST', 400, 'deviceId is too long');
+  }
+
+  const labelTrimmed =
+    deviceLabel !== undefined ? deviceLabel.trim() : undefined;
+  const labelToStore =
+    labelTrimmed !== undefined && labelTrimmed.length > 0
+      ? labelTrimmed
+      : undefined;
+
+  const filter = { userId, deviceId };
+  const existing = await col.findOne(filter);
 
   if (!existing) {
-    const kv = optionalKeyVersion ?? 1;
-    if (kv < 1) {
-      throw new AppError(
-        'INVALID_REQUEST',
-        400,
-        'keyVersion must be at least 1',
-      );
-    }
     const doc: UserPublicKeyDocument = {
       userId,
+      deviceId,
       publicKey,
-      keyVersion: kv,
+      keyVersion: 1,
+      createdAt: now,
       updatedAt: now,
+      lastSeenAt: now,
+      ...(labelToStore !== undefined ? { deviceLabel: labelToStore } : {}),
     };
     await col.insertOne(doc);
-    return doc;
+    return { document: doc, isNewDeviceRow: true };
   }
 
-  const nextVersion =
-    optionalKeyVersion !== undefined
-      ? optionalKeyVersion
-      : (existing.keyVersion ?? 1);
-  if (nextVersion < 1) {
-    throw new AppError('INVALID_REQUEST', 400, 'keyVersion must be at least 1');
+  if (existing.publicKey === publicKey) {
+    if (labelTrimmed !== undefined) {
+      const nextLabel = labelToStore ?? null;
+      const prevLabel = existing.deviceLabel ?? null;
+      if (nextLabel !== prevLabel) {
+        await col.updateOne(filter, {
+          $set: {
+            deviceLabel: nextLabel,
+            updatedAt: now,
+            lastSeenAt: now,
+          },
+        });
+        const relabeled = await col.findOne(filter);
+        if (relabeled) {
+          return { document: relabeled, isNewDeviceRow: false };
+        }
+      }
+    }
+    await col.updateOne(filter, { $set: { lastSeenAt: now } });
+    const refreshed = await col.findOne(filter);
+    return {
+      document: refreshed ?? existing,
+      isNewDeviceRow: false,
+    };
   }
 
-  await col.updateOne(
-    { userId },
-    { $set: { publicKey, keyVersion: nextVersion, updatedAt: now } },
-  );
-  const updated = await findPublicKeyByUserId(userId);
+  await col.updateOne(filter, {
+    $set: {
+      publicKey,
+      updatedAt: now,
+      lastSeenAt: now,
+      keyVersion: (existing.keyVersion ?? 1) + 1,
+      ...(labelTrimmed !== undefined ? { deviceLabel: labelToStore ?? null } : {}),
+    },
+  });
+  const updated = await col.findOne(filter);
   if (!updated) {
-    throw new AppError('INTERNAL_ERROR', 500, 'Failed to read updated key');
+    throw new AppError(
+      'INTERNAL_ERROR',
+      500,
+      'Failed to read updated device key',
+    );
   }
-  return updated;
+  return { document: updated, isNewDeviceRow: false };
 }
 
 /**
- * **`POST /users/me/public-key/rotate`** — bumps **`keyVersion`**; fails when no row exists.
+ * **`DELETE /users/me/devices/:deviceId`** — removes **`(userId, deviceId)`** from **`user_device_public_keys`** only.
+ * Does **not** mutate **`messages`** to remove **`encryptedMessageKeys[deviceId]`** (see OpenAPI **`deleteMyDevice`**).
  */
-export async function rotatePublicKey(
+export async function deleteDeviceForUser(
   userId: string,
-  publicKey: string,
-): Promise<UserPublicKeyDocument> {
-  const existing = await findPublicKeyByUserId(userId);
-  if (!existing) {
-    throw new AppError(
-      'NOT_FOUND',
-      404,
-      'No public key registered',
-    );
-  }
-  if (existing.publicKey === publicKey) {
-    throw new AppError(
-      'INVALID_REQUEST',
-      400,
-      'New public key must differ from the current key',
-    );
-  }
-  const col = getDb().collection<UserPublicKeyDocument>(
-    USER_PUBLIC_KEYS_COLLECTION,
-  );
-  const nextVersion = (existing.keyVersion ?? 1) + 1;
-  const now = new Date();
-  await col.updateOne(
-    { userId },
-    { $set: { publicKey, keyVersion: nextVersion, updatedAt: now } },
-  );
-  const updated = await findPublicKeyByUserId(userId);
-  if (!updated) {
-    throw new AppError('INTERNAL_ERROR', 500, 'Failed to read rotated key');
-  }
-  return updated;
+  deviceId: string,
+): Promise<boolean> {
+  const col = getDb().collection(USER_DEVICE_PUBLIC_KEYS_COLLECTION);
+  const res = await col.deleteOne({
+    userId: userId.trim(),
+    deviceId: deviceId.trim(),
+  });
+  return res.deletedCount === 1;
 }

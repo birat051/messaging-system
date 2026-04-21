@@ -23,19 +23,38 @@ export type MessageKindNotificationPayload = {
 
 export const MESSAGE_NOTIFICATION_PREVIEW_MAX = 160;
 
-/** Short preview for toast — never log as plaintext at error level; may be E2EE ciphertext. */
-export function buildMessagePreview(
-  body: string | null,
-  mediaKey: string | null,
-): string | undefined {
-  const text = body?.trim() ?? '';
+const E2EE_LEGACY_PREFIX = 'E2EE_JSON_V1:';
+
+function messageLooksOpaqueE2ee(message: MessageApiPayload): boolean {
+  const hasHybridEnvelope =
+    (message.encryptedMessageKeys !== undefined &&
+      Object.keys(message.encryptedMessageKeys).length > 0) ||
+    (typeof message.iv === 'string' && message.iv.trim().length > 0) ||
+    (typeof message.algorithm === 'string' && message.algorithm.trim().length > 0);
+  if (hasHybridEnvelope) {
+    return true;
+  }
+  const b = message.body?.trim() ?? '';
+  return b.startsWith(E2EE_LEGACY_PREFIX);
+}
+
+/**
+ * Short preview for toast — **never** surface hybrid ciphertext, IV, or wrapped keys; legacy E2EE envelopes
+ * also map to a generic label so logs/UI do not treat JSON ciphertext as user-visible text.
+ */
+export function buildMessagePreview(message: MessageApiPayload): string | undefined {
+  if (messageLooksOpaqueE2ee(message)) {
+    return 'Encrypted message';
+  }
+  const text = message.body?.trim() ?? '';
   if (text.length > 0) {
     if (text.length <= MESSAGE_NOTIFICATION_PREVIEW_MAX) {
       return text;
     }
     return `${text.slice(0, MESSAGE_NOTIFICATION_PREVIEW_MAX - 1)}…`;
   }
-  if (mediaKey?.trim()) {
+  const media = message.mediaKey?.trim() ?? '';
+  if (media.length > 0) {
     return 'Attachment';
   }
   return undefined;
@@ -50,7 +69,7 @@ export function buildMessageKindNotificationPayload(
     groupTitle?: string | null;
   },
 ): MessageKindNotificationPayload {
-  const preview = buildMessagePreview(message.body, message.mediaKey);
+  const preview = buildMessagePreview(message);
   const base: MessageKindNotificationPayload = {
     schemaVersion: 1,
     kind: 'message',

@@ -7,8 +7,12 @@ import type { components } from '@/generated/api-types';
 import { defaultMockUser } from '@/common/mocks/handlers';
 import { createTestStore, renderWithProviders } from '@/common/test-utils';
 import { mockSendMessageSocketLike } from '@/common/test-utils/mockSendMessageForVitest';
-import { RECIPIENT_NO_KEY_AVAILABLE_MESSAGE } from '@/common/utils/fetchRecipientPublicKey';
-import { useSendEncryptedMessage } from './useSendEncryptedMessage';
+import { MESSAGE_HYBRID_ALGORITHM } from '@/common/crypto/messageHybrid';
+import {
+  RECIPIENT_NO_HYBRID_DEVICE_KEYS_MESSAGE,
+  SENDER_NO_HYBRID_DEVICE_KEYS_MESSAGE,
+  useSendEncryptedMessage,
+} from './useSendEncryptedMessage';
 
 const ensureUserKeypairReadyForMessaging = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
@@ -21,38 +25,16 @@ vi.mock('../crypto/ensureMessagingKeypair', () => ({
   ) => ensureUserKeypairReadyForMessaging(userId, dispatch),
 }));
 
-const fetchRecipientPublicKeyWithCache = vi.hoisted(() => {
-  const key: components['schemas']['UserPublicKeyResponse'] = {
-    userId: 'peer-1',
-    publicKey:
-      'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEeWtZ0jiCzy6i7c1fhDNcct9WUer1FC9027TeJwYmimeYcCDeAauszT90CsuigDh12qwCJ3yFUDcZurT22BWJrJA',
-    keyVersion: 1,
-    updatedAt: '2026-01-01T00:00:00.000Z',
-  };
-  return vi.fn().mockResolvedValue(key);
-});
+const encryptUtf8ToHybridSendPayload = vi.hoisted(() => vi.fn());
 
-vi.mock('../utils/fetchRecipientPublicKey', async (importOriginal) => {
+vi.mock('../crypto/messageHybrid', async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import('../utils/fetchRecipientPublicKey')>();
+    await importOriginal<typeof import('../crypto/messageHybrid')>();
   return {
     ...actual,
-    fetchRecipientPublicKeyWithCache: (
-      recipientUserId: string,
-      getState: () => unknown,
-      dispatch: unknown,
-    ) => fetchRecipientPublicKeyWithCache(recipientUserId, getState, dispatch),
+    encryptUtf8ToHybridSendPayload,
   };
 });
-
-const encryptUtf8ToE2eeBody = vi.hoisted(() =>
-  vi.fn().mockResolvedValue('e2ee-cipher-b64'),
-);
-
-vi.mock('../crypto/messageEcies', () => ({
-  encryptUtf8ToE2eeBody: (plain: string, pk: string) =>
-    encryptUtf8ToE2eeBody(plain, pk),
-}));
 
 const socketSend = vi.hoisted(() =>
   vi.fn(async (payload: components['schemas']['SendMessageRequest']) =>
@@ -66,9 +48,15 @@ vi.mock('./useSocketWorkerSendMessage', () => ({
   }),
 }));
 
-/** Legacy copy removed from **`useSendEncryptedMessage`** — must never appear on success. */
-const LEGACY_RECIPIENT_NO_KEY =
-  /the recipient has not registered an encryption key yet/i;
+function freshDeviceKeysEntry(items: { deviceId: string; publicKey: string }[]) {
+  return {
+    status: 'succeeded' as const,
+    items,
+    forbidden: false,
+    error: null,
+    cachedAtMs: Date.now(),
+  };
+}
 
 function SendHarness() {
   const { sendMessage } = useSendEncryptedMessage({
@@ -108,16 +96,35 @@ function hookWrapper(store: ReturnType<typeof createTestStore>) {
 describe('useSendEncryptedMessage', () => {
   beforeEach(() => {
     ensureUserKeypairReadyForMessaging.mockClear();
-    fetchRecipientPublicKeyWithCache.mockClear();
-    encryptUtf8ToE2eeBody.mockClear();
+    encryptUtf8ToHybridSendPayload.mockReset();
     socketSend.mockClear();
   });
 
-  it('happy path: login (auth state) → sender key ensure → recipient key → encrypt → send', async () => {
+  it('happy path: ensures keypair, encrypts hybrid payload, sends', async () => {
+    encryptUtf8ToHybridSendPayload.mockResolvedValue({
+      algorithm: MESSAGE_HYBRID_ALGORITHM,
+      body: 'cipher-b64-mock',
+      iv: 'iv-b64-mock',
+      encryptedMessageKeys: {
+        'peer-dev': '{"wrap":"peer"}',
+        'sender-dev': '{"wrap":"sender"}',
+      },
+    });
+
     const store = createTestStore({
       auth: {
         user: { ...defaultMockUser, emailVerified: true },
         accessToken: 'test-token',
+      },
+      devicePublicKeys: {
+        byUserId: {
+          'peer-1': freshDeviceKeysEntry([
+            { deviceId: 'peer-dev', publicKey: 'spki-peer' },
+          ]),
+          me: freshDeviceKeysEntry([
+            { deviceId: 'sender-dev', publicKey: 'spki-sender' },
+          ]),
+        },
       },
     });
 
@@ -135,22 +142,147 @@ describe('useSendEncryptedMessage', () => {
       defaultMockUser.id,
       expect.any(Function),
     );
-    expect(fetchRecipientPublicKeyWithCache).toHaveBeenCalledWith(
-      'peer-1',
-      expect.any(Function),
-      expect.any(Function),
+    expect(encryptUtf8ToHybridSendPayload).toHaveBeenCalledWith(
+      'Hello',
+      expect.arrayContaining([
+        expect.objectContaining({ deviceId: 'peer-dev', publicKey: 'spki-peer' }),
+        expect.objectContaining({
+          deviceId: 'sender-dev',
+          publicKey: 'spki-sender',
+        }),
+      ]),
     );
-    expect(encryptUtf8ToE2eeBody).toHaveBeenCalled();
     expect(socketSend).toHaveBeenCalledWith(
       expect.objectContaining({
-        body: 'e2ee-cipher-b64',
+        body: 'cipher-b64-mock',
+        iv: 'iv-b64-mock',
+        algorithm: MESSAGE_HYBRID_ALGORITHM,
+        encryptedMessageKeys: {
+          'peer-dev': '{"wrap":"peer"}',
+          'sender-dev': '{"wrap":"sender"}',
+        },
         recipientUserId: 'peer-1',
       }),
     );
   });
 
-  it('happy path (RTL): after send, UI does not show legacy or current recipient-no-key messages', async () => {
+  it('sends hybrid fields when using conversationId + peerUserId option', async () => {
+    encryptUtf8ToHybridSendPayload.mockResolvedValue({
+      algorithm: MESSAGE_HYBRID_ALGORITHM,
+      body: 'cipher-b64-mock',
+      iv: 'iv-b64-mock',
+      encryptedMessageKeys: {
+        'peer-dev': '{"wrap":"peer"}',
+        'sender-dev': '{"wrap":"sender"}',
+      },
+    });
+
+    const store = createTestStore({
+      auth: {
+        user: { ...defaultMockUser, emailVerified: true },
+        accessToken: 'test-token',
+      },
+      devicePublicKeys: {
+        byUserId: {
+          'peer-1': freshDeviceKeysEntry([
+            { deviceId: 'peer-dev', publicKey: 'spki-peer' },
+          ]),
+          me: freshDeviceKeysEntry([
+            { deviceId: 'sender-dev', publicKey: 'spki-sender' },
+          ]),
+        },
+      },
+    });
+
+    const { result } = renderHook(
+      () => useSendEncryptedMessage({ peerUserId: 'peer-1' }),
+      { wrapper: hookWrapper(store) },
+    );
+
+    await result.current.sendMessage({
+      conversationId: 'conv-1',
+      body: 'Hello hybrid',
+    });
+
+    expect(encryptUtf8ToHybridSendPayload).toHaveBeenCalledWith(
+      'Hello hybrid',
+      expect.any(Array),
+    );
+    expect(socketSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: 'conv-1',
+        body: 'cipher-b64-mock',
+        iv: 'iv-b64-mock',
+        algorithm: MESSAGE_HYBRID_ALGORITHM,
+        encryptedMessageKeys: {
+          'peer-dev': '{"wrap":"peer"}',
+          'sender-dev': '{"wrap":"sender"}',
+        },
+      }),
+    );
+  });
+
+  it('throws when the peer has no device rows after fetch cache', async () => {
+    const store = createTestStore({
+      auth: {
+        user: { ...defaultMockUser, emailVerified: true },
+        accessToken: 'test-token',
+      },
+      devicePublicKeys: {
+        byUserId: {
+          'peer-1': freshDeviceKeysEntry([]),
+          me: freshDeviceKeysEntry([{ deviceId: 'sender-dev', publicKey: 'spki' }]),
+        },
+      },
+    });
+
+    const { result } = renderHook(
+      () => useSendEncryptedMessage({ peerUserId: 'peer-1' }),
+      { wrapper: hookWrapper(store) },
+    );
+
+    await expect(
+      result.current.sendMessage({ body: 'x', recipientUserId: 'peer-1' }),
+    ).rejects.toThrow(RECIPIENT_NO_HYBRID_DEVICE_KEYS_MESSAGE);
+    expect(encryptUtf8ToHybridSendPayload).not.toHaveBeenCalled();
+  });
+
+  it('throws when the signed-in user has no device rows', async () => {
+    const store = createTestStore({
+      auth: {
+        user: { ...defaultMockUser, emailVerified: true },
+        accessToken: 'test-token',
+      },
+      devicePublicKeys: {
+        byUserId: {
+          'peer-1': freshDeviceKeysEntry([
+            { deviceId: 'peer-dev', publicKey: 'spki-peer' },
+          ]),
+          me: freshDeviceKeysEntry([]),
+        },
+      },
+    });
+
+    const { result } = renderHook(
+      () => useSendEncryptedMessage({ peerUserId: 'peer-1' }),
+      { wrapper: hookWrapper(store) },
+    );
+
+    await expect(
+      result.current.sendMessage({ body: 'x', recipientUserId: 'peer-1' }),
+    ).rejects.toThrow(SENDER_NO_HYBRID_DEVICE_KEYS_MESSAGE);
+    expect(encryptUtf8ToHybridSendPayload).not.toHaveBeenCalled();
+  });
+
+  it('RTL: successful send does not surface hybrid no-device errors', async () => {
     const user = userEvent.setup();
+
+    encryptUtf8ToHybridSendPayload.mockResolvedValue({
+      algorithm: MESSAGE_HYBRID_ALGORITHM,
+      body: 'cipher-b64-mock',
+      iv: 'iv-b64-mock',
+      encryptedMessageKeys: { d: '{}' },
+    });
 
     renderWithProviders(<SendHarness />, {
       preloadedState: {
@@ -158,15 +290,23 @@ describe('useSendEncryptedMessage', () => {
           user: { ...defaultMockUser, emailVerified: true },
           accessToken: 'test-token',
         },
+        devicePublicKeys: {
+          byUserId: {
+            'peer-1': freshDeviceKeysEntry([
+              { deviceId: 'peer-dev', publicKey: 'spki-peer' },
+            ]),
+            me: freshDeviceKeysEntry([
+              { deviceId: 'sender-dev', publicKey: 'spki-sender' },
+            ]),
+          },
+        },
       },
     });
 
     await user.click(screen.getByRole('button', { name: /send encrypted/i }));
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(screen.queryByText(LEGACY_RECIPIENT_NO_KEY)).not.toBeInTheDocument();
-    expect(
-      screen.queryByText(RECIPIENT_NO_KEY_AVAILABLE_MESSAGE),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(RECIPIENT_NO_HYBRID_DEVICE_KEYS_MESSAGE)).not.toBeInTheDocument();
+    expect(screen.queryByText(SENDER_NO_HYBRID_DEVICE_KEYS_MESSAGE)).not.toBeInTheDocument();
   });
 });

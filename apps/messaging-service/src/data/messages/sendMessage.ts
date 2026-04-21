@@ -33,6 +33,32 @@ function normalizeMediaKey(
   return t.length === 0 ? null : t;
 }
 
+function normalizeIv(
+  iv: SendMessageRequest['iv'],
+): string | null | undefined {
+  if (iv === undefined) {
+    return undefined;
+  }
+  if (iv === null) {
+    return null;
+  }
+  const t = String(iv).trim();
+  return t.length === 0 ? null : t;
+}
+
+function normalizeAlgorithm(
+  algorithm: SendMessageRequest['algorithm'],
+): string | null | undefined {
+  if (algorithm === undefined) {
+    return undefined;
+  }
+  if (algorithm === null) {
+    return null;
+  }
+  const t = String(algorithm).trim();
+  return t.length === 0 ? null : t;
+}
+
 /** When both peers are guests and TTL is on, returns the same **`guestDataExpiresAt`** for conversation + message. */
 async function resolveGuestGuestDataExpiresAt(
   env: Env,
@@ -61,6 +87,9 @@ async function insertDirectMessageAndPublish(
     senderId: string;
     body: string | null;
     mediaKey: string | null;
+    encryptedMessageKeys?: Record<string, string>;
+    iv?: string | null;
+    algorithm?: string | null;
     guestDataExpiresAt?: Date;
   },
   options?: { originSocketId?: string },
@@ -80,7 +109,8 @@ async function insertDirectMessageAndPublish(
  * **Guest sandbox (Feature 2a):** **guest ↔ guest** and **registered ↔ registered** only — mixed pairs return **403** **`GUEST_MESSAGING_FORBIDDEN`**.
  *
  * **`body`:** Stored as an opaque string. When clients use E2EE, **`body`** is ciphertext; the service does not decrypt.
- * That feature **depends on** user-level public-key APIs and **Prerequisite — User keypair** (`docs/TASK_CHECKLIST.md`).
+ * That feature **depends on** per-device public-key directory APIs and **Prerequisite — User keypair**
+ * (`docs/TASK_CHECKLIST.md`).
  */
 export async function sendMessageForUser(
   env: Env,
@@ -95,6 +125,9 @@ export async function sendMessageForUser(
 
   const text = normalizeBodyText(payload.body);
   const mediaKey = normalizeMediaKey(payload.mediaKey);
+  const ivNorm = normalizeIv(payload.iv);
+  const algorithmNorm = normalizeAlgorithm(payload.algorithm);
+  const encryptedMessageKeys = payload.encryptedMessageKeys;
 
   const convRaw =
     payload.conversationId !== undefined && payload.conversationId !== null
@@ -134,6 +167,11 @@ export async function sendMessageForUser(
         senderId,
         body: text,
         mediaKey,
+        ...(encryptedMessageKeys !== undefined
+          ? { encryptedMessageKeys }
+          : {}),
+        ...(ivNorm !== undefined ? { iv: ivNorm } : {}),
+        ...(algorithmNorm !== undefined ? { algorithm: algorithmNorm } : {}),
         guestDataExpiresAt: guestExp,
       },
       options,
@@ -185,6 +223,11 @@ export async function sendMessageForUser(
         senderId,
         body: text,
         mediaKey,
+        ...(encryptedMessageKeys !== undefined
+          ? { encryptedMessageKeys }
+          : {}),
+        ...(ivNorm !== undefined ? { iv: ivNorm } : {}),
+        ...(algorithmNorm !== undefined ? { algorithm: algorithmNorm } : {}),
         guestDataExpiresAt: guestExp,
       },
       options,

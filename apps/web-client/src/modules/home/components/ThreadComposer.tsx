@@ -149,7 +149,7 @@ export function ThreadComposer({
           aria-busy={submitting}
           aria-label={submitting ? 'Sending message' : 'Send message'}
           title={submitting ? 'Sending…' : 'Send message'}
-          className="bg-accent text-accent-foreground hover:bg-accent/90 focus:ring-accent/50 inline-flex min-h-11 min-w-11 shrink-0 touch-manipulation items-center justify-center rounded-md px-2.5 text-sm font-medium outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
+          className="bg-primary text-primary-foreground hover:bg-primary/90 focus:ring-accent/50 inline-flex min-h-11 min-w-11 shrink-0 touch-manipulation items-center justify-center rounded-md px-2.5 text-sm font-medium outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {submitting ? (
             <span

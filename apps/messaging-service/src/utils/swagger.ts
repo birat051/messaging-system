@@ -42,6 +42,6 @@ export function createSwaggerUiHandlers(env: Env): RequestHandler[] | null {
   }
   return [
     ...swaggerUi.serve,
-    swaggerUi.setup(spec, { customSiteTitle: 'Messaging API' }),
+    swaggerUi.setup(spec, { customSiteTitle: 'Ekko API' }),
   ];
 }

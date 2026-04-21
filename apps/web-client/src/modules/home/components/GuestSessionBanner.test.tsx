@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { screen } from '@testing-library/react';
 import { GuestSessionBanner } from './GuestSessionBanner';
 import { renderWithProviders } from '@/common/test-utils';
-import { ROUTES } from '@/routes/paths';
+import { registerPathFromGuest } from '@/routes/paths';
 
 const guestUser = {
   id: 'guest-1',
@@ -31,7 +31,7 @@ describe('GuestSessionBanner', () => {
     expect(region).toHaveTextContent(/temporary guest session/i);
     expect(region).toHaveTextContent(/Session ends in/);
     const create = screen.getByRole('link', { name: /^create account$/i });
-    expect(create).toHaveAttribute('href', ROUTES.register);
+    expect(create).toHaveAttribute('href', registerPathFromGuest());
   });
 
   it('renders without time line when expiresAt is absent', () => {

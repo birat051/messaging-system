@@ -1,5 +1,5 @@
 /**
- * Parses Socket.IO ack for **`webrtc:offer`**, **`webrtc:answer`**, **`webrtc:candidate`** emits.
+ * Parses Socket.IO ack for **`webrtc:offer`**, **`webrtc:answer`**, **`webrtc:candidate`**, **`webrtc:hangup`** emits.
  */
 export function parseWebRtcEmitAck(ack: unknown): { ok: true } | { ok: false; error: Error } {
   if (

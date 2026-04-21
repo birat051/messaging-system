@@ -52,10 +52,14 @@ function readUserIdFromHandshake(auth: unknown): string | undefined {
  * Last seen: client emits **`presence:heartbeat` every ~5s** while connected → Redis; on **disconnect** → flush to MongoDB (`users.lastSeenAt`) and clear Redis key.
  * Read path: **`presence:getLastSeen`** with `{ targetUserId }` + ack — Redis → Mongo → **`not_available`**.
  *
+ * **Chat:** **`message:send`** ack returns **`messageDocumentToApi`** — the same **`Message`** JSON as **`message:new`**
+ * and RabbitMQ fan-out (opaque **`body`** / **`iv`** / **`encryptedMessageKeys`** / **`algorithm`** when present).
+ * **Do not** log those E2EE fields (`PROJECT_PLAN.md` §3.2.3).
+ *
  * Receipts (**Feature 12**): **`message:delivered`**, **`message:read`**, **`conversation:read`** with **`{ messageId, conversationId }`**
  * + ack — server sets **`userId`** from auth; persists + RabbitMQ **`message.receipt.<userId>`** for cross-node fan-out.
  *
- * WebRTC (**Feature 3**): **`webrtc:offer`**, **`webrtc:answer`**, **`webrtc:candidate`** with ack — relay to **`user:<peerId>`**;
+ * WebRTC (**Feature 3**): **`webrtc:offer`**, **`webrtc:answer`**, **`webrtc:candidate`**, **`webrtc:hangup`** with ack — relay to **`user:<peerId>`**;
  * **`webrtc:offer`** also publishes **`message.call.user.<calleeUserId>`** so replicas emit **`notification`** **`kind: call_incoming`** (Feature 7);
  * authz matches direct-messaging peer rules (**`webrtcSignalingAuthz`**).
  */

@@ -14,6 +14,13 @@ import {
   appendIncomingMessageIfNew,
   mergeReceiptFanoutFromSocket,
 } from '@/modules/home/stores/messagingSlice';
+import { useStore } from 'react-redux';
+import {
+  evaluateDeviceSyncBootstrapState,
+  messageHasDeviceWrappedKey,
+} from '@/common/crypto/deviceBootstrapSync';
+import { revalidateConversationMessagesForUser } from '@/common/realtime/revalidateConversationMessages';
+import { syncRequested } from '@/modules/crypto/stores/cryptoSlice';
 import { useAppDispatch } from '@/store/hooks';
 import { useSWRConfig } from 'swr';
 import { setPresenceStatus } from '@/modules/app/stores/connectionSlice';
@@ -44,7 +51,11 @@ export type SocketWorkerContextValue = {
   sendMessage: (payload: SendMessageRequest) => Promise<Message>;
   emitReceipt: (event: ReceiptEmitSocketEvent, payload: ReceiptEmitPayload) => Promise<void>;
   emitWebRtcSignaling: (
-    event: 'webrtc:offer' | 'webrtc:answer' | 'webrtc:candidate',
+    event:
+      | 'webrtc:offer'
+      | 'webrtc:answer'
+      | 'webrtc:candidate'
+      | 'webrtc:hangup',
     payload: unknown,
   ) => Promise<void>;
   /** Resolve last-seen for **`targetUserId`** via **`presence:getLastSeen`** ack (Feature 6). */
@@ -65,6 +76,7 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
   const { user, accessToken } = useAuth();
   const userId = user?.id ?? null;
   const dispatch = useAppDispatch();
+  const reduxStore = useStore();
   const { mutate } = useSWRConfig();
   const [status, setStatus] = useState<PresenceConnectionStatus>({ kind: 'idle' });
   const bridgeRef = useRef<ReturnType<typeof createSocketWorkerBridge> | null>(null);
@@ -119,6 +131,18 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
           }
           dispatch(appendIncomingMessageIfNew({ message, currentUserId: uid }));
           void mutate(['conversation-messages', message.conversationId, uid]);
+          {
+            const st = reduxStore.getState();
+            const { syncState, deviceId } = st.crypto;
+            const did = deviceId?.trim() ?? '';
+            if (
+              (syncState === 'pending' || syncState === 'in_progress') &&
+              did.length > 0 &&
+              messageHasDeviceWrappedKey(message, did)
+            ) {
+              void evaluateDeviceSyncBootstrapState(reduxStore.dispatch, did);
+            }
+          }
           if (message.senderId !== uid) {
             if (!deliveredAckSentRef.current.has(message.id)) {
               deliveredAckSentRef.current.add(message.id);
@@ -163,6 +187,34 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
           );
           break;
         }
+        case 'device_sync_requested': {
+          const myDeviceId = reduxStore.getState().crypto.deviceId?.trim() ?? '';
+          if (
+            myDeviceId.length > 0 &&
+            msg.payload.newDeviceId.trim() === myDeviceId
+          ) {
+            break;
+          }
+          dispatch(syncRequested(msg.payload));
+          break;
+        }
+        case 'device_sync_complete': {
+          const myDeviceId = reduxStore.getState().crypto.deviceId?.trim() ?? '';
+          const target = msg.payload.targetDeviceId.trim();
+          if (myDeviceId.length === 0 || target !== myDeviceId) {
+            break;
+          }
+          const sync = reduxStore.getState().crypto.syncState;
+          if (sync !== 'pending' && sync !== 'in_progress') {
+            break;
+          }
+          void evaluateDeviceSyncBootstrapState(reduxStore.dispatch, myDeviceId, {
+            getState: () => reduxStore.getState().crypto,
+            onHistoryMayDecryptNow: () =>
+              revalidateConversationMessagesForUser(mutate, uid),
+          });
+          break;
+        }
         default:
           break;
       }
@@ -182,17 +234,27 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
               fromUserId: unknown;
               callId: unknown;
               sdp: unknown;
+              callerDisplayName?: unknown;
+              callerUsername?: unknown;
             };
             const remoteSdp = typeof p.sdp === 'string' ? p.sdp : '';
             const peerUserId =
               typeof p.fromUserId === 'string' ? p.fromUserId : '';
             const callId = typeof p.callId === 'string' ? p.callId : '';
+            const peerDisplayName =
+              typeof p.callerDisplayName === 'string'
+                ? p.callerDisplayName
+                : null;
+            const peerUsername =
+              typeof p.callerUsername === 'string' ? p.callerUsername : null;
             if (remoteSdp.length > 0 && peerUserId.length > 0 && callId.length > 0) {
               dispatch(
                 incomingCallRinging({
                   peerUserId,
                   callId,
                   remoteSdp,
+                  peerDisplayName,
+                  peerUsername,
                 }),
               );
             }
@@ -211,7 +273,7 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
       bridge.terminate();
       bridgeRef.current = null;
     };
-  }, [userId, accessToken, dispatch, mutate]);
+  }, [userId, accessToken, dispatch, mutate, reduxStore]);
 
   const setWebRtcInboundHandler = useCallback(
     (handler: ((msg: WebRtcInboundMessage) => void) | null) => {
@@ -240,7 +302,14 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
   );
 
   const emitWebRtcSignaling = useCallback(
-    (event: 'webrtc:offer' | 'webrtc:answer' | 'webrtc:candidate', payload: unknown) => {
+    (
+      event:
+        | 'webrtc:offer'
+        | 'webrtc:answer'
+        | 'webrtc:candidate'
+        | 'webrtc:hangup',
+      payload: unknown,
+    ) => {
       const b = bridgeRef.current;
       if (!b) {
         return Promise.reject(new Error('Socket worker not ready'));

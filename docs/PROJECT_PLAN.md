@@ -1,8 +1,8 @@
-# Messaging Platform — Project Plan
+# Ekko — Project Plan
 
 ## 1. Vision and scope
 
-Build a **scalable messaging web application** with a **React** client and **one Node.js (Express) microservice** (**messaging-service**) written in **TypeScript**. The system supports direct and group chat, presence (last seen), user discovery, **in-tab** notifications for **new messages** and **incoming calls**, and real-time **audio/video** and **group calls**, with **MongoDB** as the primary data store, **Redis** for presence (last seen, rate limits, runtime config cache—not for Socket.IO room state), **RabbitMQ** for reliable message delivery to online recipients, and **AWS S3** for media.
+**Ekko** is a **scalable messaging web application** with a **React** client and **one Node.js (Express) microservice** (**messaging-service**) written in **TypeScript**. The system supports direct and group chat, presence (last seen), user discovery, **in-tab** notifications for **new messages** and **incoming calls**, and real-time **audio/video** and **group calls**, with **MongoDB** as the primary data store, **Redis** for presence (last seen, rate limits, runtime config cache—not for Socket.IO room state), **RabbitMQ** for reliable message delivery to online recipients, and **AWS S3** for media.
 
 **Notifications:** There is **no separate notification-service** and **no Redis Streams** for notification fan-out. **Typed notification events** (e.g. new message, incoming call) are **emitted over the same Socket.IO connection** as chat and signaling, targeting the appropriate **user** / **group** rooms on **messaging-service**. On the **web-client**, the **Socket.IO client runs in a dedicated Web Worker** so the connection stays responsive without blocking the UI thread; the worker forwards events to the main thread (e.g. `postMessage`) for Redux/UI.
 
@@ -40,7 +40,7 @@ This subsection defines a **bounded release target** for an initial production-r
 | 6   | Last seen per user                                    | Redis (TTL or explicit updates), exposed via API                                                                          |
 | 7   | Typed in-tab notifications (calls vs messages)       | **messaging-service** **Socket.IO** events to user/group rooms; **web-client** worker + UI                                 |
 | 8   | Group messaging                                       | Groups in MongoDB; **Socket.IO** + **RabbitMQ** for delivery and scaling                                                  |
-| 9   | Create groups                                         | Messaging API + membership ACL                                                                                            |
+| 9   | Create groups                                         | **Ekko** HTTP API + membership ACL                                                                                        |
 | 10  | Contact list (add users)                              | Contacts collection + APIs                                                                                                |
 
 ---
@@ -120,6 +120,13 @@ Design the **exchange / queue topology** so bindings align with **§3.2.1** (sep
 **What Redis is still for:** last-seen presence, rate-limit counters, optional runtime-config cache, refresh-token storage—**not** Socket.IO room state.
 
 **`@socket.io/redis-adapter`:** Not part of the intended architecture for room delivery (it would duplicate routing already solved by RabbitMQ and can **double-deliver** if combined with per-instance broker consumers). Keep **`SOCKET_IO_REDIS_ADAPTER`** **off** unless a separate, explicitly justified use case appears; see **`README.md`** (configuration) and **`TASK_CHECKLIST.md`**.
+
+### 3.2.3 Chat message envelope and logging (E2EE)
+
+- **Wire shape:** After MongoDB insert, **`publishMessage`** queues JSON identical to the **`Message`** OpenAPI schema (**`messageDocumentToApi`**): **`id`**, **`conversationId`**, **`senderId`**, **`createdAt`**, optional **`mediaKey`**, and — for hybrid E2EE — opaque **`body`**, **`iv`**, **`encryptedMessageKeys`**, **`algorithm`**. **Socket.IO** **`message:new`** and **`message:send`** acks use the **same** object; there is no separate “transport envelope.”
+- **No server decrypt:** The broker and Socket layers treat the E2EE fields as **opaque blobs** only.
+- **No plaintext logging:** Application code must **not** log **`body`**, **`iv`**, **`encryptedMessageKeys`**, or **`algorithm`** (they may contain ciphertext or wrapped keys). Diagnostic logs should use **`message.id`**, **`conversationId`**, **`routingKey`**, and room names — see **`MESSAGING_REALTIME_DELIVERY_LOGS`** in **`messaging-service`** (`rabbitmq.ts`).
+- **In-tab toasts:** **`notification`** **`kind: message`** **`preview`** must not echo ciphertext; **`messageNotification.ts`** maps hybrid and legacy E2EE rows to a generic **“Encrypted message”** label.
 
 ### 3.3 In-tab notifications (no separate service)
 
@@ -206,6 +213,28 @@ This design ensures:
 * Access control is managed via per-device encrypted keys (scalable)
 * The server never has access to plaintext data
 
+#### Cryptographic algorithms (per-device hybrid)
+
+- **Payload:** The message body is encrypted with **AES-256-GCM** using a fresh random **256-bit message key** (`msgKey`) and a unique **IV / nonce** per message (stored or transmitted alongside ciphertext per **`Message`** / OpenAPI, e.g. an `iv` field).
+- **Per-device wrapping:** `msgKey` is never sent in the clear. For **each** device that must read the message (every relevant **recipient** device plus **each of the sender’s other devices**), the sender encrypts `msgKey` to that device’s **P-256 ECDH public key** using an **ECIES**-style construction (or equivalent: **ECDH**-derived shared secret + **AES Key Wrap** / AEAD). Only the holder of that device’s **private key** can unwrap `msgKey`.
+- **Storage shape:** The server stores one opaque **ciphertext** for the body and a map **`encryptedMessageKeys: { [deviceId]: wrappedKey }`**. It treats both as opaque blobs; it **does not** decrypt message bodies or unwrap `msgKey`.
+- **Device keys:** Each device generates its own **P-256** key pair in the browser (**Web Crypto**). **Private keys never leave the device** (e.g. **IndexedDB**, optionally passphrase-wrapped).
+
+#### Device identity (`deviceId`) lifecycle
+
+- **Register on first use:** After **login** (or restored session), the client generates a device key pair on **first authenticated use** of that browser/profile, obtains a stable **`deviceId`** (e.g. returned by **`POST /v1/users/me/devices`** when registering the device public key), and persists `deviceId` locally with the private key.
+- **Registry:** The server stores **`(userId, deviceId) → publicKey`** (and metadata). Only **public** keys are stored server-side.
+- **Revoke on logout or device removal:** The client **may** call **`DELETE /v1/users/me/devices/:deviceId`** on **logout** or when the user removes a device. **Authorization:** only the signed-in user may delete **their own** device rows (no cross-user or admin path). The server deletes the **`user_device_public_keys`** row only.
+- **Registry vs message hygiene:** The service **does not** backfill or scrub **`encryptedMessageKeys[deviceId]`** on existing **`Message`** documents when a device is revoked. Doing so would require wide scans and many updates (cost, concurrency with new sends). The tradeoff is **opaque stale map entries** in historical messages versus simpler storage and immutability-friendly behavior; senders discover current devices via **`GET …/devices/public-keys`** and must not wrap keys for revoked devices. **Historical** messages may still list wrapped keys for removed devices; clients cannot unwrap without that device’s private key. Recovery on a **new** device is covered by **New Device Sync Flow** below.
+
+#### Threat model and server trust boundaries
+
+- **What the server must not store:** **Private keys**, **plaintext `msgKey`**, or **plaintext message content**. Violations break the E2EE guarantee.
+- **What the server may store:** Ciphertext, per-device wrapped keys, and routing metadata (conversation ids, user ids, timestamps). It acts as an **untrusted relay and storage layer** for opaque blobs.
+- **Honest-but-curious server:** Should not be able to derive plaintext from stored data without breaking **AES-256-GCM** or the **ECDH**-based wrapping, or without a **compromised client device**.
+- **Database leak:** Exposes ciphertext and wrapped keys; confidentiality depends on **device private keys** remaining on devices.
+- **Client compromise:** A compromised device can expose that user’s keys and local plaintext; it does not by itself imply other users’ plaintext on their devices.
+
 #### Multi-device Sync
 
 When a new device is added, it cannot decrypt past messages by default. To enable access:
@@ -249,7 +278,7 @@ This architecture is inspired by modern secure messaging systems such as Signal 
           │ 3. Encrypt message
           ▼
 ┌──────────────────────────────┐
-│ ciphertext = AES(msgKey,msg) │
+│ ciphertext = AES-GCM(msgKey,msg) │
 └─────────┬────────────────────┘
           │
           │ 4. Encrypt msgKey per device
@@ -918,4 +947,4 @@ These rules apply to **new** work and **refactors** in **`apps/web-client`**. Le
 
 ---
 
-_Document version: 2.6 — §7.1 §4: sender UI / Redux / persistence (standalone `E2EE-sender-ciphertext-display.md` removed; content lives here); §14: engineering standards merged from former `PROJECT_GUIDELINES.md`; documentation policy: `README.md` + this file + `TASK_CHECKLIST.md` only._
+_Document version: 2.8 — §3.2.3: Socket.IO + RabbitMQ carry opaque **`Message`** JSON (hybrid E2EE fields); no plaintext/ciphertext logging; §7.1: per-device hybrid design (AES-256-GCM payload + ECDH/ECIES wrapping per device), `deviceId` lifecycle, threat model / server trust boundaries; §14: engineering standards merged from former `PROJECT_GUIDELINES.md`; documentation policy: `README.md` + this file + `TASK_CHECKLIST.md` only._

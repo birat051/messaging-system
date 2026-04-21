@@ -2,7 +2,10 @@ import type { ParsedNotificationPayload } from '@/common/realtime/socketNotifica
 
 const PREVIEW_MAX = 100;
 
-/** User-visible string for **`ToastProvider`** (**`kind`** — message vs incoming call). */
+/**
+ * User-visible string for **`ToastProvider`** when **`useNotifications`** shows a toast.
+ * **`call_incoming`** is handled with **sound only** in **`useNotifications`** (no toast).
+ */
 export function formatInboundNotificationToast(
   payload: ParsedNotificationPayload,
 ): string {

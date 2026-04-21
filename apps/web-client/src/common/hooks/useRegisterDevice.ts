@@ -2,10 +2,10 @@ import { useCallback } from 'react';
 import type { components } from '../../generated/api-types';
 import {
   clearCryptoError,
-  rotatePublicKey as rotatePublicKeyThunk,
-  uploadPublicKey as uploadPublicKeyThunk,
+  registerDevice as registerDeviceThunk,
 } from '../../modules/crypto/stores/cryptoSlice';
 import {
+  selectMessagingDeviceId,
   selectPublicKeyRegistered,
   selectPublicKeyUploadError,
   selectPublicKeyUploadStatus,
@@ -13,28 +13,24 @@ import {
 } from '../../modules/crypto/stores/selectors';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 
-type PutPublicKeyRequest = components['schemas']['PutPublicKeyRequest'];
-type RotatePublicKeyRequest = components['schemas']['RotatePublicKeyRequest'];
+type RegisterDeviceRequest = components['schemas']['RegisterDeviceRequest'];
 
 /**
- * Register or update the caller’s **user-level** public key (**PUT `/users/me/public-key`**) and
- * rotate (**POST `/users/me/public-key/rotate`**). Uses Redux **`crypto`** slice; transient HTTP errors
- * (**429**, **5xx**, network) are retried with backoff inside the thunks.
+ * Register or update this browser’s **device** public key (**`POST /v1/users/me/devices`**). Uses Redux
+ * **`registerDevice`** thunk (**`cryptoSlice`**); transient HTTP errors (**429**, **5xx**, network) are retried with
+ * backoff inside the thunk. Session bootstrap calls the same thunk from **`ensureUserKeypairReadyForMessaging`**
+ * (no **`PUT /users/me/public-key`** / **`rotate`** — those legacy routes are not used by this client).
  */
-export function useRegisterPublicKey() {
+export function useRegisterDevice() {
   const dispatch = useAppDispatch();
   const keyRegistered = useAppSelector(selectPublicKeyRegistered);
   const keyVersion = useAppSelector(selectPublicKeyVersion);
+  const deviceId = useAppSelector(selectMessagingDeviceId);
   const status = useAppSelector(selectPublicKeyUploadStatus);
   const error = useAppSelector(selectPublicKeyUploadError);
 
-  const registerOrUpdatePublicKey = useCallback(
-    (body: PutPublicKeyRequest) => dispatch(uploadPublicKeyThunk(body)),
-    [dispatch],
-  );
-
-  const rotateKey = useCallback(
-    (body: RotatePublicKeyRequest) => dispatch(rotatePublicKeyThunk(body)),
+  const registerDevice = useCallback(
+    (body: RegisterDeviceRequest) => dispatch(registerDeviceThunk(body)),
     [dispatch],
   );
 
@@ -45,10 +41,10 @@ export function useRegisterPublicKey() {
   return {
     keyRegistered,
     keyVersion,
+    deviceId,
     status,
     error,
-    registerOrUpdatePublicKey,
-    rotatePublicKey: rotateKey,
+    registerDevice,
     dismissError,
   };
 }

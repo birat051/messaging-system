@@ -10,6 +10,10 @@ import { presenceReducer } from '../../modules/app/stores/presenceSlice';
 import { authReducer } from '../../modules/auth/stores/authSlice';
 import { cryptoReducer } from '../../modules/crypto/stores/cryptoSlice';
 import {
+  devicePublicKeysInitialState,
+  devicePublicKeysReducer,
+} from '../../modules/crypto/stores/devicePublicKeysSlice';
+import {
   notificationsInitialState,
   notificationsReducer,
 } from '../../modules/app/stores/notificationsSlice';
@@ -33,13 +37,19 @@ const defaultRootState: RootState = {
   presence: { byUserId: {} },
   auth: { user: null, accessToken: null, accessTokenExpiresAt: null },
   crypto: {
-    keyRegistered: false,
+    registeredOnServer: false,
     keyVersion: null,
+    deviceId: null,
     registeredPublicKeySpki: null,
     lastUpdatedAt: null,
     status: 'idle',
     error: null,
+    syncState: 'idle',
+    pendingSyncFromDeviceId: null,
+    pendingSyncFromDevicePublicKey: null,
+    syncCompletedForNewDeviceId: null,
   },
+  devicePublicKeys: devicePublicKeysInitialState,
   messaging: messagingInitialState,
   call: callInitialState,
   notifications: notificationsInitialState,
@@ -66,6 +76,10 @@ function mergeRootState(partial?: PreloadedRootState): RootState {
     },
     auth: { ...defaultRootState.auth, ...partial.auth },
     crypto: { ...defaultRootState.crypto, ...partial.crypto },
+    devicePublicKeys: {
+      ...defaultRootState.devicePublicKeys,
+      ...partial.devicePublicKeys,
+    },
     messaging: {
       ...defaultRootState.messaging,
       ...partial.messaging,
@@ -89,6 +103,7 @@ export function createTestStore(preloadedState?: PreloadedRootState) {
       presence: presenceReducer,
       auth: authReducer,
       crypto: cryptoReducer,
+      devicePublicKeys: devicePublicKeysReducer,
       messaging: messagingReducer,
       call: callReducer,
       notifications: notificationsReducer,

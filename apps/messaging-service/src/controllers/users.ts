@@ -10,20 +10,33 @@ import { uploadUserMediaToS3 } from '../data/storage/userMediaUpload.js';
 import { searchUsersForCaller } from '../data/users/search.js';
 import type { UpdateUserProfilePatch } from '../data/users/repo.js';
 import { updateUserProfile } from '../data/users/repo.js';
+import {
+  applyBatchSyncMessageKeys,
+  listSyncMessageKeysForUserDevice,
+} from '../data/messages/syncMessageKeys.js';
 import { toUserApiShape } from '../data/users/publicUser.js';
 import {
-  findPublicKeyByUserId,
+  deleteDeviceForUser,
+  findDevicePublicKeysByUserId,
+  registerOrUpdateDevice,
   resolvePublicKeyFetchAuthz,
-  rotatePublicKey,
-  toUserPublicKeyResponse,
-  upsertPublicKeyPut,
+  toDevicePublicKeysListResponse,
+  toMyDevicesListResponse,
+  toRegisterDeviceBootstrapResponse,
+  toRegisterDeviceResponse,
 } from '../data/userPublicKeys/index.js';
+import {
+  emitDeviceSyncComplete,
+  emitDeviceSyncRequested,
+} from '../utils/realtime/deviceSyncEvents.js';
 import { formatZodError } from '../validation/formatZodError.js';
 import { resolveListLimit } from '../validation/limitQuery.js';
 import {
   createMulterFileSchema,
-  putPublicKeyRequestSchema,
-  rotatePublicKeyRequestSchema,
+  batchSyncMessageKeysRequestSchema,
+  deviceIdPathSchema,
+  listSyncMessageKeysQuerySchema,
+  registerDeviceRequestSchema,
   searchUsersQuerySchema,
   userIdPathSchema,
 } from '../validation/schemas.js';
@@ -53,6 +66,42 @@ export function rateLimitPublicKeyWrites(env: Env): RequestHandler {
             'RATE_LIMIT_EXCEEDED',
             429,
             'Too many public key updates; try again later',
+          ),
+        );
+        return;
+      }
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
+export function rateLimitDeviceSyncBatch(env: Env): RequestHandler {
+  return async (
+    req: Request,
+    _res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const authUser = req.authUser;
+      if (!authUser) {
+        next(new AppError('UNAUTHORIZED', 401, 'Authentication required'));
+        return;
+      }
+      const rlKey = `ratelimit:device-sync-batch:user:${authUser.id}`;
+      if (
+        await rateLimitExceeded(
+          rlKey,
+          env.DEVICE_SYNC_RATE_LIMIT_WINDOW_SEC,
+          env.DEVICE_SYNC_RATE_LIMIT_MAX,
+        )
+      ) {
+        next(
+          new AppError(
+            'RATE_LIMIT_EXCEEDED',
+            429,
+            'Too many device sync batch uploads; try again later',
           ),
         );
         return;
@@ -281,7 +330,7 @@ export function patchMe(env: Env, s3Client: ReturnType<typeof getS3Client>): Req
   };
 }
 
-export function putPublicKey(): RequestHandler {
+export function postBatchSyncMessageKeys(): RequestHandler {
   return async (req, res, next) => {
     try {
       const authUser = req.authUser;
@@ -289,20 +338,113 @@ export function putPublicKey(): RequestHandler {
         next(new AppError('UNAUTHORIZED', 401, 'Authentication required'));
         return;
       }
-      const body = req.body as z.infer<typeof putPublicKeyRequestSchema>;
-      const doc = await upsertPublicKeyPut(
+      const sourceDeviceId = req.authSourceDeviceId;
+      if (sourceDeviceId === undefined || sourceDeviceId.trim() === '') {
+        next(
+          new AppError(
+            'FORBIDDEN',
+            403,
+            'A device-bound access token is required (sourceDeviceId claim). Re-authenticate via login or refresh, passing an optional sourceDeviceId that matches a registered device.',
+          ),
+        );
+        return;
+      }
+      const body = req.body as z.infer<typeof batchSyncMessageKeysRequestSchema>;
+      const result = await applyBatchSyncMessageKeys({
+        userId: authUser.id,
+        sourceDeviceId: sourceDeviceId.trim(),
+        targetDeviceId: body.targetDeviceId,
+        keys: body.keys,
+      });
+      if (result.applied > 0) {
+        emitDeviceSyncComplete({
+          userId: authUser.id,
+          targetDeviceId: body.targetDeviceId,
+        });
+      }
+      res.status(200).json(result);
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
+export function getSyncMessageKeys(): RequestHandler {
+  return async (req, res, next) => {
+    try {
+      const authUser = req.authUser;
+      if (!authUser) {
+        next(new AppError('UNAUTHORIZED', 401, 'Authentication required'));
+        return;
+      }
+      const q = req.query as unknown as z.infer<typeof listSyncMessageKeysQuerySchema>;
+      const payload = await listSyncMessageKeysForUserDevice({
+        userId: authUser.id,
+        deviceId: q.deviceId,
+        afterMessageId: q.afterMessageId,
+        limit: q.limit,
+      });
+      res.status(200).json(payload);
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
+export function getMyDevices(): RequestHandler {
+  return async (req, res, next) => {
+    try {
+      const authUser = req.authUser;
+      if (!authUser) {
+        next(new AppError('UNAUTHORIZED', 401, 'Authentication required'));
+        return;
+      }
+      const docs = await findDevicePublicKeysByUserId(authUser.id);
+      res.status(200).json(toMyDevicesListResponse(docs));
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
+export function postRegisterDevice(): RequestHandler {
+  return async (req, res, next) => {
+    try {
+      const authUser = req.authUser;
+      if (!authUser) {
+        next(new AppError('UNAUTHORIZED', 401, 'Authentication required'));
+        return;
+      }
+      const body = req.body as z.infer<typeof registerDeviceRequestSchema>;
+      const outcome = await registerOrUpdateDevice(
         authUser.id,
         body.publicKey,
-        body.keyVersion,
+        body.deviceId,
+        body.deviceLabel,
       );
-      res.status(200).json(toUserPublicKeyResponse(doc));
+      if (outcome.isNewDeviceRow) {
+        emitDeviceSyncRequested({
+          userId: authUser.id,
+          newDeviceId: outcome.document.deviceId,
+          newDevicePublicKey: outcome.document.publicKey,
+        });
+      }
+      if (body.bootstrap) {
+        res.status(201).json(toRegisterDeviceBootstrapResponse(outcome.document));
+        return;
+      }
+      res.status(200).json(toRegisterDeviceResponse(outcome.document));
     } catch (err) {
       next(err);
     }
   };
 }
 
-export function postRotatePublicKey(): RequestHandler {
+/**
+ * **`DELETE /users/me/devices/:deviceId`** — owning user only (**`authUser.id`** + path **`deviceId`**).
+ * See OpenAPI for registry vs message-document behavior.
+ */
+export function deleteMyDevice(): RequestHandler {
   return async (req, res, next) => {
     try {
       const authUser = req.authUser;
@@ -310,16 +452,20 @@ export function postRotatePublicKey(): RequestHandler {
         next(new AppError('UNAUTHORIZED', 401, 'Authentication required'));
         return;
       }
-      const body = req.body as z.infer<typeof rotatePublicKeyRequestSchema>;
-      const doc = await rotatePublicKey(authUser.id, body.publicKey);
-      res.status(200).json(toUserPublicKeyResponse(doc));
+      const params = req.params as z.infer<typeof deviceIdPathSchema>;
+      const removed = await deleteDeviceForUser(authUser.id, params.deviceId);
+      if (!removed) {
+        next(new AppError('NOT_FOUND', 404, 'Device not found'));
+        return;
+      }
+      res.status(204).send();
     } catch (err) {
       next(err);
     }
   };
 }
 
-export function getUserPublicKey(env: Env): RequestHandler {
+export function getUserDevicePublicKeys(env: Env): RequestHandler {
   return async (req, res, next) => {
     try {
       const authUser = req.authUser;
@@ -347,20 +493,17 @@ export function getUserPublicKey(env: Env): RequestHandler {
           new AppError(
             'FORBIDDEN',
             403,
-            'Not allowed to fetch this user public key',
+            'Not allowed to list this user device keys',
           ),
         );
         return;
       }
 
-      const doc = await findPublicKeyByUserId(targetUserId);
-      if (!doc) {
-        next(new AppError('NOT_FOUND', 404, 'Not found'));
-        return;
-      }
-      res.status(200).json(toUserPublicKeyResponse(doc));
+      const docs = await findDevicePublicKeysByUserId(targetUserId);
+      res.status(200).json(toDevicePublicKeysListResponse(docs));
     } catch (err) {
       next(err);
     }
   };
 }
+

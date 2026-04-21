@@ -364,9 +364,9 @@ const envSchema = z.object({
     .max(5000)
     .default(DEFAULT_USER_SEARCH_MAX_CANDIDATE_SCAN),
   /**
-   * When **`true`**, **`GET /users/{userId}/public-key`** (other than self) requires an existing **direct**
+   * When **`true`**, **`GET /users/{userId}/devices/public-keys`** (other than self) requires an existing **direct**
    * conversation between caller and target. When **`false`** (default), any authenticated user may
-   * fetch a registered user's key (matches “may start a DM” / first encrypted message before a thread row).
+   * fetch a registered user's device keys (matches “may start a DM” / first encrypted message before a thread row).
    */
   PUBLIC_KEY_FETCH_REQUIRE_DIRECT_THREAD: z.preprocess((val) => {
     if (val === undefined || val === '') {
@@ -378,7 +378,7 @@ const envSchema = z.object({
     return val === true || val === 'true' || val === '1' || val === 1;
   }, z.boolean()),
   /**
-   * Redis fixed-window rate limit: **`PUT /users/me/public-key`** and **`POST /users/me/public-key/rotate`**
+   * Redis fixed-window rate limit: **`POST /users/me/devices`**, **`DELETE /users/me/devices/:deviceId`**
    * combined per **authenticated user id** (not IP).
    */
   PUBLIC_KEY_UPDATE_RATE_LIMIT_WINDOW_SEC: z.coerce
@@ -388,8 +388,33 @@ const envSchema = z.object({
     .default(3600),
   PUBLIC_KEY_UPDATE_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
   /**
-   * Max JSON body size (bytes) for **`PUT /users/me/public-key`** and **`POST /users/me/public-key/rotate`** —
-   * stricter than the global **`1mb`** parser so directory updates cannot send large blobs.
+   * Redis fixed-window rate limit for **`POST /users/me/sync/message-keys`** (batch wrapped-key upload) per **user id**.
+   * If unset, **`DEVICE_SYNC_BATCH_RATE_LIMIT_*`** legacy names are still read (same semantics).
+   */
+  DEVICE_SYNC_RATE_LIMIT_WINDOW_SEC: z.preprocess((val) => {
+    if (val !== undefined && val !== '' && val !== null) return val;
+    const legacy = process.env.DEVICE_SYNC_BATCH_RATE_LIMIT_WINDOW_SEC;
+    if (legacy !== undefined && legacy !== '' && legacy !== null) return legacy;
+    return undefined;
+  }, z.coerce.number().int().positive().default(3600)),
+  DEVICE_SYNC_RATE_LIMIT_MAX: z.preprocess((val) => {
+    if (val !== undefined && val !== '' && val !== null) return val;
+    const legacy = process.env.DEVICE_SYNC_BATCH_RATE_LIMIT_MAX;
+    if (legacy !== undefined && legacy !== '' && legacy !== null) return legacy;
+    return undefined;
+  }, z.coerce.number().int().positive().default(120)),
+  /**
+   * Max JSON body size (bytes) for **`POST /users/me/sync/message-keys`** (batch of wrapped keys).
+   */
+  DEVICE_SYNC_BATCH_JSON_BODY_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(1048576)
+    .default(524288),
+  /**
+   * Max JSON body size (bytes) for **`POST /users/me/devices`** — stricter than the global **`1mb`** parser so
+   * device registration payloads cannot send large blobs.
    */
   PUBLIC_KEY_JSON_BODY_MAX_BYTES: z.coerce
     .number()
@@ -445,7 +470,7 @@ const envSchema = z.object({
     .positive()
     .default(600),
   /**
-   * Fixed window for Socket.IO **WebRTC signaling** (**`webrtc:offer`**, **`webrtc:answer`**, **`webrtc:candidate`**).
+   * Fixed window for Socket.IO **WebRTC signaling** (**`webrtc:offer`**, **`webrtc:answer`**, **`webrtc:candidate`**, **`webrtc:hangup`**).
    */
   WEBRTC_SIGNAL_RATE_LIMIT_WINDOW_SEC: z.coerce
     .number()

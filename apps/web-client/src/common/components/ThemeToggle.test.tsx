@@ -12,23 +12,21 @@ describe('ThemeToggle', () => {
     document.documentElement.classList.remove('dark');
   });
 
-  it('renders a button that reflects the current theme and toggles on click', async () => {
+  it('renders a switch that reflects the current theme and toggles on click', async () => {
     const user = userEvent.setup();
     localStorage.setItem(STORAGE_KEY, 'light');
 
     renderWithProviders(<ThemeToggle />);
 
-    const btn = screen.getByRole('button', { name: /switch to dark theme/i });
-    expect(btn).toHaveAttribute('aria-pressed', 'false');
-    expect(btn).toHaveClass('min-h-11', 'touch-manipulation');
-    expect(screen.getByText('Light')).toBeInTheDocument();
+    const toggle = screen.getByRole('switch', { name: /switch to dark theme/i });
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+    expect(toggle).toHaveClass('touch-manipulation', 'rounded-full');
 
-    await user.click(btn);
+    await user.click(toggle);
 
     expect(
-      screen.getByRole('button', { name: /switch to light theme/i }),
-    ).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByText('Dark')).toBeInTheDocument();
+      screen.getByRole('switch', { name: /switch to light theme/i }),
+    ).toHaveAttribute('aria-checked', 'true');
     expect(localStorage.getItem(STORAGE_KEY)).toBe('dark');
   });
 });

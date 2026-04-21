@@ -1,6 +1,6 @@
-# Messaging platform
+# Ekko
 
-TypeScript **web client** and **Node.js microservice** for real-time **chat**, **presence**, **in-app notifications**, and **WebRTC-oriented** calling. The stack is **OpenAPI-first** (REST contract, codegen to the client, Zod validation on the server), with **Socket.IO** for browser transport and **RabbitMQ** for routing persisted work across processes and replicas. **Docker Compose** runs the full dependency set locally.
+**Product name** for the messaging stack in this repository (**folder:** **`messaging-system`**). TypeScript **web client** and **Node.js microservice** for real-time **chat**, **presence**, **in-app notifications**, and **WebRTC-oriented** calling. The stack is **OpenAPI-first** (REST contract, codegen to the client, Zod validation on the server), with **Socket.IO** for browser transport and **RabbitMQ** for routing persisted work across processes and replicas. **Docker Compose** runs the full dependency set locally.
 
 ## Documentation (three files only)
 
@@ -36,12 +36,12 @@ Target capabilities include **direct and group messaging**, **last-seen presence
 | Area | Specification | Repository today |
 |------|----------------|-------------------|
 | **Identity** | Register, login, verification, reset; JWT access + refresh | REST APIs per OpenAPI on **messaging-service**; **web-client**: Redux session, shared **`httpClient`**, refresh-on-401 flow — [`apps/web-client/src/common/api/httpClient.ts`](apps/web-client/src/common/api/httpClient.ts) |
-| **Messaging** | Persist → RabbitMQ → Socket.IO rooms | Broker + Socket.IO + MongoDB integrated on the service; end-user chat UI and full pipeline items tracked in **`TASK_CHECKLIST.md`** |
+| **Chat (messages)** | Persist → RabbitMQ → Socket.IO rooms | Broker + Socket.IO + MongoDB integrated on the service; end-user chat UI and full pipeline items tracked in **`TASK_CHECKLIST.md`** |
 | **Presence** | Redis while connected; flush **last seen** to Mongo | **Live**: heartbeat (~5 s), Redis, **`presence:getLastSeen`** resolution |
 | **Media** | Server-mediated upload to object storage | **`POST /v1/media/upload`** implemented; multipart UX in client backlog |
 | **Notifications** | Single Socket.IO event **`notification`**, versioned payload — **`PROJECT_PLAN.md` §8** | Contract defined; **emit from domain** (checklist Feature 7) **outstanding**. No separate notification microservice; no Redis Streams for in-tab delivery |
 | **Calls** | 1:1 signaling via Socket.IO; STUN/TURN; group SFU at scale | **STUN** (default public host or **`VITE_WEBRTC_STUN_URLS`**); **TURN** via **`infra/coturn`** (`--profile turn`) or **managed** credentials (**`VITE_WEBRTC_TURN_*`**); ports in [**WebRTC: ports and ICE**](#webrtc-ports-and-ice) |
-| **Operations** | Compose, nginx, documented env | Stack exposed on **8080** via nginx; TLS and static **web-client** **`dist/`** serving called out as follow-up work |
+| **Operations** | Compose, nginx, documented env | Stack exposed on **8080** via nginx (**`apps/web-client/dist/`** bind-mounted as static root, SPA **`index.html`** fallback); **TLS** still follow-up |
 
 ---
 
@@ -149,7 +149,7 @@ Signaling rides on the **same Socket.IO** connection as chat; media is **peer-to
 
 | Surface | Dev (typical) | Protocol | Notes |
 |---------|----------------|----------|--------|
-| **REST + Socket.IO entry** | **8080** (nginx → **messaging-service:3000**) | TCP (HTTP); WS upgrade for `/socket.io` | **`infra/nginx/nginx.conf`** sets **Upgrade** and long timeouts |
+| **REST + Socket.IO entry** | **8080** (nginx: SPA **`dist/`** + **`/v1`**, **`/socket.io`**, **`/api-docs`** → **messaging-service:3000**) | TCP (HTTP); WS upgrade for `/socket.io` | **`infra/nginx/nginx.conf`**: static **`try_files`** + **Upgrade** / long timeouts on **`/socket.io`** |
 | **WSS** | **443** (or your TLS listener) | TCP (HTTPS / **WSS**) | Terminate TLS at **nginx**, CDN, or load balancer; same **`/socket.io`** path |
 | **STUN / TURN (coturn)** | **3478** | **UDP + TCP** | STUN binding + TURN over the same listening port (**`infra/coturn/turnserver.conf`**) |
 | **TURN relay range (coturn)** | **49152–49200** (host → container) | **UDP** | Published in **`infra/docker-compose.yml`**; must allow firewall path for restrictive networks |
@@ -275,7 +275,7 @@ Root convenience scripts: `npm run lint:all`, `npm run typecheck:all`, `npm run 
 3. **Build client (production):** `cd apps/web-client && npm run build` → static assets under **`dist/`** for nginx.
 4. **Build service:** `cd apps/messaging-service && npm run build` → **`dist/`** for Node.
 5. **Run stack:** `docker compose -f infra/docker-compose.yml up -d --build` from repo root (see table below).
-6. **Smoke:** **`http://localhost:8080/v1/health`**, **`/api-docs`**; optional **`--profile turn`** for WebRTC TURN.
+6. **Smoke:** **`http://localhost:8080/`** (SPA), **`/v1/health`**, **`/api-docs`**; optional **`--profile turn`** for WebRTC TURN.
 
 ---
 
@@ -309,9 +309,13 @@ Copy **`infra/.env.example`** to **`.env`** at the compose working directory to 
 MESSAGING_INTEGRATION=1 npm run test:integration
 ```
 
-This runs **`src/integration/messagingSocket.integration.test.ts`**: creates users **A** and **B**, connects **socket.io-client** as **B**, sends from **A** (REST and **`message:send`** paths), asserts **B** receives **`message:new`** (including an **opaque E2EE-style** **`body`** string). No browser required.
+The suite **always** connects to **`amqp://messaging:messaging@127.0.0.1:5672`** (Compose defaults), ignoring a local **`RABBITMQ_URL`** such as **`guest:guest`** that would otherwise fail the AMQP handshake against the Compose broker. Use **`MESSAGING_INTEGRATION_RABBITMQ_URL`** when your test broker differs.
+
+This runs **`src/integration/messagingSocket.integration.test.ts`**: creates users **A** and **B**, connects **socket.io-client** as **B**, sends from **A** (REST and **`message:send`** paths), asserts **B** receives **`message:new`** (including an **opaque E2EE-style** **`body`** string). It also asserts **multi-device key sync** on the server: **A** sends a hybrid-style payload with **`encryptedMessageKeys`** for **device A** only; **`applyBatchSyncMessageKeys`** adds the wrapped key for **device B**; **`GET`-style listing** via **`listSyncMessageKeysForUserDevice`** returns the row for **B**. That covers persisted shape and sync application; **decrypting the body in a real browser** remains a **manual** check (see below). No browser required for the automated suite.
 
 **Manual (two browsers / two users):** Start the stack (`docker compose -f infra/docker-compose.yml up -d --build` or run **messaging-service** + **web-client** per local dev). Use **two** browser profiles or machines. **Register and sign in** as user **A** in one session and user **B** in the other. Ensure the SPA uses the **same origin** for REST and Socket.IO as documented under **web-client** **`VITE_API_BASE_URL`** (**[Configuration](#configuration-and-environment-variables)** — **“REST + Socket.IO (same origin)”**). Open a **direct** thread from **A** to **B** and send a message; **B** should see the new message in real time while both sessions show **connected**. **Optional:** DevTools → **Network** → **WS** → filter **`socket.io`**, confirm inbound **`message:new`** on **B**’s connection after **A** sends.
+
+**Manual (same account, two devices — historical decrypt):** Sign in as the **same user** in **profile 1** (trusted device). Send at least one **E2EE** message in a conversation so history exists. Open **profile 2** (or another machine), sign in as the **same user** so the app registers a **new device**. In **profile 1**, complete **device key sync** / approval when prompted so wrapped keys are uploaded for the new device. Return to **profile 2**, open the same conversation, and confirm the **earlier message decrypts** (plaintext, not ciphertext). Automated coverage above only validates **Mongo + sync helpers**; Web Crypto + IndexedDB path is this manual step.
 
 ---
 
@@ -384,10 +388,13 @@ Single reference for variables passed into each deployable (Docker Compose, loca
 | `GUEST_USER_SEARCH_RATE_LIMIT_MAX` | no | `30` | Max guest searches per IP per window (stricter than **`USER_SEARCH_RATE_LIMIT_MAX`**) |
 | `USER_SEARCH_MIN_QUERY_LENGTH` | no | `3` | Minimum search query length |
 | `USER_SEARCH_MAX_CANDIDATE_SCAN` | no | `200` | Max MongoDB users scanned per search |
-| `PUBLIC_KEY_FETCH_REQUIRE_DIRECT_THREAD` | no | `false` | Restrict **`GET /users/{id}/public-key`** to existing DM |
-| `PUBLIC_KEY_UPDATE_RATE_LIMIT_WINDOW_SEC` | no | `3600` | Public-key update window per user |
-| `PUBLIC_KEY_UPDATE_RATE_LIMIT_MAX` | no | `30` | Max public-key updates per user per window |
-| `PUBLIC_KEY_JSON_BODY_MAX_BYTES` | no | `8192` | Max JSON body for public-key routes |
+| `PUBLIC_KEY_FETCH_REQUIRE_DIRECT_THREAD` | no | `false` | Restrict **`GET /users/{id}/devices/public-keys`** (other than self) to existing DM |
+| `PUBLIC_KEY_UPDATE_RATE_LIMIT_WINDOW_SEC` | no | `3600` | Device register/delete window per user |
+| `PUBLIC_KEY_UPDATE_RATE_LIMIT_MAX` | no | `30` | Max device register/delete actions per user per window |
+| `PUBLIC_KEY_JSON_BODY_MAX_BYTES` | no | `8192` | Max JSON body for **`POST /users/me/devices`** |
+| `DEVICE_SYNC_RATE_LIMIT_WINDOW_SEC` | no | `3600` | **`POST /v1/users/me/sync/message-keys`** — Redis fixed window per **authenticated user** (batch wrapped-key upload). If unset, **`DEVICE_SYNC_BATCH_RATE_LIMIT_WINDOW_SEC`** is used when set. |
+| `DEVICE_SYNC_RATE_LIMIT_MAX` | no | `120` | Max batch uploads per user per window. If unset, **`DEVICE_SYNC_BATCH_RATE_LIMIT_MAX`** is used when set. |
+| `DEVICE_SYNC_BATCH_JSON_BODY_MAX_BYTES` | no | `524288` | Max JSON body size (bytes) for **`POST /v1/users/me/sync/message-keys`** |
 | `MESSAGE_SEND_RATE_LIMIT_WINDOW_SEC` | no | `60` | Message send window |
 | `MESSAGE_SEND_RATE_LIMIT_MAX_PER_USER` | no | `120` | Max sends per user per window |
 | `MESSAGE_SEND_RATE_LIMIT_MAX_PER_IP` | no | `360` | Max sends per IP per window |
@@ -409,7 +416,7 @@ Single reference for variables passed into each deployable (Docker Compose, loca
 
 #### Global vs per-route rate limits (stacking)
 
-The **global** per-IP limit runs **first** on **`/v1`**; route-specific Redis limits **stack** (separate keys). Tuning: lower **`GLOBAL_RATE_LIMIT_MAX`** for a broad cut, or individual **`REGISTER_*`**, **`USER_SEARCH_*`**, etc. for one surface.
+The **global** per-IP limit runs **first** on **`/v1`**; route-specific Redis limits **stack** (separate keys). Tuning: lower **`GLOBAL_RATE_LIMIT_MAX`** for a broad cut, or individual **`REGISTER_*`**, **`USER_SEARCH_*`**, **`DEVICE_SYNC_RATE_LIMIT_*`** (multi-device key sync batch upload), etc. for one surface.
 
 **Reverse proxy:** **`infra/nginx/nginx.conf`** sets **`X-Forwarded-For`** for **`getClientIp`**. Edge **`limit_req`** stacks with app limits unless you tune intentionally.
 
@@ -453,7 +460,7 @@ Substring match on normalized email and username; abuse controls include **`USER
 | `VITE_WEBRTC_TURN_USERNAME` | no | — | With **`VITE_WEBRTC_TURN_CREDENTIAL`**, applied to each TURN URL (**coturn** **`lt-cred-mech`**) |
 | `VITE_WEBRTC_TURN_CREDENTIAL` | no | — | TURN password |
 
-**REST + Socket.IO (same origin):** **`getApiBaseUrl()`** and **`getSocketUrl()`** in **`apps/web-client/src/common/utils/apiConfig.ts`** both read **`VITE_API_BASE_URL`**. For a **relative** value (e.g. **`/v1`**), the SPA’s **`window.location.origin`** is used for Socket.IO as well, so the Vite dev server must proxy both **`/v1`** and **`/socket.io`** to **messaging-service** (**`apps/web-client/vite.config.ts`**). For an **absolute** URL (e.g. **`http://localhost:8080/v1`** to reach Docker nginx), **`getSocketUrl()`** uses **`http://localhost:8080`** only — REST and **`/socket.io`** stay on the **same host and port**. Production HTTPS pages must use an **`https://`** API base to avoid mixed content. **Compose:** **`infra/nginx/nginx.conf`** forwards **`/`** to **messaging-service** with **`Upgrade`** / **`Connection`** for long-lived Socket.IO connections.
+**REST + Socket.IO (same origin):** **`getApiBaseUrl()`** and **`getSocketUrl()`** in **`apps/web-client/src/common/utils/apiConfig.ts`** both read **`VITE_API_BASE_URL`**. For a **relative** value (e.g. **`/v1`**), the SPA’s **`window.location.origin`** is used for Socket.IO as well, so the Vite dev server must proxy both **`/v1`** and **`/socket.io`** to **messaging-service** (**`apps/web-client/vite.config.ts`**). For an **absolute** URL (e.g. **`http://localhost:8080/v1`** to reach Docker nginx), **`getSocketUrl()`** uses **`http://localhost:8080`** only — REST and **`/socket.io`** stay on the **same host and port**. Production HTTPS pages must use an **`https://`** API base to avoid mixed content. **Compose:** **`infra/nginx/nginx.conf`** serves the built SPA at **`/`** ( **`try_files`** → **`index.html`** ) and proxies **`/v1`**, **`/socket.io`**, and **`/api-docs`** to **messaging-service** (**`Upgrade`** / **`Connection`** on **`/socket.io`**).
 
 **Env / CDN (public `src` for media):** **`VITE_API_BASE_URL`** does **not** supply **`src`** for uploaded blobs. When thread or composer UI needs an HTTP URL from **`Message.mediaKey`**, the client joins **`VITE_S3_PUBLIC_BASE_URL`**, **`VITE_S3_BUCKET`**, and the encoded object key in **`apps/web-client/src/common/utils/mediaPublicUrl.ts`** — mirror **messaging-service** **`S3_PUBLIC_BASE_URL`** and **`S3_BUCKET`** so URLs match **`POST /v1/media/upload`** and public GET paths. Set **`VITE_S3_PUBLIC_BASE_URL`** + **`VITE_S3_BUCKET`** when the **public** object host (CDN, MinIO on another port, S3 website endpoint, etc.) is **not** the same origin as the API; if either is unset, **`mediaKey`** alone cannot be turned into a URL (local **`blob:`** previews or response **`url`** fields still work).
 

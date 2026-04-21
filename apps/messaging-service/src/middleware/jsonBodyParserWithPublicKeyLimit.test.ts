@@ -10,17 +10,17 @@ const env = {
 } as Env;
 
 describe('createJsonBodyParserWithPublicKeyLimit', () => {
-  it('returns 413 when JSON body exceeds cap on public-key routes', async () => {
+  it('returns 413 when JSON body exceeds cap on device registration route', async () => {
     const app = express();
     app.use(createJsonBodyParserWithPublicKeyLimit(env));
-    app.post('/v1/users/me/public-key/rotate', (req, res) => {
+    app.post('/v1/users/me/devices', (req, res) => {
       res.status(200).json({ ok: true });
     });
     app.use(errorHandler);
 
     const big = 'x'.repeat(400);
     const res = await request(app)
-      .post('/v1/users/me/public-key/rotate')
+      .post('/v1/users/me/devices')
       .set('Content-Type', 'application/json')
       .send(JSON.stringify({ publicKey: big }));
 

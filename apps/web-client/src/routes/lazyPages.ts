@@ -34,3 +34,15 @@ export const VerifyEmailPage = lazy(() =>
     default: m.VerifyEmailPage,
   })),
 );
+
+export const PrivacyPolicyPage = lazy(() =>
+  import('@/modules/legal/pages/PrivacyPolicyPage').then((m) => ({
+    default: m.PrivacyPolicyPage,
+  })),
+);
+
+export const TermsAndConditionsPage = lazy(() =>
+  import('@/modules/legal/pages/TermsAndConditionsPage').then((m) => ({
+    default: m.TermsAndConditionsPage,
+  })),
+);

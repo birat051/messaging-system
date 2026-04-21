@@ -16,6 +16,9 @@
   --color-muted: var(--token-muted);
   --color-accent: var(--token-accent);
   --color-accent-foreground: var(--token-accent-fg);
+  /** Solid fills (primary buttons, own-message bubbles, upload progress) — distinct from **accent** in dark mode. */
+  --color-primary: var(--token-primary);
+  --color-primary-foreground: var(--token-primary-fg);
   --color-border: var(--token-border);
   --color-surface: var(--token-surface);
   --color-ring: var(--token-ring);
@@ -29,6 +32,8 @@
     --token-muted: oklch(0.48 0.02 260);
     --token-accent: oklch(0.45 0.14 262);
     --token-accent-fg: oklch(0.99 0 0);
+    --token-primary: oklch(0.45 0.14 262);
+    --token-primary-fg: oklch(0.99 0 0);
     --token-border: oklch(0.9 0.01 260);
     --token-surface: oklch(1 0 0);
     --token-ring: oklch(0.45 0.14 262);
@@ -39,11 +44,15 @@
     --token-bg: oklch(0.145 0.02 260);
     --token-fg: oklch(0.96 0.01 260);
     --token-muted: oklch(0.62 0.02 260);
-    --token-accent: oklch(0.68 0.14 262);
-    --token-accent-fg: oklch(0.12 0.02 260);
+    /** Links, focus rings, borders — teal (replaces bluish **262** hue). */
+    --token-accent: #2b9c8e;
+    --token-accent-fg: oklch(0.12 0.02 180);
+    /** Filled buttons, CTA strips, own-message bubbles — deep green. */
+    --token-primary: #122f2c;
+    --token-primary-fg: #e8f4f2;
     --token-border: oklch(0.28 0.02 260);
     --token-surface: oklch(0.19 0.02 260);
-    --token-ring: oklch(0.68 0.14 262);
+    --token-ring: #2b9c8e;
   }
 
   html {

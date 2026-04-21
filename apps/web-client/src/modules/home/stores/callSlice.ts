@@ -1,6 +1,13 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
+import { formatPeerCallEndLabel } from '@/modules/home/utils/peerCallEndLabel';
 
 export type CallPhase = 'idle' | 'incoming_ring' | 'outgoing_ring' | 'active';
+
+/**
+ * Why the last call session ended — for UX (e.g. peer hung up vs you ended the call).
+ * Cleared when a new **`startOutgoingCall`** / **`incomingCallRinging`** begins.
+ */
+export type CallSessionEndReason = 'local' | 'remote' | 'system';
 
 export type CallState = {
   phase: CallPhase;
@@ -12,6 +19,17 @@ export type CallState = {
   cameraOff: boolean;
   /** User-visible error (media, signaling); cleared on hangup / reject. */
   errorMessage: string | null;
+  /**
+   * Set when the session leaves **non-idle** — **`local`** (user hangup / reject / navigate away),
+   * **`remote`** (inbound **`webrtc:hangup`**), **`system`** (errors, missing socket, WebRTC unavailable).
+   */
+  lastSessionEndReason: CallSessionEndReason | null;
+  /**
+   * Resolved peer label for this session (**display name** → **username** → id hint) — cleared when the session ends.
+   */
+  peerResolvedLabel: string | null;
+  /** After a **remote** hangup — copy for **`RemoteCallEndedToast`** until cleared with **`lastSessionEndReason`**. */
+  lastRemoteEndedPeerLabel: string | null;
 };
 
 export const callInitialState: CallState = {
@@ -22,9 +40,20 @@ export const callInitialState: CallState = {
   micMuted: false,
   cameraOff: false,
   errorMessage: null,
+  lastSessionEndReason: null,
+  peerResolvedLabel: null,
+  lastRemoteEndedPeerLabel: null,
 };
 
-function clearSession(state: CallState): void {
+function clearSession(state: CallState, endReason: CallSessionEndReason): void {
+  const pid = state.peerUserId;
+  const resolved = state.peerResolvedLabel?.trim();
+  const endLabel =
+    resolved ||
+    (pid
+      ? formatPeerCallEndLabel({ userId: pid })
+      : '');
+
   state.phase = 'idle';
   state.callId = null;
   state.peerUserId = null;
@@ -32,6 +61,15 @@ function clearSession(state: CallState): void {
   state.micMuted = false;
   state.cameraOff = false;
   state.errorMessage = null;
+  state.peerResolvedLabel = null;
+  state.lastSessionEndReason = endReason;
+  state.lastRemoteEndedPeerLabel =
+    endReason === 'remote' && endLabel.length > 0 ? endLabel : null;
+}
+
+function resetSessionStart(state: CallState): void {
+  state.lastSessionEndReason = null;
+  state.lastRemoteEndedPeerLabel = null;
 }
 
 const callSlice = createSlice({
@@ -41,21 +79,51 @@ const callSlice = createSlice({
     startOutgoingCall: {
       reducer(
         state,
-        action: PayloadAction<{ callId: string; peerUserId: string }>,
+        action: PayloadAction<{
+          callId: string;
+          peerUserId: string;
+          peerResolvedLabel: string;
+        }>,
       ) {
+        resetSessionStart(state);
         state.phase = 'outgoing_ring';
         state.callId = action.payload.callId;
         state.peerUserId = action.payload.peerUserId;
+        state.peerResolvedLabel = action.payload.peerResolvedLabel;
         state.micMuted = false;
         state.cameraOff = false;
         state.pendingRemoteSdp = null;
         state.errorMessage = null;
       },
-      prepare(peerUserId: string) {
+      prepare(
+        input:
+          | string
+          | {
+              peerUserId: string;
+              peerDisplayName?: string | null;
+              peerUsername?: string | null;
+            },
+      ) {
+        if (typeof input === 'string') {
+          const peerUserId = input.trim();
+          return {
+            payload: {
+              callId: globalThis.crypto.randomUUID(),
+              peerUserId,
+              peerResolvedLabel: formatPeerCallEndLabel({ userId: peerUserId }),
+            },
+          };
+        }
+        const peerUserId = input.peerUserId.trim();
         return {
           payload: {
             callId: globalThis.crypto.randomUUID(),
             peerUserId,
+            peerResolvedLabel: formatPeerCallEndLabel({
+              userId: peerUserId,
+              displayName: input.peerDisplayName,
+              username: input.peerUsername,
+            }),
           },
         };
       },
@@ -66,12 +134,20 @@ const callSlice = createSlice({
         callId: string;
         peerUserId: string;
         remoteSdp: string;
+        peerDisplayName?: string | null;
+        peerUsername?: string | null;
       }>,
     ) {
+      resetSessionStart(state);
       state.phase = 'incoming_ring';
       state.callId = action.payload.callId;
       state.peerUserId = action.payload.peerUserId;
       state.pendingRemoteSdp = action.payload.remoteSdp;
+      state.peerResolvedLabel = formatPeerCallEndLabel({
+        userId: action.payload.peerUserId,
+        displayName: action.payload.peerDisplayName,
+        username: action.payload.peerUsername,
+      });
       state.micMuted = false;
       state.cameraOff = false;
       state.errorMessage = null;
@@ -89,8 +165,15 @@ const callSlice = createSlice({
     setCallError(state, action: PayloadAction<string | null>) {
       state.errorMessage = action.payload;
     },
-    rejectCall: clearSession,
-    hangupCall: clearSession,
+    rejectCall(state) {
+      clearSession(state, 'local');
+    },
+    hangupCall(
+      state,
+      action: PayloadAction<{ reason: CallSessionEndReason } | undefined>,
+    ) {
+      clearSession(state, action.payload?.reason ?? 'system');
+    },
     toggleCallMic(state) {
       if (state.phase === 'active') {
         state.micMuted = !state.micMuted;
@@ -100,6 +183,11 @@ const callSlice = createSlice({
       if (state.phase === 'active') {
         state.cameraOff = !state.cameraOff;
       }
+    },
+    /** Clears **`lastSessionEndReason`** after remote-end toast auto-dismiss (or manual dismiss). */
+    clearCallSessionEndReason(state) {
+      state.lastSessionEndReason = null;
+      state.lastRemoteEndedPeerLabel = null;
     },
   },
 });
@@ -114,6 +202,7 @@ export const {
   hangupCall,
   toggleCallMic,
   toggleCallVideo,
+  clearCallSessionEndReason,
 } = callSlice.actions;
 
 export const { reducer: callReducer } = callSlice;

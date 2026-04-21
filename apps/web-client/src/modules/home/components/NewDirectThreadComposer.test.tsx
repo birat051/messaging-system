@@ -86,6 +86,6 @@ describe('NewDirectThreadComposer', () => {
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(/guests can only message other guests/i);
     const registerLink = screen.getByRole('link', { name: /^register$/i });
-    expect(registerLink).toHaveAttribute('href', '/register');
+    expect(registerLink).toHaveAttribute('href', '/register?from=guest');
   });
 });

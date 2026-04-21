@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import { renderWithProviders } from '@/common/test-utils';
+import { PEER_DECRYPT_NO_DEVICE_KEY_ENTRY } from '@/modules/home/utils/peerDecryptInline';
 import { ThreadMessageList } from './ThreadMessageList';
 
 const T0 = '2026-04-12T10:00:00.000Z';
@@ -70,7 +71,7 @@ describe('ThreadMessageList', () => {
     expect(times[1]).toHaveAttribute('dateTime', T1);
   });
 
-  it('shows own row as resolved plaintext, not E2EE wire (shape after send ack + resolveMessageDisplayBody)', () => {
+  it('shows own row as resolved plaintext after send ack (resolveMessageDisplayBody)', () => {
     const resolvedPlain = 'Hello after simulated ack';
     renderWithProviders(
       <ThreadMessageList
@@ -87,7 +88,49 @@ describe('ThreadMessageList', () => {
 
     const log = screen.getByRole('log', { name: /conversation messages/i });
     expect(within(log).getByText(resolvedPlain)).toBeInTheDocument();
-    expect(document.body.textContent).not.toMatch(/E2EE_JSON_V1/);
+  });
+
+  it('styles peer decrypt inline errors as alerts', () => {
+    renderWithProviders(
+      <ThreadMessageList
+        messages={[
+          {
+            id: 'e1',
+            body: "Can't decrypt on this device.",
+            bodyPresentation: 'decrypt_error',
+            isOwn: false,
+            createdAt: T0,
+          },
+        ]}
+      />,
+    );
+
+    const log = screen.getByRole('log', { name: /conversation messages/i });
+    const alert = within(log).getByRole('alert');
+    expect(alert).toHaveTextContent(/can't decrypt on this device/i);
+    expect(alert.className).toMatch(/text-destructive/);
+    expect(alert.className).toMatch(/italic/);
+  });
+
+  it('uses PEER_DECRYPT_NO_DEVICE_KEY_ENTRY for decrypt_error (missing encryptedMessageKeys[myDeviceId] path)', () => {
+    renderWithProviders(
+      <ThreadMessageList
+        messages={[
+          {
+            id: 'e2',
+            body: PEER_DECRYPT_NO_DEVICE_KEY_ENTRY,
+            bodyPresentation: 'decrypt_error',
+            isOwn: false,
+            createdAt: T0,
+          },
+        ]}
+      />,
+    );
+
+    const log = screen.getByRole('log', { name: /conversation messages/i });
+    expect(
+      within(log).getByRole('alert'),
+    ).toHaveTextContent(PEER_DECRYPT_NO_DEVICE_KEY_ENTRY);
   });
 
   it('renders message bodies and distinguishes own vs peer for assistive tech', () => {
@@ -131,6 +174,63 @@ describe('ThreadMessageList', () => {
       );
 
       expect(screen.getByText('Attachment')).toBeInTheDocument();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('renders an image for image attachments when mediaPreviewUrl supplies a display URL (not the Attachment placeholder)', () => {
+    vi.stubEnv('VITE_S3_PUBLIC_BASE_URL', '');
+    vi.stubEnv('VITE_S3_BUCKET', '');
+    try {
+      renderWithProviders(
+        <ThreadMessageList
+          messages={[
+            {
+              id: 'm-img',
+              body: '',
+              mediaKey: 'users/u1/photo.png',
+              mediaPreviewUrl: 'blob:http://localhost/preview-1',
+              isOwn: true,
+              createdAt: T0,
+            },
+          ]}
+        />,
+      );
+
+      const log = screen.getByRole('log', { name: /conversation messages/i });
+      const img = within(log).getByRole('img', {
+        name: /image attachment you sent/i,
+      });
+      expect(img).toHaveAttribute('src', 'blob:http://localhost/preview-1');
+      expect(within(log).queryByText(/^Attachment$/)).not.toBeInTheDocument();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('renders Open attachment link for non-image mediaKey when public object URL is configured', () => {
+    vi.stubEnv('VITE_S3_PUBLIC_BASE_URL', 'http://localhost:9000');
+    vi.stubEnv('VITE_S3_BUCKET', 'messaging-media');
+    try {
+      renderWithProviders(
+        <ThreadMessageList
+          messages={[
+            {
+              id: 'm-pdf',
+              body: '',
+              mediaKey: 'users/u1/doc.pdf',
+              isOwn: false,
+              createdAt: T0,
+            },
+          ]}
+        />,
+      );
+
+      const log = screen.getByRole('log', { name: /conversation messages/i });
+      const link = within(log).getByRole('link', { name: /open attachment/i });
+      expect(link.getAttribute('href')).toContain('doc.pdf');
+      expect(within(log).queryByText(/^Attachment$/)).not.toBeInTheDocument();
     } finally {
       vi.unstubAllEnvs();
     }

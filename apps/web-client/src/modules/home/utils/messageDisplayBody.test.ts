@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { E2EE_BODY_PREFIX } from '@/common/crypto/messageEcies';
+import {
+  isMessageWireE2ee,
+  MESSAGE_HYBRID_ALGORITHM,
+} from '@/common/crypto/messageHybrid';
+import {
+  PEER_DECRYPT_INLINE_UNAVAILABLE,
+  PEER_DECRYPT_NO_DEVICE_KEY_ENTRY,
+} from '@/modules/home/utils/peerDecryptInline';
 import { resolveMessageDisplayBody } from './messageDisplayBody';
 import type { Message } from '@/modules/home/stores/messagingSlice';
 
@@ -22,19 +29,24 @@ describe('resolveMessageDisplayBody', () => {
     ).toBe('hello');
   });
 
-  it('uses sender plaintext overlay for own E2EE bodies', () => {
-    const wire = `${E2EE_BODY_PREFIX}{"v":1,"alg":"ecies-p256-hkdf-aes256gcm","ephPubSpkiB64":"eA","hkdfSaltB64":"cw","ivB64":"aXY","ciphertextB64":"Y3Q"}`;
-    const m = msg({ id: 'm1', body: wire });
+  const hybridWire = {
+    body: 'Ym9keQ==',
+    iv: 'aXZpdjEyNDU2Nzg5',
+    algorithm: MESSAGE_HYBRID_ALGORITHM,
+    encryptedMessageKeys: { dev1: '{}' },
+  };
+
+  it('uses sender plaintext overlay for own hybrid bodies', () => {
+    const m = msg({ id: 'm1', ...hybridWire });
     expect(
       resolveMessageDisplayBody(m, true, { m1: 'Hi' }, {}),
     ).toBe('Hi');
   });
 
-  it('uses senderPlaintextByMessageId for own E2EE when keyed by server message id (wire body unchanged)', () => {
-    const wire = `${E2EE_BODY_PREFIX}{"v":1,"alg":"ecies-p256-hkdf-aes256gcm","ephPubSpkiB64":"eA","hkdfSaltB64":"cw","ivB64":"aXY","ciphertextB64":"Y3Q"}`;
+  it('uses senderPlaintextByMessageId for own hybrid when keyed by server message id (wire body unchanged)', () => {
     const m = msg({
       id: 'msg-persisted-abc',
-      body: wire,
+      ...hybridWire,
     });
     const plain = 'Typed before send; same id after message:send ack';
     expect(
@@ -42,23 +54,78 @@ describe('resolveMessageDisplayBody', () => {
     ).toBe(plain);
   });
 
-  it('for own E2EE shows ellipsis when sender plaintext map is empty (never wire from MongoDB)', () => {
-    const wire = `${E2EE_BODY_PREFIX}{"v":1,"alg":"ecies-p256-hkdf-aes256gcm","ephPubSpkiB64":"eA","hkdfSaltB64":"cw","ivB64":"aXY","ciphertextB64":"Y3Q"}`;
-    const m = msg({ id: 'm1', body: wire });
+  it('for own hybrid shows ellipsis when sender plaintext map is empty (never wire from MongoDB)', () => {
+    const m = msg({ id: 'm1', ...hybridWire });
     expect(resolveMessageDisplayBody(m, true, {}, {})).toBe('\u2026');
   });
 
-  it('uses decrypted map for peer E2EE bodies', () => {
-    const wire = `${E2EE_BODY_PREFIX}{"v":1,"alg":"ecies-p256-hkdf-aes256gcm","ephPubSpkiB64":"eA","hkdfSaltB64":"cw","ivB64":"aXY","ciphertextB64":"Y3Q"}`;
-    const m = msg({ id: 'm1', body: wire });
+  it('uses decrypted map for peer hybrid bodies', () => {
+    const m = msg({ id: 'm1', ...hybridWire });
     expect(
       resolveMessageDisplayBody(m, false, {}, { m1: 'Peer hi' }),
     ).toBe('Peer hi');
   });
 
-  it('shows ellipsis while peer E2EE decrypt is pending', () => {
-    const wire = `${E2EE_BODY_PREFIX}{"v":1,"alg":"ecies-p256-hkdf-aes256gcm","ephPubSpkiB64":"eA","hkdfSaltB64":"cw","ivB64":"aXY","ciphertextB64":"Y3Q"}`;
-    const m = msg({ id: 'm1', body: wire });
+  it('shows ellipsis while peer hybrid decrypt is pending', () => {
+    const m = msg({ id: 'm1', ...hybridWire });
     expect(resolveMessageDisplayBody(m, false, {}, {})).toBe('\u2026');
+  });
+
+  it('treats hybrid E2EE (body + iv + map + algorithm) as ciphertext until overlay', () => {
+    const m = msg({
+      id: 'm1',
+      body: 'Ym9keQ==',
+      iv: 'aXZpdjEyNDU2Nzg5',
+      algorithm: MESSAGE_HYBRID_ALGORITHM,
+      encryptedMessageKeys: { dev1: '{}' },
+    });
+    expect(resolveMessageDisplayBody(m, false, {}, {})).toBe('\u2026');
+    expect(
+      resolveMessageDisplayBody(m, false, {}, { m1: 'Decrypted' }),
+    ).toBe('Decrypted');
+  });
+
+  it('shows peer decrypt inline copy when decrypt overlay is missing wrapped key for myDeviceId (usePeerMessageDecryption)', () => {
+    const m = msg({
+      id: 'm1',
+      body: 'Ym9keQ==',
+      iv: 'aXZpdjEyNDU2Nzg5',
+      algorithm: MESSAGE_HYBRID_ALGORITHM,
+      encryptedMessageKeys: { 'other-device': '{}' },
+    });
+    expect(
+      resolveMessageDisplayBody(m, false, {}, { m1: PEER_DECRYPT_NO_DEVICE_KEY_ENTRY }),
+    ).toBe(PEER_DECRYPT_NO_DEVICE_KEY_ENTRY);
+    expect(PEER_DECRYPT_NO_DEVICE_KEY_ENTRY).toBe(PEER_DECRYPT_INLINE_UNAVAILABLE);
+  });
+
+  it('Feature 11 (B): peer bubble shows unavailable copy, not raw base64, when not wire-classified', () => {
+    const raw = 'aCbkLLXatRIo1p/5ZKMu4Fe0';
+    const m = msg({ id: 'm1', body: raw });
+    expect(isMessageWireE2ee(m)).toBe(false);
+    expect(resolveMessageDisplayBody(m, false, {}, {})).toBe(
+      PEER_DECRYPT_INLINE_UNAVAILABLE,
+    );
+  });
+
+  it('Feature 11 (B): own row shows ellipsis for unclassified opaque body (never ciphertext)', () => {
+    const raw = 'aCbkLLXatRIo1p/5ZKMu4Fe0';
+    const m = msg({ id: 'm1', body: raw });
+    expect(resolveMessageDisplayBody(m, true, {}, {})).toBe('\u2026');
+  });
+
+  it('incomplete hybrid (empty encryptedMessageKeys): peer sees Feature 11 (B) copy, not raw body', () => {
+    const opaqueBody = 'Ym9keVNhbXBsZUJpZ0Jhc2U2NA==';
+    const m = msg({
+      id: 'm1',
+      body: opaqueBody,
+      iv: 'aXZpdjEyNDU2Nzg5',
+      algorithm: MESSAGE_HYBRID_ALGORITHM,
+      encryptedMessageKeys: {},
+    });
+    expect(isMessageWireE2ee(m)).toBe(false);
+    expect(resolveMessageDisplayBody(m, false, {}, {})).toBe(
+      PEER_DECRYPT_INLINE_UNAVAILABLE,
+    );
   });
 });

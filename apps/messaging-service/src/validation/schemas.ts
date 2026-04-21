@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { DEFAULT_USER_SEARCH_MIN_QUERY_LENGTH } from '../config/userSearchPolicy.js';
-import { limitQuerySchema } from './limitQuery.js';
+import { limitQuerySchema, resolveListLimit } from './limitQuery.js';
 import { parseP256SpkiPublicKeyOrThrow } from './publicKeyP256.js';
 
 /** MIME allowlist for `POST /v1/media/upload` — keep in sync with OpenAPI description and `routes/media.ts`. */
@@ -35,6 +35,21 @@ export const registerUsernameSchema = z
       ),
   );
 
+/** Wire id for **`user_device_public_keys`** rows (UUID, **`default`**, etc.). */
+export const registeredDeviceIdStringSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(128)
+  .regex(
+    /^[A-Za-z0-9_-]+$/,
+    'must contain only letters, digits, underscore, or hyphen',
+  );
+
+/** Optional **`sourceDeviceId`** on auth requests — embedded in access JWT when valid. */
+export const sourceDeviceIdRequestFieldSchema =
+  registeredDeviceIdStringSchema.optional();
+
 /** `components/schemas/RegisterRequest` */
 export const registerRequestSchema = z.object({
   email: z.string().email(),
@@ -43,6 +58,7 @@ export const registerRequestSchema = z.object({
   displayName: z.string().trim().min(1).max(200),
   profilePicture: z.union([z.string().url(), z.null()]).optional(),
   status: z.union([z.string().max(280), z.null()]).optional(),
+  sourceDeviceId: sourceDeviceIdRequestFieldSchema,
 });
 
 export type RegisterRequest = z.infer<typeof registerRequestSchema>;
@@ -54,6 +70,7 @@ export type RegisterRequest = z.infer<typeof registerRequestSchema>;
 export const guestRequestSchema = z.object({
   username: registerUsernameSchema,
   displayName: z.string().trim().min(1).max(200).optional(),
+  sourceDeviceId: sourceDeviceIdRequestFieldSchema,
 });
 
 export type GuestRequest = z.infer<typeof guestRequestSchema>;
@@ -89,11 +106,13 @@ export type GuestAuthResponse = z.infer<typeof guestAuthResponseSchema>;
 export const loginRequestSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+  sourceDeviceId: sourceDeviceIdRequestFieldSchema,
 });
 
 /** `components/schemas/RefreshRequest` */
 export const refreshRequestSchema = z.object({
   refreshToken: z.string().min(1),
+  sourceDeviceId: sourceDeviceIdRequestFieldSchema,
 });
 
 /** `POST /auth/logout` */
@@ -132,6 +151,12 @@ export const sendMessageRequestSchema = z
     recipientUserId: z.union([z.string().min(1), z.null()]).optional(),
     body: z.string().optional(),
     mediaKey: z.union([z.string().min(1), z.null()]).optional(),
+    /** Per-device wrapped symmetric keys — opaque to the server (`Message.encryptedMessageKeys`). */
+    encryptedMessageKeys: z.record(z.string(), z.string()).optional(),
+    /** AES-GCM IV for E2EE payload — opaque to the server. */
+    iv: z.union([z.string(), z.null()]).optional(),
+    /** Client algorithm tag (e.g. hybrid E2EE) — opaque to the server. */
+    algorithm: z.union([z.string().max(256), z.null()]).optional(),
   })
   .superRefine((data, ctx) => {
     const conv =
@@ -176,6 +201,34 @@ export const sendMessageRequestSchema = z
         message: 'Provide body text and/or mediaKey',
         path: ['body'],
       });
+    }
+
+    const emk = data.encryptedMessageKeys;
+    if (
+      emk &&
+      typeof emk === 'object' &&
+      Object.keys(emk as Record<string, string>).length > 0
+    ) {
+      const ivOk =
+        data.iv != null && String(data.iv).trim().length > 0;
+      const algOk =
+        data.algorithm != null && String(data.algorithm).trim().length > 0;
+      if (!ivOk) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            'iv is required when encryptedMessageKeys contains one or more entries',
+          path: ['iv'],
+        });
+      }
+      if (!algOk) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            'algorithm is required when encryptedMessageKeys contains one or more entries',
+          path: ['algorithm'],
+        });
+      }
     }
   });
 
@@ -274,18 +327,94 @@ export const publicKeySpkiP256Schema = z
     }
   });
 
-/** `components/schemas/PutPublicKeyRequest` — **`.strict()`** rejects unknown keys (e.g. `privateKey`). */
-export const putPublicKeyRequestSchema = z
+/**
+ * `components/schemas/RegisterDeviceRequest` — **`POST /users/me/devices`** (bootstrap + full).
+ * Send **`publicKey`** or **`pubKey`** (same SPKI Base64). **`bootstrap: true`** → **201** `{ deviceId }` only.
+ */
+export const registerDeviceRequestSchema = z
   .object({
-    publicKey: publicKeySpkiP256Schema,
-    keyVersion: z.number().int().min(1).optional(),
+    publicKey: publicKeySpkiP256Schema.optional(),
+    /** Alias for **`publicKey`** (Feature 13 bootstrap naming). */
+    pubKey: publicKeySpkiP256Schema.optional(),
+    /** Client-generated id for idempotent re-registration of the same physical device. */
+    deviceId: z.string().trim().min(1).max(128).optional(),
+    /** Optional UX label (e.g. browser / machine). */
+    deviceLabel: z.string().max(200).optional(),
+    /** When **true**, response is **201** with **`RegisterDeviceBootstrapResponse`** (`deviceId` only). */
+    bootstrap: z.boolean().optional(),
+  })
+  .strict()
+  .superRefine((val, ctx) => {
+    if (val.publicKey === undefined && val.pubKey === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Provide publicKey or pubKey (SPKI Base64 P-256)',
+        path: ['publicKey'],
+      });
+    }
+    if (
+      val.publicKey !== undefined &&
+      val.pubKey !== undefined &&
+      val.publicKey !== val.pubKey
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'publicKey and pubKey must match when both are sent',
+        path: ['pubKey'],
+      });
+    }
+  })
+  .transform((val) => ({
+    publicKey: val.publicKey ?? val.pubKey!,
+    deviceId: val.deviceId,
+    deviceLabel: val.deviceLabel,
+    bootstrap: val.bootstrap === true,
+  }));
+
+/** Path: `components/parameters/DeviceIdPath` — same charset as **`registeredDeviceIdStringSchema`** (wire device ids). */
+export const deviceIdPathSchema = z.object({
+  deviceId: registeredDeviceIdStringSchema,
+});
+
+/**
+ * Query for **`GET /users/me/devices`** — no parameters. **`.strict()`** rejects unknown query keys.
+ * (OpenAPI documents an empty query map for this operation.)
+ */
+export const listMyDevicesQuerySchema = z.object({}).strict();
+
+/**
+ * Query for **`GET /users/me/sync/message-keys`** — **`deviceId`** must be a row in **`user_device_public_keys`**
+ * for the authenticated user. **`afterMessageId`** is an exclusive cursor (**`(createdAt asc, id asc)`**).
+ */
+export const listSyncMessageKeysQuerySchema = z
+  .object({
+    deviceId: registeredDeviceIdStringSchema,
+    afterMessageId: z.string().trim().min(1).max(200).optional(),
+    limit: limitQuerySchema,
+  })
+  .strict()
+  .transform((v) => ({
+    deviceId: v.deviceId,
+    afterMessageId:
+      v.afterMessageId !== undefined && v.afterMessageId.length > 0
+        ? v.afterMessageId
+        : undefined,
+    limit: resolveListLimit(v.limit),
+  }));
+
+/** Matches **`components/schemas/SyncMessageKeyEntry`** — one row in **`BatchKeyUploadRequest.keys`**. */
+export const batchSyncMessageKeyItemSchema = z
+  .object({
+    messageId: z.string().trim().min(1).max(200),
+    encryptedMessageKey: z.string().min(1).max(131072),
   })
   .strict();
 
-/** `components/schemas/RotatePublicKeyRequest` — **`.strict()`** rejects unknown keys (e.g. `privateKey`). */
-export const rotatePublicKeyRequestSchema = z
+/** `components/schemas/BatchKeyUploadRequest` — **`POST /users/me/sync/message-keys`**. */
+export const batchSyncMessageKeysRequestSchema = z
   .object({
-    publicKey: publicKeySpkiP256Schema,
+    targetDeviceId: registeredDeviceIdStringSchema,
+    keys: z.array(batchSyncMessageKeyItemSchema).min(1).max(200),
   })
   .strict();
 
@@ -343,5 +472,7 @@ export type SendMessageRequest = z.infer<typeof sendMessageRequestSchema>;
 export type CreateGroupRequest = z.infer<typeof createGroupRequestSchema>;
 export type SearchUsersQuery = z.infer<typeof searchUsersQuerySchema>;
 export type PaginationQuery = z.infer<typeof paginationQuerySchema>;
-export type PutPublicKeyRequest = z.infer<typeof putPublicKeyRequestSchema>;
-export type RotatePublicKeyRequest = z.infer<typeof rotatePublicKeyRequestSchema>;
+export type RegisterDeviceRequest = z.infer<typeof registerDeviceRequestSchema>;
+export type BatchKeyUploadRequest = z.infer<
+  typeof batchSyncMessageKeysRequestSchema
+>;

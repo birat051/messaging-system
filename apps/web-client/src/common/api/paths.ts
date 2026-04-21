@@ -18,11 +18,13 @@ export const API_PATHS = {
   },
   users: {
     me: '/users/me',
-    mePublicKey: '/users/me/public-key',
-    mePublicKeyRotate: '/users/me/public-key/rotate',
+    meDevices: '/users/me/devices',
+    meDeviceById: (deviceId: string) =>
+      `/users/me/devices/${encodeURIComponent(deviceId)}`,
+    meSyncMessageKeys: '/users/me/sync/message-keys',
     byId: (userId: string) => `/users/${encodeURIComponent(userId)}`,
-    publicKeyById: (userId: string) =>
-      `/users/${encodeURIComponent(userId)}/public-key`,
+    devicePublicKeysByUserId: (userId: string) =>
+      `/users/${encodeURIComponent(userId)}/devices/public-keys`,
     search: '/users/search',
   },
   conversations: {

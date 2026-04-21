@@ -20,7 +20,19 @@ export type ReceiptEmitPayload = {
 export type WebRtcSignalingEmitEvent =
   | 'webrtc:offer'
   | 'webrtc:answer'
-  | 'webrtc:candidate';
+  | 'webrtc:candidate'
+  | 'webrtc:hangup';
+
+/** Server **`device:sync_requested`** emit (new **`(userId, deviceId)`** row on **`POST /users/me/devices`**). */
+export type DeviceSyncRequestedPayload = {
+  newDeviceId: string;
+  newDevicePublicKey: string;
+};
+
+/** Server **`device:sync_complete`** emit (after **`POST /users/me/sync/message-keys`** applied keys for **`targetDeviceId`**). */
+export type DeviceSyncCompletePayload = {
+  targetDeviceId: string;
+};
 
 /** Messages from the socket Web Worker → main thread */
 export type WorkerToMainMessage =
@@ -34,6 +46,8 @@ export type WorkerToMainMessage =
   | { type: 'message_delivered'; payload: unknown }
   | { type: 'message_read'; payload: unknown }
   | { type: 'conversation_read'; payload: unknown }
+  | { type: 'device_sync_requested'; payload: DeviceSyncRequestedPayload }
+  | { type: 'device_sync_complete'; payload: DeviceSyncCompletePayload }
   | {
       type: 'message_send_ack';
       requestId: string;

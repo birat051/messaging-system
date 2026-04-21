@@ -1,5 +1,6 @@
 import type { Message } from '@/modules/home/stores/messagingSlice';
 import { resolveMessageDisplayBody } from './messageDisplayBody';
+import { neutralizeDecryptErrorForListPreview } from './peerDecryptInline';
 
 /**
  * **1–2 characters** for the conversation list avatar circle (no profile URL in **`GET /conversations`** yet).
@@ -43,7 +44,7 @@ export function lastMessagePreviewLine(
     senderPlaintextByMessageId,
     decryptedBodyByMessageId,
   );
-  const trimmed = display.trim();
+  const trimmed = neutralizeDecryptErrorForListPreview(display).trim();
   if (trimmed) {
     return trimmed;
   }

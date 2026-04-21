@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   isLikelyImageMediaKey,
   resolveMediaAttachmentDisplayUrl,
@@ -12,9 +12,32 @@ function attachmentAlt(isOwn: boolean): string {
 }
 
 /**
+ * External object storage (MinIO/S3) often works better without a cross-origin **`Referer`** (bucket policy).
+ * **`blob:`** / **`data:`** stay default.
+ */
+function imgReferrerPolicy(src: string): 'no-referrer' | undefined {
+  if (src.startsWith('blob:') || src.startsWith('data:')) {
+    return undefined;
+  }
+  if (typeof window === 'undefined' || !src.startsWith('http')) {
+    return undefined;
+  }
+  try {
+    return new URL(src).origin !== window.location.origin
+      ? 'no-referrer'
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Renders **`mediaKey`** as a **lazy-loaded** **`<img>`** when a URL is available (**`getMediaPublicObjectUrl`**
  * / **`MediaUploadResponse.url`** / blob preview) and the key looks like an image; optional **`<dialog>`** lightbox;
  * non-images become an **Open attachment** link. **No** AWS SDK in the browser.
+ *
+ * **Presigned URLs:** query strings include **`X-Amz-`**; we do **not** append cache-bust params on error (would
+ * break the signature). For path-style public URLs (no `?`), one **cache-bust** retry can recover from stale CDN edge.
  */
 export function ThreadMessageMedia({
   mediaKey,
@@ -24,10 +47,19 @@ export function ThreadMessageMedia({
   lightboxEnabled = true,
 }: ThreadMessageMediaProps) {
   const url = resolveMediaAttachmentDisplayUrl(mediaKey, previewUrlOverride);
+  const [displaySrc, setDisplaySrc] = useState(url);
   const [loaded, setLoaded] = useState(false);
   const [imgError, setImgError] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [retryDone, setRetryDone] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    setDisplaySrc(url);
+    setLoaded(false);
+    setImgError(false);
+    setRetryDone(false);
+  }, [url]);
 
   useLayoutEffect(() => {
     if (!lightboxEnabled || !lightboxOpen) {
@@ -50,6 +82,16 @@ export function ThreadMessageMedia({
     );
   }
 
+  function handleImageError() {
+    if (!retryDone && url && !url.includes('?')) {
+      setRetryDone(true);
+      setLoaded(false);
+      setDisplaySrc(`${url}?_ekko_cb=${Date.now()}`);
+      return;
+    }
+    setImgError(true);
+  }
+
   if (!isLikelyImageMediaKey(mediaKey)) {
     return (
       <p className="mt-1.5 min-w-0 text-sm break-words">
@@ -67,6 +109,7 @@ export function ThreadMessageMedia({
 
   const alt = attachmentAlt(isOwn);
   const loadingId = `thread-msg-media-loading-${messageId}`;
+  const refPolicy = imgReferrerPolicy(displaySrc);
 
   if (imgError) {
     return (
@@ -114,33 +157,31 @@ export function ThreadMessageMedia({
               }}
             >
               <img
-                src={url}
+                src={displaySrc}
                 alt={alt}
                 loading="lazy"
                 decoding="async"
+                referrerPolicy={refPolicy}
                 aria-describedby={!loaded ? loadingId : undefined}
                 onLoad={() => {
                   setLoaded(true);
                 }}
-                onError={() => {
-                  setImgError(true);
-                }}
+                onError={handleImageError}
                 className={`${thumbImgClassName} pointer-events-none`}
               />
             </button>
           ) : (
             <img
-              src={url}
+              src={displaySrc}
               alt={alt}
               loading="lazy"
               decoding="async"
+              referrerPolicy={refPolicy}
               aria-describedby={!loaded ? loadingId : undefined}
               onLoad={() => {
                 setLoaded(true);
               }}
-              onError={() => {
-                setImgError(true);
-              }}
+              onError={handleImageError}
               className={thumbImgClassName}
             />
           )}
@@ -180,10 +221,11 @@ export function ThreadMessageMedia({
             </div>
             <div className="bg-muted/20 relative min-h-0 min-w-0 flex-1 overflow-auto">
               <img
-                src={url}
+                src={displaySrc}
                 alt={alt}
                 loading="lazy"
                 decoding="async"
+                referrerPolicy={refPolicy}
                 className="mx-auto max-h-[min(85vh,100%)] w-auto max-w-full object-contain"
               />
             </div>

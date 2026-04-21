@@ -1,5 +1,7 @@
 # Run from repository root:
 #   docker compose -f infra/docker-compose.yml up -d
+# Build web-client static assets first (nginx serves apps/web-client/dist/):
+#   cd apps/web-client && npm ci && npm run build
 # API (via nginx): http://localhost:8080  —  Swagger: http://localhost:8080/api-docs
 # Direct app on host **3001** (not 3000) so local `npm run dev` can keep using 3000.
 # WebRTC STUN/TURN (coturn, optional profile **turn**):
@@ -127,6 +129,7 @@ services:
       - "8080:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../apps/web-client/dist:/usr/share/nginx/html:ro
     depends_on:
       messaging-service:
         condition: service_healthy

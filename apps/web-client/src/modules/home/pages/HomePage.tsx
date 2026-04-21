@@ -1,10 +1,14 @@
 import { Link, Navigate, useLocation } from 'react-router-dom';
+import { BrandedPageHeading } from '@/common/components/BrandedPageHeading';
+import { PRODUCT_DISPLAY_NAME } from '@/common/constants/product';
 import { ThemeToggle } from '../../../common/components/ThemeToggle';
 import { useAuth } from '../../../common/hooks/useAuth';
-import { ROUTES } from '../../../routes/paths';
+import { registerPathFromGuest, ROUTES } from '../../../routes/paths';
 import { ConnectionStatusIndicator } from '../components/ConnectionStatusIndicator';
 import { GuestSessionBanner } from '../components/GuestSessionBanner';
 import { HomeConversationShell } from '../components/HomeConversationShell';
+import { DeviceSyncApprovalBanner } from '../components/DeviceSyncApprovalBanner';
+import { NewDeviceSyncBanner } from '../components/NewDeviceSyncBanner';
 
 export function HomePage() {
   const { user, emailVerified } = useAuth();
@@ -28,14 +32,14 @@ export function HomePage() {
         <GuestSessionBanner />
         <header className="mb-6 flex shrink-0 flex-col gap-4 sm:mb-10 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-foreground text-xl font-semibold tracking-tight sm:text-2xl">
-              Messaging
-            </h1>
+            <BrandedPageHeading titleRowClassName="text-xl font-semibold tracking-tight sm:text-2xl">
+              {PRODUCT_DISPLAY_NAME}
+            </BrandedPageHeading>
             {user && (
               <p className="mt-2">
                 {user.guest ? (
                   <Link
-                    to={ROUTES.register}
+                    to={registerPathFromGuest()}
                     className="text-accent inline-flex min-h-11 items-center text-sm font-medium hover:underline"
                   >
                     Create account
@@ -56,6 +60,12 @@ export function HomePage() {
             <ThemeToggle />
           </div>
         </header>
+        {user ? (
+          <>
+            <DeviceSyncApprovalBanner />
+            <NewDeviceSyncBanner />
+          </>
+        ) : null}
         <main className="border-border bg-surface shadow-card flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-card border p-4 sm:p-6">
           {user ? <HomeConversationShell /> : null}
         </main>

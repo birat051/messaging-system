@@ -121,7 +121,7 @@ export function FollowUpThreadComposer({
             aria-busy={sending}
             aria-label={sending ? 'Sending message' : 'Send message'}
             title={sending ? 'Sending…' : 'Send message'}
-            className="bg-accent text-accent-foreground hover:bg-accent/90 focus:ring-accent/50 inline-flex min-h-11 min-w-11 shrink-0 touch-manipulation items-center justify-center rounded-md px-2.5 text-sm font-medium focus:ring-2 focus:outline-none disabled:opacity-60"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 focus:ring-accent/50 inline-flex min-h-11 min-w-11 shrink-0 touch-manipulation items-center justify-center rounded-md px-2.5 text-sm font-medium focus:ring-2 focus:outline-none disabled:opacity-60"
           >
             {sending ? (
               <span

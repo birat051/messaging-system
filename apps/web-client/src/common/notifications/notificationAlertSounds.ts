@@ -35,16 +35,22 @@ function scheduleTone(
   osc.stop(end + 0.02);
 }
 
-/** Short single tone for chat alerts. */
+/** Short, quiet single tone for chat alerts — keep much softer than **`playCallIncomingRing`**. */
 function playMessageAlert(ctx: AudioContext): void {
-  scheduleTone(ctx, ctx.currentTime, 920, 0.1, 0.09);
+  scheduleTone(ctx, ctx.currentTime, 920, 0.08, 0.07);
 }
 
-/** Two-pulse ring for incoming calls (distinct from **`playMessageAlert`**). */
+/**
+ * Loud multi-pulse “phone ring” for incoming calls — **longer** pulses and **~4× peak gain** vs **`playMessageAlert`**.
+ */
 function playCallIncomingRing(ctx: AudioContext): void {
   const t = ctx.currentTime;
-  scheduleTone(ctx, t, 480, 0.15, 0.11);
-  scheduleTone(ctx, t + 0.28, 480, 0.15, 0.11);
+  const peak = 0.28;
+  const pulseSec = 0.24;
+  const gapSec = 0.1;
+  scheduleTone(ctx, t, 440, pulseSec, peak);
+  scheduleTone(ctx, t + pulseSec + gapSec, 520, pulseSec, peak);
+  scheduleTone(ctx, t + 2 * (pulseSec + gapSec), 440, pulseSec, peak * 0.92);
 }
 
 /**

@@ -1,5 +1,5 @@
 /**
- * Persist **PKCS#8** private key material in **IndexedDB** only — **never** sent to the server.
+ * Persist **PKCS#8** private key material and the messaging **`deviceId`** in **IndexedDB** only — **never** sent to the server.
  *
  * **Default:** passphrase-wrapped using **PBKDF2-HMAC-SHA256** (OWASP-aligned iteration count) + **AES-256-GCM**
  * (`privateKeyWrap.ts`). **Option A** (see **`README.md`** / **`docs/PROJECT_PLAN.md` §14** §6.3): multiple
@@ -16,9 +16,16 @@ import {
 import { assertSecureContextForPrivateKeyOps } from './secureContext';
 
 const DB_NAME = 'messaging-client-crypto';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_LEGACY = 'privateKeyMaterial';
 const STORE_KEYRING = 'privateKeyKeyring';
+const STORE_DEVICE_IDENTITY = 'deviceIdentity';
+
+/**
+ * Synthetic **`deviceId`** for rows created via legacy **`PUT /users/me/public-key`** — matches
+ * **`DEFAULT_SINGLE_DEVICE_ID`** on the server (`user_device_public_keys`).
+ */
+export const DEFAULT_SINGLE_DEVICE_ID = 'default' as const;
 
 /** OWASP PBKDF2-HMAC-SHA256 guidance (2023): 310,000 iterations for general passwords. */
 export const PBKDF2_ITERATIONS_DEFAULT = 310_000;
@@ -57,6 +64,13 @@ export type KeyringPrivateKeyRow = {
   updatedAt: string;
 };
 
+export type DeviceIdentityRow = {
+  userId: string;
+  /** Opaque id from **`POST /users/me/devices`** (UUID) or **`DEFAULT_SINGLE_DEVICE_ID`** for legacy keys. */
+  deviceId: string;
+  updatedAt: string;
+};
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -75,6 +89,9 @@ function openDb(): Promise<IDBDatabase> {
         db.createObjectStore(STORE_KEYRING, {
           keyPath: ['userId', 'keyVersion'],
         });
+      }
+      if (!db.objectStoreNames.contains(STORE_DEVICE_IDENTITY)) {
+        db.createObjectStore(STORE_DEVICE_IDENTITY, { keyPath: 'userId' });
       }
     };
   });
@@ -103,6 +120,42 @@ function runTx<T>(
         };
       }),
   );
+}
+
+/**
+ * Stable **`deviceId`** for this browser profile — persisted next to the keyring (see **`docs/PROJECT_PLAN.md` §7.1**).
+ */
+export async function getStoredDeviceId(userId: string): Promise<string | null> {
+  assertSecureContextForPrivateKeyOps();
+  const row = await runTx<DeviceIdentityRow | undefined>(
+    STORE_DEVICE_IDENTITY,
+    'readonly',
+    (store) => store.get(userId),
+  );
+  const id = row?.deviceId?.trim();
+  return id && id.length > 0 ? id : null;
+}
+
+export async function setStoredDeviceId(
+  userId: string,
+  deviceId: string,
+): Promise<void> {
+  assertSecureContextForPrivateKeyOps();
+  const trimmed = deviceId.trim();
+  if (trimmed.length === 0) {
+    throw new Error('deviceId must not be empty');
+  }
+  const row: DeviceIdentityRow = {
+    userId,
+    deviceId: trimmed,
+    updatedAt: new Date().toISOString(),
+  };
+  await runTx(STORE_DEVICE_IDENTITY, 'readwrite', (store) => store.put(row));
+}
+
+export async function clearStoredDeviceId(userId: string): Promise<void> {
+  assertSecureContextForPrivateKeyOps();
+  await runTx(STORE_DEVICE_IDENTITY, 'readwrite', (store) => store.delete(userId));
 }
 
 function normalizePassphrase(passphrase: string): string {
@@ -427,6 +480,7 @@ async function deleteAllKeyringForUser(userId: string): Promise<void> {
 export async function deleteStoredPrivateKey(userId: string): Promise<void> {
   assertSecureContextForPrivateKeyOps();
   await deleteAllKeyringForUser(userId);
+  await clearStoredDeviceId(userId);
   await runTx(STORE_LEGACY, 'readwrite', (store) => store.delete(userId));
 }
 

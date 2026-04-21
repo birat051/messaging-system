@@ -4,6 +4,7 @@ import { connectionReducer } from '../modules/app/stores/connectionSlice';
 import { presenceReducer } from '../modules/app/stores/presenceSlice';
 import { authReducer } from '../modules/auth/stores/authSlice';
 import { cryptoReducer } from '../modules/crypto/stores/cryptoSlice';
+import { devicePublicKeysReducer } from '../modules/crypto/stores/devicePublicKeysSlice';
 import { notificationsReducer } from '../modules/app/stores/notificationsSlice';
 import { callReducer } from '../modules/home/stores/callSlice';
 import { messagingReducer } from '../modules/home/stores/messagingSlice';
@@ -16,6 +17,7 @@ export const store = configureStore({
     presence: presenceReducer,
     auth: authReducer,
     crypto: cryptoReducer,
+    devicePublicKeys: devicePublicKeysReducer,
     messaging: messagingReducer,
     call: callReducer,
     notifications: notificationsReducer,

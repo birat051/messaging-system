@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { Routes, Route } from 'react-router-dom';
 import { defaultMockUser } from '@/common/mocks/handlers';
 import { renderWithProviders } from '@/common/test-utils';
+import { ROUTES } from '@/routes/paths';
 import { SettingsPage } from './SettingsPage';
 
 describe('SettingsPage', () => {
@@ -23,6 +24,36 @@ describe('SettingsPage', () => {
     );
 
     expect(screen.getByText(/loading profile/i)).toBeInTheDocument();
+  });
+
+  it('links to privacy policy and terms with the same routes as auth footers', async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/settings" element={<SettingsPage />} />
+      </Routes>,
+      {
+        route: '/settings',
+        preloadedState: {
+          auth: { user: { ...defaultMockUser }, accessToken: 'test-token' },
+        },
+      },
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('textbox', { name: /display name/i }),
+      ).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('region', { name: /legal/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /privacy policy/i })).toHaveAttribute(
+      'href',
+      ROUTES.privacy,
+    );
+    expect(screen.getByRole('link', { name: /terms and conditions/i })).toHaveAttribute(
+      'href',
+      ROUTES.terms,
+    );
   });
 
   it('shows validation when submit is pressed with no changes', async () => {

@@ -96,6 +96,7 @@ describe('Guest sandbox integration (MSW + Redux)', () => {
     );
 
     await user.type(screen.getByLabelText(/^username/i), 'happy_guest');
+    await user.click(screen.getByRole('checkbox', { name: /i agree to the/i }));
     await user.click(screen.getByRole('button', { name: /start guest session/i }));
 
     await waitFor(() => {

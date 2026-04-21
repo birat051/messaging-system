@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
-import { UserSearchPanel } from './UserSearchPanel';
+import { UserSearchPanel, SEARCH_DEBOUNCE_MS } from './UserSearchPanel';
 import {
   renderWithProviders,
   type PreloadedRootState,
@@ -92,7 +92,7 @@ describe('UserSearchPanel', () => {
     const fullDirectoryLink = screen.getByRole('link', {
       name: /create an account/i,
     });
-    expect(fullDirectoryLink).toHaveAttribute('href', '/register');
+    expect(fullDirectoryLink).toHaveAttribute('href', '/register?from=guest');
   });
 
   it('guest search error: shows API message plus register hint for full directory', async () => {
@@ -122,7 +122,7 @@ describe('UserSearchPanel', () => {
     ).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /^register$/i })).toHaveAttribute(
       'href',
-      '/register',
+      '/register?from=guest',
     );
   });
 
@@ -158,5 +158,69 @@ describe('UserSearchPanel', () => {
       screen.getByRole('button', { name: /peer guest/i }),
     ).toBeInTheDocument();
     expect(screen.getByText('(Guest)')).toBeInTheDocument();
+  });
+});
+
+const registeredPreload: PreloadedRootState = {
+  auth: {
+    user: { ...defaultMockUser },
+    accessToken: 't',
+    accessTokenExpiresAt: null,
+  },
+};
+
+describe('UserSearchPanel — debounce', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('debounces search (no HTTP until debounce elapses)', async () => {
+    let requestCount = 0;
+    server.use(
+      http.get('*/v1/users/search', () => {
+        requestCount += 1;
+        return HttpResponse.json([]);
+      }),
+    );
+
+    const user = userEvent.setup({
+      advanceTimers: vi.advanceTimersByTime,
+    });
+
+    renderWithProviders(<UserSearchPanel />, {
+      preloadedState: registeredPreload,
+      route: '/',
+    });
+
+    const input = screen.getByRole('textbox', { name: /search users/i });
+    await user.type(input, 'abc');
+    expect(requestCount).toBe(0);
+
+    await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+    await waitFor(() => {
+      expect(requestCount).toBe(1);
+    });
+  });
+
+  it('registered user: empty state after search (inline)', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    server.use(http.get('*/v1/users/search', () => HttpResponse.json([])));
+
+    renderWithProviders(<UserSearchPanel />, {
+      preloadedState: registeredPreload,
+      route: '/',
+    });
+
+    const input = screen.getByRole('textbox', { name: /search users/i });
+    await user.type(input, 'xyz');
+    await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+
+    await waitFor(() => {
+      expect(screen.getByText(/no users match that search text/i)).toBeInTheDocument();
+    });
   });
 });

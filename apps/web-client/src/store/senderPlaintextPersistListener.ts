@@ -1,35 +1,40 @@
 import { createListenerMiddleware, isAnyOf } from '@reduxjs/toolkit';
 import * as senderPlaintextLocalStore from '@/common/senderPlaintext/senderPlaintextLocalStore';
-import type { Message } from '@/modules/home/stores/messagingSlice';
 import {
   appendIncomingMessageIfNew,
+  recordOwnSendPlaintext,
   replaceOptimisticMessage,
 } from '@/modules/home/stores/messagingSlice';
 import type { RootState } from './store';
 
 /**
  * Write-through: when send-ack reducers set **`senderPlaintextByMessageId[messageId]`**, mirror to IndexedDB.
- * Reducers stay pure; persistence runs in this listener (**`replaceOptimisticMessage`**, **`appendIncomingMessageIfNew`**).
+ * Reducers stay pure; persistence runs in this listener (**`replaceOptimisticMessage`**, **`appendIncomingMessageIfNew`**, **`recordOwnSendPlaintext`**).
  */
 export const senderPlaintextPersistListener = createListenerMiddleware();
 
 senderPlaintextPersistListener.startListening({
-  matcher: isAnyOf(replaceOptimisticMessage, appendIncomingMessageIfNew),
+  matcher: isAnyOf(
+    replaceOptimisticMessage,
+    appendIncomingMessageIfNew,
+    recordOwnSendPlaintext,
+  ),
   effect: async (action, listenerApi) => {
     const state = listenerApi.getState() as RootState;
     const userId = state.auth.user?.id?.trim() ?? '';
     if (!userId) {
       return;
     }
-    let message: Message;
-    if (replaceOptimisticMessage.match(action)) {
-      ({ message } = action.payload);
+    let messageId: string;
+    if (recordOwnSendPlaintext.match(action)) {
+      messageId = action.payload.messageId.trim();
+    } else if (replaceOptimisticMessage.match(action)) {
+      messageId = action.payload.message.id?.trim() ?? '';
     } else if (appendIncomingMessageIfNew.match(action)) {
-      ({ message } = action.payload);
+      messageId = action.payload.message.id?.trim() ?? '';
     } else {
       return;
     }
-    const messageId = message.id?.trim() ?? '';
     if (!messageId) {
       return;
     }

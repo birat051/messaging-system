@@ -13,6 +13,10 @@ export type CallVideoStageProps = {
   localHasVideo: boolean;
   /** Redux: user turned camera off (local UI even if track exists). */
   cameraOff: boolean;
+  /**
+   * **`default`** — main in-call stage. **`compact`** — small preview for minimized / floating call bar.
+   */
+  layout?: 'default' | 'compact';
 };
 
 /**
@@ -26,41 +30,89 @@ export function CallVideoStage({
   remoteHasVideo,
   localHasVideo,
   cameraOff,
+  layout = 'default',
 }: CallVideoStageProps) {
   const remoteLabel =
     remotePeerLabel.trim() || 'Remote participant';
   const showLocalPip = phase === 'active' || phase === 'outgoing_ring';
+  const isCompact = layout === 'compact';
+
+  const remoteShell = (
+    <div
+      className={
+        isCompact
+          ? 'relative aspect-video w-full max-h-[5.5rem] min-h-[4.5rem] overflow-hidden rounded-lg bg-black/20 sm:max-h-[6.25rem]'
+          : 'relative aspect-video w-full overflow-hidden rounded-lg bg-black/20 md:aspect-[21/9] md:max-h-[min(50vh,420px)]'
+      }
+    >
+      <video
+        ref={remoteVideoRef}
+        className="size-full object-cover"
+        playsInline
+        autoPlay
+        data-testid="call-video-remote"
+        aria-label={`${remoteLabel} video`}
+      />
+      {!remoteHasVideo ? (
+        <div
+          className="bg-muted/80 text-muted-foreground absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 px-2 text-center sm:gap-2 sm:text-sm"
+          aria-hidden={true}
+        >
+          <span
+            className={`text-foreground font-medium ${isCompact ? 'line-clamp-2 max-w-[8rem] text-xs' : 'max-w-[18rem]'}`}
+          >
+            {remoteLabel}
+          </span>
+          <span className={`${isCompact ? 'text-[10px]' : 'text-xs'}`}>
+            {phase === 'outgoing_ring' || phase === 'incoming_ring'
+              ? 'Connecting…'
+              : 'Camera off or audio only'}
+          </span>
+        </div>
+      ) : null}
+      {isCompact && showLocalPip ? (
+        <div className="border-border bg-muted/50 absolute bottom-1 right-1 z-20 aspect-video w-[28%] min-w-[3rem] max-w-[4.5rem] overflow-hidden rounded border shadow-md">
+          <video
+            ref={localVideoRef}
+            className="size-full object-cover"
+            playsInline
+            autoPlay
+            muted
+            data-testid="call-video-local"
+            aria-label="Your video"
+          />
+          {cameraOff || !localHasVideo ? (
+            <div
+              className="bg-muted/90 text-muted-foreground absolute inset-0 z-10 flex items-center justify-center px-0.5 text-center text-[9px]"
+              aria-hidden={true}
+            >
+              You
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+
+  if (isCompact) {
+    return (
+      <div
+        className="pointer-events-auto w-full max-w-[13.5rem] shrink-0 sm:max-w-[15rem]"
+        data-testid="call-video-stage"
+        data-layout="compact"
+      >
+        {remoteShell}
+      </div>
+    );
+  }
 
   return (
     <div
-      className="border-border bg-background/85 supports-[backdrop-filter]:bg-background/75 pointer-events-auto relative w-full max-w-4xl flex-col gap-2 rounded-xl border px-2 pb-2 pt-2 shadow-lg backdrop-blur-md sm:px-3 sm:pb-3 sm:pt-3"
+      className="border-border bg-background/85 supports-[backdrop-filter]:bg-background/75 pointer-events-auto relative flex w-full max-w-4xl flex-col gap-2 rounded-xl border px-2 pb-2 pt-2 shadow-lg backdrop-blur-md sm:px-3 sm:pb-3 sm:pt-3"
       data-testid="call-video-stage"
+      data-layout="default"
     >
-      <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-black/20 md:aspect-[21/9] md:max-h-[min(50vh,420px)]">
-        <video
-          ref={remoteVideoRef}
-          className="size-full object-cover"
-          playsInline
-          autoPlay
-          data-testid="call-video-remote"
-          aria-label={`${remoteLabel} video`}
-        />
-        {!remoteHasVideo ? (
-          <div
-            className="bg-muted/80 text-muted-foreground absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 px-4 text-center text-sm"
-            aria-hidden={true}
-          >
-            <span className="text-foreground max-w-[18rem] font-medium">
-              {remoteLabel}
-            </span>
-            <span className="text-xs">
-              {phase === 'outgoing_ring' || phase === 'incoming_ring'
-                ? 'Connecting…'
-                : 'Camera off or audio only'}
-            </span>
-          </div>
-        ) : null}
-      </div>
+      {remoteShell}
 
       {showLocalPip ? (
         <div className="flex justify-end">

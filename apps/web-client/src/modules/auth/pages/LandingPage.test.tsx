@@ -6,6 +6,19 @@ import { ROUTES } from '@/routes/paths';
 import { LandingPage } from './LandingPage';
 
 describe('LandingPage', () => {
+  it('renders the product title as the primary heading', () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+      </Routes>,
+      { route: '/' },
+    );
+
+    expect(
+      screen.getByRole('heading', { level: 1, name: /ekko/i }),
+    ).toBeInTheDocument();
+  });
+
   it('renders a primary Continue as guest control linking to the guest route', () => {
     renderWithProviders(
       <Routes>

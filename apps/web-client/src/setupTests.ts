@@ -5,6 +5,13 @@ import { afterAll, afterEach, beforeAll } from 'vitest';
 import { server } from './common/mocks/server';
 
 /**
+ * **Identity in tests:** do not use **`VITE_*`** env vars to inject user ids or tokens (**`docs/PROJECT_PLAN.md` §14**).
+ * Use **MSW** handlers, **Redux `preloadedState`**, and HTTP **401** plus session mocks instead. Enforced by
+ * **`src/common/test-utils/viteEnvSecurityPolicy.test.ts`** (allowlisted **vi.stubEnv** calls with specific **VITE_** keys only — for
+ * non-identity config such as **`VITE_S3_*`**, **`VITE_API_BASE_URL`**, WebRTC ICE envs).
+ */
+
+/**
  * jsdom may expose **`crypto.subtle`** as a stub; **`if (!subtle)`** then never replaces it and
  * PBKDF2/AES-GCM round-trips fail. Always use Node’s **`webcrypto`** in tests.
  */

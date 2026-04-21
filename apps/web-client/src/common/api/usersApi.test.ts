@@ -3,16 +3,16 @@ import { API_PATHS } from './paths';
 
 const get = vi.fn();
 const patch = vi.fn();
-const put = vi.fn();
 const post = vi.fn();
+const del = vi.fn();
 
 vi.mock('./httpClient', () => ({
   httpClient: {
     get: (...args: unknown[]) => get(...args),
     patch: (...args: unknown[]) => patch(...args),
-    put: (...args: unknown[]) => put(...args),
+    put: vi.fn(),
     post: (...args: unknown[]) => post(...args),
-    delete: vi.fn(),
+    delete: (...args: unknown[]) => del(...args),
     defaults: { headers: {} },
     interceptors: {
       request: { use: vi.fn(), eject: vi.fn() },
@@ -22,10 +22,10 @@ vi.mock('./httpClient', () => ({
 }));
 
 import {
+  deleteMyDevice,
   getCurrentUser,
-  getUserPublicKeyById,
-  putMyPublicKey,
-  rotateMyPublicKey,
+  listUserDevicePublicKeys,
+  registerMyDevice,
   searchUsers,
   updateCurrentUserProfile,
 } from './usersApi';
@@ -35,20 +35,27 @@ describe('usersApi (vi.mock httpClient)', () => {
     vi.clearAllMocks();
   });
 
-  it('GET public key by user id uses API_PATHS.users.publicKeyById', async () => {
+  it('GET device public keys uses API_PATHS.users.devicePublicKeysByUserId', async () => {
     get.mockResolvedValue({
       data: {
-        userId: 'peer-1',
-        publicKey: 'cGJr',
-        keyVersion: 1,
-        updatedAt: '2026-01-01T00:00:00.000Z',
+        items: [
+          {
+            deviceId: 'd1',
+            publicKey: 'cGJr',
+            keyVersion: 1,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        ],
       },
     });
 
-    await getUserPublicKeyById('peer-1');
+    await listUserDevicePublicKeys('peer-1');
 
     expect(get).toHaveBeenCalledTimes(1);
-    expect(get).toHaveBeenCalledWith(API_PATHS.users.publicKeyById('peer-1'));
+    expect(get).toHaveBeenCalledWith(
+      API_PATHS.users.devicePublicKeysByUserId('peer-1'),
+    );
   });
 
   it('GET /users/search passes q query and optional limit', async () => {
@@ -102,40 +109,30 @@ describe('usersApi (vi.mock httpClient)', () => {
     );
   });
 
-  it('PUT public key uses API_PATHS.users.mePublicKey', async () => {
-    put.mockResolvedValue({
+  it('DELETE device uses API_PATHS.users.meDeviceById', async () => {
+    del.mockResolvedValue({ data: undefined, status: 204 });
+
+    await deleteMyDevice('dev-abc');
+
+    expect(del).toHaveBeenCalledTimes(1);
+    expect(del).toHaveBeenCalledWith(API_PATHS.users.meDeviceById('dev-abc'));
+  });
+
+  it('POST register device uses API_PATHS.users.meDevices', async () => {
+    post.mockResolvedValue({
       data: {
-        userId: 'u1',
+        deviceId: 'dev-1',
         publicKey: 'cGJr',
         keyVersion: 1,
+        createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z',
       },
     });
 
-    const body = { publicKey: 'cGJr', keyVersion: 1 };
-    await putMyPublicKey(body);
-
-    expect(put).toHaveBeenCalledTimes(1);
-    expect(put).toHaveBeenCalledWith(API_PATHS.users.mePublicKey, body);
-  });
-
-  it('POST rotate public key uses API_PATHS.users.mePublicKeyRotate', async () => {
-    post.mockResolvedValue({
-      data: {
-        userId: 'u1',
-        publicKey: 'cGsy',
-        keyVersion: 2,
-        updatedAt: '2026-01-02T00:00:00.000Z',
-      },
-    });
-
-    const body = { publicKey: 'cGsy' };
-    await rotateMyPublicKey(body);
+    const body = { publicKey: 'cGJr' };
+    await registerMyDevice(body);
 
     expect(post).toHaveBeenCalledTimes(1);
-    expect(post).toHaveBeenCalledWith(
-      API_PATHS.users.mePublicKeyRotate,
-      body,
-    );
+    expect(post).toHaveBeenCalledWith(API_PATHS.users.meDevices, body);
   });
 });

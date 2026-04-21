@@ -25,6 +25,20 @@ export type MessageDocument = {
   /** Plaintext or opaque E2EE ciphertext; server never decrypts (`docs/openapi/openapi.yaml` **Message.body**). */
   body: string | null;
   mediaKey: string | null;
+  /**
+   * Per-device wrapped message keys (hybrid E2EE) — opaque base64 strings; server does not unwrap.
+   * **Sparse map:** BSON allows arbitrary device-id keys; new devices are added with **`$set: { ['encryptedMessageKeys.<id>']: … }`**
+   * without rewriting the whole object (see **`applyBatchSyncMessageKeys`**).
+   * @see `docs/PROJECT_PLAN.md` §7.1
+   */
+  encryptedMessageKeys?: Record<string, string>;
+  /** AES-GCM IV/nonce for **`body`** when E2EE; opaque to the server. */
+  iv?: string | null;
+  /**
+   * Client algorithm label for **`body`** / **`encryptedMessageKeys`** (e.g. **`aes-256-gcm+p256-hybrid-v1`**).
+   * Opaque to the server — never interpreted or validated beyond storage.
+   */
+  algorithm?: string | null;
   createdAt: Date;
   /** Guest-only guest↔guest sends — MongoDB TTL when enabled. */
   guestDataExpiresAt?: Date;
@@ -44,6 +58,7 @@ export type MessageDocument = {
  * | Access pattern | Query shape | Index |
  * |----------------|-------------|--------|
  * | List messages in a thread, newest first + cursor (**`GET /conversations/{id}/messages`**) | `find({ conversationId, …cursor }).project(body…).sort({ createdAt: -1, id: -1 })` | `messages_conversation_created` |
+ * | Per-device wrapped keys across threads (**`GET /users/me/sync/message-keys`**) | `find({ conversationId: { $in }, encryptedMessageKeys.<deviceId> exists, cursor }).sort({ createdAt: 1, id: 1 })` | *(same compound index per conversationId)* |
  * | Receipt-only rows, same cursor (**`GET /conversations/{id}/message-receipts`**) | `find(…).project(id, createdAt, receiptsByUserId).sort(…)` | *(same compound index)* |
  * | Lookup by primary key (send pipeline, receipt **`$set`** on nested path) | `findOne({ id })` / `updateOne({ id }, …)` | `messages_id_unique` |
  * | Receipts for message **M** | Embedded **`receiptsByUserId`** on the message doc (no separate collection) | *(none — hot path is primary key)* |

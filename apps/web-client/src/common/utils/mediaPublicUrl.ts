@@ -1,11 +1,16 @@
 /**
- * Browser-side mirror of **`publicObjectUrl`** in **`messaging-service`** **`userMediaUpload.ts`**.
- * Uses **`VITE_S3_PUBLIC_BASE_URL`** and **`VITE_S3_BUCKET`** — same values as the API’s **`S3_PUBLIC_BASE_URL`** / **`S3_BUCKET`**
- * so **`Message.mediaKey`** resolves to the same public object URL as **`MediaUploadResponse.url`** when the server exposes one.
- */
-/**
- * Prefer **`blob:`** / **`http(s):`** from local preview or **`MediaUploadResponse.url`**; otherwise derive
- * from **`mediaKey`** + env (**no** AWS SDK in the browser).
+ * **Attachment data path (ids + display URLs):**
+ *
+ * 1. **`POST /v1/media/upload`** — **`MediaUploadResponse`** is **`{ key, bucket, url? }`**. **`key`** is the stable id
+ *    (S3 object key under **`users/{userId}/…`**). **`url`** is optional; when **`S3_PUBLIC_BASE_URL`** is set on the
+ *    API, it matches **`publicObjectUrl(env, key)`** in **`messaging-service`** **`userMediaUpload.ts`**.
+ * 2. **`message:send` / `SendMessageRequest`** — clients send **`mediaKey`** (that same **`key`** string), not nested
+ *    **`attachments`** or a separate **`mediaId`**. The service persists **`MessageDocument.mediaKey`** and emits the
+ *    same value on Socket.IO **`message:new`** and **`GET /conversations/{id}/messages`** (**`messageDocumentToApi`**).
+ * 3. **Recipient** — **`parseMessageNewPayload`** / **`hydrateMessagesFromFetch`** keep **`mediaKey`** on each **`Message`**.
+ * 4. **Display** — **`resolveMediaAttachmentDisplayUrl(mediaKey, mediaPreviewUrl)`** prefers client **`blob:`** / upload
+ *    **`url`** (sender optimistic + merged ack); otherwise **`getMediaPublicObjectUrl(mediaKey)`** using
+ *    **`VITE_S3_PUBLIC_BASE_URL`** + **`VITE_S3_BUCKET`** aligned with the API (**no** AWS SDK in the browser).
  */
 export function resolveMediaAttachmentDisplayUrl(
   mediaKey: string,

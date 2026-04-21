@@ -23,13 +23,22 @@ describe('verifyAccessTokenJwt', () => {
       expiresInSeconds: 60,
     });
     const v = await verifyAccessTokenJwt(accessToken, baseEnv);
-    expect(v).toEqual({ sub: 'u-1', guest: true });
+    expect(v).toMatchObject({ sub: 'u-1', guest: true });
   });
 
   it('returns guest false when claim absent', async () => {
     const { accessToken } = await signAccessToken(baseEnv, 'u-2', true);
     const v = await verifyAccessTokenJwt(accessToken, baseEnv);
-    expect(v).toEqual({ sub: 'u-2', guest: false });
+    expect(v).toMatchObject({ sub: 'u-2', guest: false });
+  });
+
+  it('returns sourceDeviceId when embedded at sign time', async () => {
+    const { accessToken } = await signAccessToken(baseEnv, 'u-dev', true, {
+      sourceDeviceId: 'device-a',
+      expiresInSeconds: 60,
+    });
+    const v = await verifyAccessTokenJwt(accessToken, baseEnv);
+    expect(v).toMatchObject({ sub: 'u-dev', guest: false, sourceDeviceId: 'device-a' });
   });
 });
 
@@ -43,7 +52,7 @@ describe('resolveBearerAuth', () => {
       reqWithAuth(`Bearer ${accessToken}`),
       baseEnv,
     );
-    expect(r).toEqual({ kind: 'jwt', sub: 'u-3', guest: true });
+    expect(r).toMatchObject({ kind: 'jwt', sub: 'u-3', guest: true });
   });
 
   it('returns dev kind for X-User-Id when not production', async () => {

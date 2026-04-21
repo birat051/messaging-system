@@ -4,7 +4,7 @@ import {
   selectAccessTokenExpiresAt,
   selectAuthUser,
 } from '../../auth/stores/selectors';
-import { ROUTES } from '../../../routes/paths';
+import { registerPathFromGuest } from '../../../routes/paths';
 import { useAppSelector } from '../../../store/hooks';
 import { formatGuestSessionTimeRemaining } from '../utils/guestSessionTimeRemaining';
 
@@ -56,7 +56,7 @@ export function GuestSessionBanner() {
       <p className="text-muted mt-2 text-sm leading-snug">
         Search only shows other guests—you can message them here.{' '}
         <Link
-          to={ROUTES.register}
+          to={registerPathFromGuest()}
           className="text-accent font-medium underline-offset-4 hover:underline"
         >
           Create account

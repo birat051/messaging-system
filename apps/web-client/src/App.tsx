@@ -3,8 +3,10 @@ import { Route, Routes, useNavigate } from 'react-router-dom';
 import {
   GuestEntryPage,
   LoginPage,
+  PrivacyPolicyPage,
   RegisterPage,
   SettingsPage,
+  TermsAndConditionsPage,
   VerifyEmailPage,
 } from './routes/lazyPages';
 import { HomeOrLanding } from './routes/HomeOrLanding';
@@ -38,6 +40,8 @@ export default function App() {
           <Route path={ROUTES.guest} element={<GuestEntryPage />} />
           <Route path={ROUTES.register} element={<RegisterPage />} />
           <Route path={ROUTES.verifyEmail} element={<VerifyEmailPage />} />
+          <Route path={ROUTES.privacy} element={<PrivacyPolicyPage />} />
+          <Route path={ROUTES.terms} element={<TermsAndConditionsPage />} />
         </Routes>
       </Suspense>
     </div>

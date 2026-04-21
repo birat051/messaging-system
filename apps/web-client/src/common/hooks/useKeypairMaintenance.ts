@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useAppDispatch } from '../../store/hooks';
 import type { AppDispatch } from '../../store/store';
-import { getUserPublicKeyById } from '../api/usersApi';
+import { listUserDevicePublicKeys } from '../api/usersApi';
 import {
   buildKeyringBackupBlob,
   importKeyringBackupFromArrayBuffer,
@@ -13,12 +13,17 @@ import {
   exportPublicKeySpkiBase64,
 } from '../crypto/keypair';
 import {
+  DEFAULT_SINGLE_DEVICE_ID,
+  getStoredDeviceId,
   migrateLegacyPrivateKeyToKeyring,
+  setStoredDeviceId,
   storeKeyringPrivateKeyPkcs8,
 } from '../crypto/privateKeyStorage';
 import { assertSecureContextForPrivateKeyOps } from '../crypto/secureContext';
 import { parseApiError } from '../../modules/auth/utils/apiError';
-import { rotatePublicKey } from '../../modules/crypto/stores/cryptoSlice';
+import { evaluateDeviceSyncBootstrapState } from '../crypto/deviceBootstrapSync';
+import { registerDevice } from '../../modules/crypto/stores/cryptoSlice';
+import { store } from '../../store/store';
 import { useAuth } from './useAuth';
 
 export async function rotateUserKeypairOnServer(
@@ -27,9 +32,9 @@ export async function rotateUserKeypairOnServer(
   storagePassphrase: string,
 ): Promise<void> {
   assertSecureContextForPrivateKeyOps();
-  let server: Awaited<ReturnType<typeof getUserPublicKeyById>>;
+  let list: Awaited<ReturnType<typeof listUserDevicePublicKeys>>;
   try {
-    server = await getUserPublicKeyById(userId);
+    list = await listUserDevicePublicKeys('me');
   } catch (e) {
     if (parseApiError(e).httpStatus === 404) {
       throw new Error(
@@ -38,20 +43,35 @@ export async function rotateUserKeypairOnServer(
     }
     throw e;
   }
+  if (list.items.length === 0) {
+    throw new Error(
+      'No encryption key is registered on the server yet. Register a key before rotating.',
+    );
+  }
+  const defaultRow = list.items.find((d) => d.deviceId === DEFAULT_SINGLE_DEVICE_ID);
+  const migrationKeyVersion = defaultRow
+    ? defaultRow.keyVersion
+    : Math.max(...list.items.map((d) => d.keyVersion));
   await migrateLegacyPrivateKeyToKeyring(
     userId,
-    server.keyVersion,
+    migrationKeyVersion,
     storagePassphrase,
   );
   const pair = await generateP256EcdhKeyPair();
   const publicKeyB64 = await exportPublicKeySpkiBase64(pair.publicKey);
+  const deviceId =
+    (await getStoredDeviceId(userId)) ?? DEFAULT_SINGLE_DEVICE_ID;
   const result = await dispatch(
-    rotatePublicKey({ publicKey: publicKeyB64 }),
+    registerDevice({ publicKey: publicKeyB64, deviceId }),
   ).unwrap();
+  await setStoredDeviceId(userId, result.deviceId);
   const pkcs8B64 = await exportPrivateKeyPkcs8Base64(pair.privateKey);
   const pkcs8 = base64ToArrayBuffer(pkcs8B64);
   await storeKeyringPrivateKeyPkcs8(userId, result.keyVersion, pkcs8, storagePassphrase, {
     publicKeySpkiB64: result.publicKey,
+  });
+  await evaluateDeviceSyncBootstrapState(dispatch, result.deviceId, {
+    getState: () => store.getState().crypto,
   });
 }
 

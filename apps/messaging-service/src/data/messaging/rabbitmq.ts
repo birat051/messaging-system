@@ -42,6 +42,11 @@ export function setMessagingSocketIoServer(io: SocketIoServer | null): void {
   messagingSocketIo = io;
 }
 
+/** Read-only access for same-process emits that skip the broker (e.g. **`device:sync_requested`**). */
+export function getMessagingSocketIoServer(): SocketIoServer | null {
+  return messagingSocketIo;
+}
+
 function instanceQueueName(): string {
   const env = loadEnv();
   const safe = env.MESSAGING_INSTANCE_ID.replace(/[^a-zA-Z0-9._-]/g, '-').slice(
@@ -91,8 +96,10 @@ function parseReceiptRoutingKey(routingKey: string): string | null {
 }
 
 /**
- * Recipient publish: flat **`Message`** JSON. Sender echo: `{ message, skipSocketId? }` so the
- * originating **`message:send`** socket is not notified twice (`io.to(room).except(skipSocketId)`).
+ * Recipient publish: flat **`Message`** JSON from **`messageDocumentToApi`** (opaque **`body`** /
+ * **`encryptedMessageKeys`** / **`iv`** / **`algorithm`** when present — **never** log those fields).
+ * Sender echo: `{ message, skipSocketId? }` so the originating **`message:send`** socket is not notified twice
+ * (`io.to(room).except(skipSocketId)`).
  */
 function parseBrokerPayload(buf: Buffer): {
   message: MessageApiPayload;

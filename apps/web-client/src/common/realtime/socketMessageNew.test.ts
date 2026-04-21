@@ -34,4 +34,19 @@ describe('parseMessageNewPayload', () => {
     expect(parseMessageNewPayload({ id: 'x' })).toBeNull();
     expect(parseMessageNewPayload({ ...sampleMessage, body: 1 })).toBeNull();
   });
+
+  it('preserves mediaKey from message:new (same string as POST /media/upload key → send → DB)', () => {
+    const key = 'users/u1/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-shot.jpg';
+    const incoming = {
+      id: 'msg-media-1',
+      conversationId: 'c1',
+      senderId: 'u1',
+      body: null,
+      mediaKey: key,
+      createdAt: new Date().toISOString(),
+    };
+    expect(parseMessageNewPayload(incoming)).toEqual(
+      expect.objectContaining({ mediaKey: key }),
+    );
+  });
 });

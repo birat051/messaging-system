@@ -6,8 +6,11 @@ import { bootstrapSessionIfNeeded } from '../utils/sessionBootstrap';
 type Props = { children: ReactNode };
 
 /**
- * Runs **`bootstrapSessionIfNeeded`** once on mount, then (when signed in on a **secure context**)
- * **`ensureUserKeypairReadyForMessaging`** so the sender’s key exists and is registered before the shell renders.
+ * Runs **`bootstrapSessionIfNeeded`** once on mount (which may **`hydrateMessagingDeviceId`** from IndexedDB after
+ * **`GET /users/me`**), then (when signed in on a **secure context**) **`ensureUserKeypairReadyForMessaging`**
+ * (**`POST /v1/users/me/devices`** via **`registerDevice`** when there is no persisted **`deviceId`**, no server row for
+ * the stored id, or the device directory responds like an empty list — e.g. **404** handled as no rows) so the sender’s
+ * key exists and is registered before the shell renders.
  * **`ProtectedRoute`** sees a restored access token when a refresh cookie/token exists.
  */
 export function SessionRestore({ children }: Props) {

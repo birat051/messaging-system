@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { describeMediaAccessError } from '@/common/webrtc/callMediaErrors';
 import { streamHasRenderableVideo } from '@/common/webrtc/mediaStreamVideo';
 import { getWebRtcIceServers } from '@/common/utils/webrtcIceServers';
@@ -36,7 +36,12 @@ function flushIceBuffer(
 export function useWebRtcCallSession(
   activeConversationId: string | null,
   mediaRefs: WebRtcMediaRefs,
-): { localVideoVisible: boolean; remoteVideoVisible: boolean } {
+): {
+  localVideoVisible: boolean;
+  remoteVideoVisible: boolean;
+  /** End this side of the call and notify the peer via **`webrtc:hangup`** when possible. */
+  requestLocalEndCall: () => void;
+} {
   const dispatch = useAppDispatch();
   const socket = useSocketWorker();
   const {
@@ -46,6 +51,7 @@ export function useWebRtcCallSession(
     pendingRemoteSdp,
     micMuted,
     cameraOff,
+    lastSessionEndReason,
   } = useAppSelector((s) => s.call);
 
   const [remoteVideoVisible, setRemoteVideoVisible] = useState(false);
@@ -122,6 +128,29 @@ export function useWebRtcCallSession(
       if (msg.event === 'webrtc:offer') {
         return;
       }
+      if (msg.event === 'webrtc:hangup') {
+        const rawHangup = msg.payload;
+        if (rawHangup === null || typeof rawHangup !== 'object') {
+          return;
+        }
+        const hp = rawHangup as Record<string, unknown>;
+        const fromUserId =
+          typeof hp.fromUserId === 'string' ? hp.fromUserId : null;
+        const remoteHangupCallId =
+          typeof hp.callId === 'string' ? hp.callId : null;
+        if (
+          !fromUserId ||
+          !remoteHangupCallId ||
+          !callId ||
+          remoteHangupCallId !== callId ||
+          !peerUserId ||
+          fromUserId !== peerUserId
+        ) {
+          return;
+        }
+        dispatch(hangupCall({ reason: 'remote' }));
+        return;
+      }
       const raw = msg.payload;
       if (raw === null || typeof raw !== 'object') {
         return;
@@ -168,7 +197,7 @@ export function useWebRtcCallSession(
                 e instanceof Error ? e.message : 'Failed to apply remote answer',
               ),
             );
-            dispatch(hangupCall());
+            dispatch(hangupCall({ reason: 'system' }));
           }
         })();
         return;
@@ -255,7 +284,7 @@ export function useWebRtcCallSession(
       dispatch(
         setCallError('WebRTC is not available in this browser or context.'),
       );
-      dispatch(hangupCall());
+      dispatch(hangupCall({ reason: 'system' }));
       return;
     }
     if (processedOutgoingCallIdRef.current === callId) {
@@ -343,7 +372,7 @@ export function useWebRtcCallSession(
       } catch (e: unknown) {
         if (!cancelled) {
           dispatch(setCallError(describeMediaAccessError(e)));
-          dispatch(hangupCall());
+          dispatch(hangupCall({ reason: 'system' }));
         }
       }
     })();
@@ -457,7 +486,7 @@ export function useWebRtcCallSession(
       } catch (e: unknown) {
         if (!cancelled) {
           dispatch(setCallError(describeMediaAccessError(e)));
-          dispatch(hangupCall());
+          dispatch(hangupCall({ reason: 'system' }));
         }
       }
     })();
@@ -477,5 +506,40 @@ export function useWebRtcCallSession(
     localVideoRef,
   ]);
 
-  return { localVideoVisible, remoteVideoVisible };
+  const requestLocalEndCall = useCallback(() => {
+    dispatch(setCallError(null));
+    const ph = phase;
+    const pid = peerUserId;
+    const cid = callId;
+    if (ph === 'idle') {
+      return;
+    }
+    if (!pid || !cid) {
+      dispatch(hangupCall({ reason: 'system' }));
+      return;
+    }
+    const payload: { toUserId: string; callId: string; conversationId?: string } =
+      {
+        toUserId: pid,
+        callId: cid,
+      };
+    const conv = conversationIdRef.current;
+    if (conv) {
+      payload.conversationId = conv;
+    }
+    if (!socket) {
+      dispatch(hangupCall({ reason: 'system' }));
+      return;
+    }
+    void socket.emitWebRtcSignaling('webrtc:hangup', payload).finally(() => {
+      dispatch(hangupCall({ reason: 'local' }));
+    });
+  }, [socket, dispatch, phase, peerUserId, callId]);
+
+  return {
+    localVideoVisible,
+    remoteVideoVisible,
+    requestLocalEndCall,
+    lastSessionEndReason,
+  };
 }
