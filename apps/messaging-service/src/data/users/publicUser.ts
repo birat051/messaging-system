@@ -19,6 +19,7 @@ export function toUserApiShape(doc: UserDocument): UserApiShape {
 export function toUserPublicShape(doc: UserDocument): UserPublicApiShape {
   return {
     id: doc.id,
+    username: doc.username ?? null,
     displayName: doc.displayName,
     profilePicture: doc.profilePicture ?? null,
     status: doc.status ?? null,

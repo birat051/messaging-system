@@ -11,7 +11,8 @@ function isRevokeOnLogoutEnabled(): boolean {
  * while the access token is still valid (before Redux **`logout`**).
  *
  * **IndexedDB** private keys and **`deviceIdentity`** are **not** cleared — the same browser can
- * re-register (**`POST /users/me/devices`**) on next login for **Feature 13** recovery flows.
+ * re-register (**`POST /users/me/devices`**) on next login (**`ensureUserKeypairReadyForMessaging`**)
+ * with the **same persisted `deviceId`**, restoring the registry row without changing **`encryptedMessageKeys`** lookups.
  */
 export async function revokeCurrentDeviceOnServerBeforeLogout(
   getState: () => RootState,

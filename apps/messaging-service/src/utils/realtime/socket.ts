@@ -11,6 +11,7 @@ import { messageDocumentToApi } from '../../data/messages/messageApiShape.js';
 import { isMessageSendRateLimited } from '../../data/messages/messageSendRateLimit.js';
 import { flushLastSeenToMongo } from '../../data/presence/flushLastSeenToMongo.js';
 import { setLastSeen } from '../../data/presence/lastSeen.js';
+import { presenceHeartbeatAllowsRedisWrite } from '../../data/presence/presenceHeartbeatThrottle.js';
 import { resolveLastSeenForUser } from '../../data/presence/resolveLastSeen.js';
 import { formatZodError } from '../../validation/formatZodError.js';
 import { sendMessageRequestSchema } from '../../validation/schemas.js';
@@ -18,9 +19,6 @@ import { parseGetLastSeenPayload } from './presenceSocketPayload.js';
 import { registerMessageReceiptSocketHandlers } from './receiptSocketHandlers.js';
 import { resolveSocketAuth } from './socketAuth.js';
 import { registerWebRtcSignalingHandlers } from './webrtcSocketHandlers.js';
-
-/** Minimum ms between Redis writes per socket (~5s client heartbeat, allow clock drift). */
-const HEARTBEAT_MIN_INTERVAL_MS = 4500;
 
 let adapterPubClient: ReturnType<typeof createClient> | null = null;
 let adapterSubClient: ReturnType<typeof createClient> | null = null;
@@ -108,7 +106,7 @@ export async function attachSocketIo(
         return;
       }
       const now = Date.now();
-      if (now - lastHeartbeatWriteMs < HEARTBEAT_MIN_INTERVAL_MS) {
+      if (!presenceHeartbeatAllowsRedisWrite(lastHeartbeatWriteMs, now)) {
         return;
       }
       lastHeartbeatWriteMs = now;

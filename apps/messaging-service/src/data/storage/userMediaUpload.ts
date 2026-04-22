@@ -8,6 +8,26 @@ function safeFilename(name: string): string {
   return base || 'file';
 }
 
+/** Prefix for keys owned by **`userId`** (includes optional **`S3_KEY_PREFIX`**). */
+export function userMediaKeyPrefixForUser(env: Env, userId: string): string {
+  const prefix = env.S3_KEY_PREFIX?.replace(/^\/+|\/+$/g, '').trim();
+  const middle = `users/${userId}/`;
+  return prefix ? `${prefix}/${middle}` : middle;
+}
+
+/** True when **`rawKey`** is a **`users/{userId}/…`** object key for this deployment (same layout as presign / upload). */
+export function isUserMediaObjectKeyOwnedByUser(
+  env: Env,
+  userId: string,
+  rawKey: string,
+): boolean {
+  const key = rawKey.replace(/^\/+/, '').trim();
+  if (!key) {
+    return false;
+  }
+  return key.startsWith(userMediaKeyPrefixForUser(env, userId));
+}
+
 /** Object key under **`users/{userId}/…`** — same layout as **`POST /v1/media/upload`**. */
 export function buildUserMediaObjectKey(
   env: Env,

@@ -16,6 +16,7 @@ export type UserApiShape = {
 /** OpenAPI `UserPublic` — no email (e.g. search / directory views). */
 export type UserPublicApiShape = {
   id: string;
+  username: string | null;
   displayName: string | null;
   profilePicture: string | null;
   status: string | null;

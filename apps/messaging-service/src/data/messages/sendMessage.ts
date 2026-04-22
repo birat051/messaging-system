@@ -129,6 +129,15 @@ export async function sendMessageForUser(
   const algorithmNorm = normalizeAlgorithm(payload.algorithm);
   const encryptedMessageKeys = payload.encryptedMessageKeys;
 
+  /** Hybrid E2EE (**Feature 11**): media locator must live inside opaque **`body`** only — do not persist **`mediaKey`**. */
+  const hasHybridEnvelope =
+    encryptedMessageKeys !== undefined &&
+    typeof encryptedMessageKeys === 'object' &&
+    Object.keys(encryptedMessageKeys).length > 0 &&
+    algorithmNorm != null &&
+    String(algorithmNorm).trim().length > 0;
+  const storedMediaKey = hasHybridEnvelope ? null : mediaKey;
+
   const convRaw =
     payload.conversationId !== undefined && payload.conversationId !== null
       ? String(payload.conversationId).trim()
@@ -166,7 +175,7 @@ export async function sendMessageForUser(
         conversationId: conv.id,
         senderId,
         body: text,
-        mediaKey,
+        mediaKey: storedMediaKey,
         ...(encryptedMessageKeys !== undefined
           ? { encryptedMessageKeys }
           : {}),
@@ -222,7 +231,7 @@ export async function sendMessageForUser(
         conversationId: conv.id,
         senderId,
         body: text,
-        mediaKey,
+        mediaKey: storedMediaKey,
         ...(encryptedMessageKeys !== undefined
           ? { encryptedMessageKeys }
           : {}),

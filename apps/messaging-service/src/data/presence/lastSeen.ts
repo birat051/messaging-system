@@ -8,8 +8,9 @@ function key(userId: string): string {
 }
 
 /**
- * Hot last-seen while online: Unix ms in Redis with TTL (TASK_CHECKLIST Feature 6).
+ * Hot last-seen while online: Unix ms in Redis with TTL **`LAST_SEEN_TTL_SECONDS`** (TASK_CHECKLIST Feature 6).
  * Updated only from **`presence:heartbeat`** (~every 5s from client), not on socket connect.
+ * Per-socket Redis writes are throttled in **`attachSocketIo`** (**`presenceHeartbeatThrottle`** — default **4500 ms** between writes).
  */
 export async function setLastSeen(userId: string): Promise<void> {
   const env = loadEnv();

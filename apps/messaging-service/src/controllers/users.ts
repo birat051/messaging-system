@@ -6,7 +6,15 @@ import { getClientIp } from '../utils/auth/getClientIp.js';
 import type { Env } from '../config/env.js';
 import { AppError } from '../utils/errors/AppError.js';
 import { getS3Client } from '../data/storage/s3Client.js';
-import { uploadUserMediaToS3 } from '../data/storage/userMediaUpload.js';
+import {
+  defaultUploadFilenameForContentType,
+  presignPutUserMedia,
+} from '../data/storage/presignUserMediaUpload.js';
+import {
+  isUserMediaObjectKeyOwnedByUser,
+  publicObjectUrl,
+  uploadUserMediaToS3,
+} from '../data/storage/userMediaUpload.js';
 import { searchUsersForCaller } from '../data/users/search.js';
 import type { UpdateUserProfilePatch } from '../data/users/repo.js';
 import { updateUserProfile } from '../data/users/repo.js';
@@ -14,7 +22,8 @@ import {
   applyBatchSyncMessageKeys,
   listSyncMessageKeysForUserDevice,
 } from '../data/messages/syncMessageKeys.js';
-import { toUserApiShape } from '../data/users/publicUser.js';
+import { findUserById } from '../data/users/repo.js';
+import { toUserApiShape, toUserPublicShape } from '../data/users/publicUser.js';
 import {
   deleteDeviceForUser,
   findDevicePublicKeysByUserId,
@@ -36,10 +45,12 @@ import {
   batchSyncMessageKeysRequestSchema,
   deviceIdPathSchema,
   listSyncMessageKeysQuerySchema,
+  patchProfileJsonBodySchema,
   registerDeviceRequestSchema,
   searchUsersQuerySchema,
   userIdPathSchema,
 } from '../validation/schemas.js';
+import type { AvatarPresignRequestInput } from '../validation/schemas.js';
 
 export function rateLimitPublicKeyWrites(env: Env): RequestHandler {
   return async (
@@ -172,6 +183,62 @@ export const getMe: RequestHandler = (req, res, next) => {
   }
 };
 
+/**
+ * **`GET /users/{userId}`** — public profile for messaging UI (thread title / list row).
+ * **Authz:** **self** always; otherwise **guest ↔ guest** or **registered ↔ registered** only (sandbox separation).
+ */
+export function getUserById(): RequestHandler {
+  return async (req, res, next) => {
+    try {
+      const authUser = req.authUser;
+      if (!authUser) {
+        next(new AppError('UNAUTHORIZED', 401, 'Authentication required'));
+        return;
+      }
+      const raw = (req.params as { userId?: string }).userId?.trim() ?? '';
+      if (raw.length === 0) {
+        next(new AppError('NOT_FOUND', 404, 'User not found'));
+        return;
+      }
+      if (raw === 'me') {
+        next(
+          new AppError(
+            'BAD_REQUEST',
+            400,
+            'Use GET /users/me for the current user',
+          ),
+        );
+        return;
+      }
+
+      const target = await findUserById(raw);
+      if (!target) {
+        next(new AppError('NOT_FOUND', 404, 'User not found'));
+        return;
+      }
+
+      if (authUser.id !== target.id) {
+        const callerGuest = authUser.isGuest === true;
+        const targetGuest = target.isGuest === true;
+        if (callerGuest !== targetGuest) {
+          next(
+            new AppError(
+              'FORBIDDEN',
+              403,
+              'Profile not visible for this session type',
+            ),
+          );
+          return;
+        }
+      }
+
+      res.status(200).json(toUserPublicShape(target));
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
 export function patchMeMultipart(
   upload: multer.Multer,
 ): RequestHandler {
@@ -199,8 +266,11 @@ export function patchMeMultipart(
   };
 }
 
-export function patchMe(env: Env, s3Client: ReturnType<typeof getS3Client>): RequestHandler {
-  const multerFileSchema = createMulterFileSchema(env.MEDIA_MAX_BYTES);
+function patchMeMultipartBody(
+  env: Env,
+  s3Client: ReturnType<typeof getS3Client>,
+  multerFileSchema: ReturnType<typeof createMulterFileSchema>,
+): RequestHandler {
   return async (req, res, next) => {
     try {
       const authUser = req.authUser;
@@ -324,6 +394,134 @@ export function patchMe(env: Env, s3Client: ReturnType<typeof getS3Client>): Req
         return;
       }
       res.status(200).json(toUserApiShape(updated));
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
+function patchMeJsonBody(
+  env: Env,
+  _s3Client: ReturnType<typeof getS3Client>,
+): RequestHandler {
+  return async (req, res, next) => {
+    try {
+      const authUser = req.authUser;
+      if (!authUser) {
+        next(new AppError('UNAUTHORIZED', 401, 'Authentication required'));
+        return;
+      }
+
+      const parsed = patchProfileJsonBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        next(
+          new AppError(
+            'INVALID_REQUEST',
+            400,
+            formatZodError(parsed.error),
+            parsed.error,
+          ),
+        );
+        return;
+      }
+      const json = parsed.data;
+      const patch: UpdateUserProfilePatch = {};
+
+      if (json.profilePictureMediaKey !== undefined) {
+        if (!isUserMediaObjectKeyOwnedByUser(env, authUser.id, json.profilePictureMediaKey)) {
+          next(
+            new AppError(
+              'INVALID_REQUEST',
+              400,
+              'profilePictureMediaKey does not match this user upload prefix',
+            ),
+          );
+          return;
+        }
+        const url = publicObjectUrl(env, json.profilePictureMediaKey);
+        patch.profilePicture = url ?? json.profilePictureMediaKey;
+      } else if (json.profilePicture !== undefined) {
+        patch.profilePicture = json.profilePicture;
+      }
+
+      if (json.displayName !== undefined) {
+        patch.displayName = json.displayName;
+      }
+      if (json.status !== undefined) {
+        patch.status = json.status;
+      }
+
+      const updated = await updateUserProfile(authUser.id, patch);
+      if (!updated) {
+        next(new AppError('UNAUTHORIZED', 401, 'User not found'));
+        return;
+      }
+      res.status(200).json(toUserApiShape(updated));
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
+/**
+ * **`PATCH /users/me`** — **`application/json`** (URL / object key after presigned **`PUT`**) or **`multipart/form-data`**
+ * (legacy direct file upload).
+ */
+export function patchMe(
+  env: Env,
+  s3Client: ReturnType<typeof getS3Client>,
+  upload: multer.Multer,
+): RequestHandler {
+  const multerFileSchema = createMulterFileSchema(env.MEDIA_MAX_BYTES);
+  const multipartHandler = patchMeMultipartBody(env, s3Client, multerFileSchema);
+  const jsonHandler = patchMeJsonBody(env, s3Client);
+  return (req, res, next) => {
+    const ct = String(req.headers['content-type'] ?? '').toLowerCase();
+    if (ct.includes('application/json')) {
+      void jsonHandler(req, res, next);
+      return;
+    }
+    patchMeMultipart(upload)(req, res, (err: unknown) => {
+      if (err) {
+        next(err);
+        return;
+      }
+      void multipartHandler(req, res, next);
+    });
+  };
+}
+
+/** **`POST /users/me/avatar/presign`** — pre-signed **`PUT`** for **`users/{userId}/…`** keys (image MIME only). */
+export function postMyAvatarPresign(
+  env: Env,
+  s3Client: ReturnType<typeof getS3Client>,
+): RequestHandler {
+  return async (req, res, next) => {
+    try {
+      const authUser = req.authUser;
+      if (!authUser) {
+        next(new AppError('UNAUTHORIZED', 401, 'Authentication required'));
+        return;
+      }
+      if (!s3Client || !env.S3_BUCKET) {
+        next(
+          new AppError(
+            'MEDIA_NOT_CONFIGURED',
+            503,
+            'Avatar presign requires S3 (S3_BUCKET and credentials)',
+          ),
+        );
+        return;
+      }
+      const body = req.body as AvatarPresignRequestInput;
+      const filename =
+        body.filename ?? defaultUploadFilenameForContentType(body.contentType);
+      const out = await presignPutUserMedia(env, authUser.id, {
+        contentType: body.contentType,
+        contentLength: body.contentLength,
+        filename,
+      });
+      res.status(200).json(out);
     } catch (err) {
       next(err);
     }

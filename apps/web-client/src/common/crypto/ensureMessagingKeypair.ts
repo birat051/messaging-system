@@ -45,6 +45,10 @@ import { evaluateDeviceSyncBootstrapState } from './deviceBootstrapSync';
  * is treated like an empty directory (same as **`useKeypairStatus`**) so bootstrap can recover. **`deviceId`** is read
  * from IndexedDB first and mirrored into Redux (**`hydrateMessagingDeviceId`**) before any **`registerDevice`** call.
  * Also re-invoked on **tab visibility** so a briefly offline register can recover without user action.
+ *
+ * **`crypto.randomUUID()`** is **only** used when there is **no** local keyring **and** the directory is empty — never to
+ * replace an existing keyring / **`deviceIdentity`**. After each successful **`registerDevice`**, **`evaluateDeviceSyncBootstrapState`**
+ * may set **`syncState: 'pending'`** (**Feature 13**) when multiple devices exist and this **`deviceId`** lacks sync keys.
  */
 export async function ensureUserKeypairReadyForMessaging(
   userId: string,

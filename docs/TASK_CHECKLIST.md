@@ -1,6 +1,6 @@
 # Ekko — Task Checklist
 
-Use this checklist to track implementation progress. Sections align with [PROJECT_PLAN.md](./PROJECT_PLAN.md). **Document order** puts **E2EE alignment** sections (**Prerequisite — User keypair**, **Feature 11**, **Feature 13**) right after **How to read**, then **MVP scope — outstanding**, then remaining **Post-MVP / extended scope**, then **Shipped**—see **[Document order](#document-order)** and **[How to read this checklist](#how-to-read-this-checklist)** (not strict build order).
+Use this checklist to track implementation progress. Sections align with [PROJECT_PLAN.md](./PROJECT_PLAN.md). **Document order** puts **E2EE alignment** sections (**Prerequisite — User keypair**, **Feature 11**, **Bugfix — Sign out then relogin**, **Bugfix — Second browser login (sync skipped)**, **Feature 13**) right after **How to read**, then **MVP scope — outstanding**, then remaining **Post-MVP / extended scope**, then **Shipped**—see **[Document order](#document-order)** and **[How to read this checklist](#how-to-read-this-checklist)** (not strict build order).
 
 **Pattern:** For each feature or cross-cutting area below, work is split into **(A) Infra, backend & deployment** and **(B) Web-client, UI, tests & state management** (Redux, hooks, test-first components per **`docs/PROJECT_PLAN.md` §14**). **Prerequisite — User keypair** runs before encrypted **Feature 1** work when E2EE is required. **Default E2EE UX:** no **Settings → encryption** for end users; **chat-thread** E2EE indicator instead—see **Prerequisite — Product direction** and **Feature 1 (B)**.
 
@@ -10,13 +10,13 @@ Use this checklist to track implementation progress. Sections align with [PROJEC
 
 ## Document order
 
-Immediately after **How to read this checklist**, **Prerequisite — User keypair**, **Feature 11 — Message encryption**, and **Feature 13 — Multi-device key sync** appear first so pending E2EE alignment work (per [PROJECT_PLAN.md](./PROJECT_PLAN.md) §7.1) is visible at the top. Then: **(1) MVP scope — outstanding** (Definition of done through Infrastructure and hardening), **(2) remaining Post-MVP / extended scope** (group, contacts, etc.), **(3) Shipped**. Section order is for **prioritization and scanning**, not strict build order—see **How to read this checklist**.
+Immediately after **How to read this checklist**, **Prerequisite — User keypair**, **Feature 11 — Message encryption**, **Bugfix — Sign out then relogin (same browser)**, **Bugfix — Second browser login (sync skipped)**, and **Feature 13 — Multi-device key sync** appear first so pending E2EE alignment work (per [PROJECT_PLAN.md](./PROJECT_PLAN.md) §7.1) is visible at the top. Then: **(1) MVP scope — outstanding** (Definition of done through Infrastructure and hardening), **(2) remaining Post-MVP / extended scope** (group, contacts, etc.), **(3) Shipped**. Section order is for **prioritization and scanning**, not strict build order—see **How to read this checklist**.
 
 ---
 
 ## How to read this checklist
 
-**E2EE alignment (§7.1):** **Prerequisite — User keypair**, **Feature 11**, and **Feature 13** are placed immediately below this section so open tasks for the per-device hybrid model are easy to find. Within other groups in **[Document order](#document-order)**, headings that still contain at least one `- [ ]` appear before headings that are fully checked where applicable. Then **MVP scope — outstanding** (**Definition of done** through **Infrastructure and hardening**), then remaining **Post-MVP / extended scope**, then **Shipped**. **Implementation / dependency order** (e.g. Prerequisite → Feature 1) is still defined in [PROJECT_PLAN.md](./PROJECT_PLAN.md)—this file’s **section order** is for **prioritization and scanning**, not a prescribed build sequence.
+**E2EE alignment (§7.1):** **Prerequisite — User keypair**, **Feature 11**, **Bugfix — Sign out then relogin**, **Bugfix — Second browser login (sync skipped)**, and **Feature 13** are placed immediately below this section so open tasks for the per-device hybrid model are easy to find. Within other groups in **[Document order](#document-order)**, headings that still contain at least one `- [ ]` appear before headings that are fully checked where applicable. Then **MVP scope — outstanding** (**Definition of done** through **Infrastructure and hardening**), then remaining **Post-MVP / extended scope**, then **Shipped**. **Implementation / dependency order** (e.g. Prerequisite → Feature 1) is still defined in [PROJECT_PLAN.md](./PROJECT_PLAN.md)—this file’s **section order** is for **prioritization and scanning**, not a prescribed build sequence.
 
 ---
 
@@ -45,8 +45,8 @@ The **default product** does **not** expose a **Settings** (or similar) screen f
 - [x] **Generate (device-scoped):** on first authenticated session on this device, generate P-256 key pair via Web Crypto API (`generateP256EcdhKeyPair`); assign stable `deviceId` (UUID, persisted in IndexedDB alongside private key); register via `POST /v1/users/me/devices`; store `deviceId` in `cryptoSlice`; gate on `useAuth().isAuthenticated`; unit tests with test vectors unchanged in **`keypair.ts`** / **`keypair.test.ts`**
 - [x] **Store private key securely:** never send to server; persist wrapped private key in IndexedDB (keyed by `deviceId`), encrypted with PBKDF2-derived key + AES-256-GCM; **`privateKeyStorage.ts`**, **`privateKeyWrap.ts`**, **`secureContext.ts`** — mechanism unchanged, scoped by `deviceId`
 - [x] **Register device public key:** call `POST /v1/users/me/devices` on session bootstrap if no `deviceId` in IndexedDB or server returns 404 for known `deviceId`; persist returned `deviceId`; update `cryptoSlice` — replace `putMyPublicKey` / `rotateMyPublicKey` with `registerDevice` thunk + `useRegisterDevice` hook
-- [ ] **Maintain (device lifecycle):** on logout optionally call `DELETE /v1/users/me/devices/:deviceId`; retain private key in IndexedDB for recovery; update `useKeypairMaintenance`; see **Feature 13** for multi-device sync
-- [ ] **Hooks:** update `useKeypairStatus` (check `deviceId` present + registered on server), rename `useRegisterPublicKey` → `useRegisterDevice`, update `useRestorePrivateKey` (restore from IndexedDB by `deviceId`); remove stale `putMyPublicKey` / `rotateMyPublicKey` from `usersApi`
+- [x] **Maintain (device lifecycle):** on logout optionally call `DELETE /v1/users/me/devices/:deviceId`; retain private key in IndexedDB for recovery; update `useKeypairMaintenance`; see **Feature 13** for multi-device sync — **`VITE_REVOKE_DEVICE_ON_LOGOUT=true`**, **`revokeCurrentDeviceOnServerBeforeLogout`** from **`logoutDeviceRevocation.ts`** (re-export **`useKeypairMaintenance`**), wired in **`useAuth`** **`logout`**
+- [x] **Hooks:** update `useKeypairStatus` (check `deviceId` present + registered on server), rename `useRegisterPublicKey` → `useRegisterDevice`, update `useRestorePrivateKey` (restore from IndexedDB by `deviceId`); remove stale `putMyPublicKey` / `rotateMyPublicKey` from `usersApi` — **`useKeypairStatus`** (IDB + Redux **`deviceId`**, **`GET /users/me/devices`** + **`…/public-keys`**), **`useRegisterPublicKey`** deprecated alias of **`useRegisterDevice`**, **`useRestorePrivateKey`** dispatches **`hydrateMessagingDeviceId`** after backup import; **`usersApi`** documents no legacy public-key **PUT**/**rotate**
 - [x] **Remove encryption / key-management UI from Settings** (profile/account only per **§10.1**; E2EE is automatic and programmatic):
   - [x] All `EncryptionSettingsSection`, `EncryptionBackupPrompt`, `EncryptionSetupWizard` components and tests removed
   - [x] `showEncryptionSettingsUi.ts` removed; Settings page is profile-only
@@ -95,6 +95,85 @@ The **default product** does **not** expose a **Settings** (or similar) screen f
 - [x] **Delete — `apps/web-client/`:** Strip legacy E2EE modules and imports; **require** device keys for send (fail fast if missing); simplify Redux/UI to hybrid-only; update or delete tests that asserted ECIES or mixed wire shapes; refresh **`e2eeInboundDecryptTrace.ts`** / **`e2eeOutboundSendTrace.ts`** / **`e2eeReceiveTrace.ts`**; run **`npm run lint`**, **`npm run typecheck`**, **`npm test`** in **`apps/web-client`**. **Note:** **`npm test`** passes; **`npm run typecheck`** / **`npm run lint`** may still report unrelated issues elsewhere in the package until cleaned up.
 - [x] **Delete — `apps/messaging-service/`:** Remove legacy user-public-key APIs and related MongoDB usage if unused by hybrid; tighten **`SendMessageRequest` / `Message`** validation to hybrid-only where appropriate; update **`docs/openapi/openapi.yaml`**, **`README.md`**, **`docs/PROJECT_PLAN.md`** references; regenerate web-client types (**`npm run generate:api`**); run **`npm run lint`**, **`npm run typecheck`**, **`npm test`** (and **`MESSAGING_INTEGRATION=1`** where applicable) in **`apps/messaging-service`**. **Done:** OpenAPI + **`README`** updated; **`npm run generate:api`** / **`generate:api:check`**; **`npm test`** green. **`npm run typecheck`** may still fail on pre-existing test typing issues in the package.
 - [ ] **Verification:** Hybrid-only **1:1** smoke (send/receive/reload); no **`E2EE_JSON_V1`** or legacy public-key-only path in source; OpenAPI matches implementation.
+
+---
+
+## Bugfix — Sign out then relogin (same browser): “Can’t decrypt on this device” / no encryption key
+
+**Symptom (reported flow):** User **signs up** → exchanges **encrypted** 1:1 messages (send + receive) → **Sign out** → **logs in again** with the **same credentials** on the **same browser** → threads show **“Can’t decrypt on this device…”** / **no encryption key for this browser** (or equivalent) for **both** messages **sent** and **received** by that user.
+
+**Likely themes:** **`deviceId`** continuity vs **server device registry** after logout; optional **`DELETE /v1/users/me/devices/:deviceId`** (**`VITE_REVOKE_DEVICE_ON_LOGOUT`**) vs **IndexedDB** still holding the previous device’s private key; **`encryptedMessageKeys`** on stored messages keyed by **old** device id(s) while the new session uses a **new** **`deviceId`** — overlaps **Feature 13** (new device / key re-sharing).
+
+### (1) Reproduce & narrow
+
+- [x] **Stable repro:** documented in **`docs/repro-decrypt-after-relogin.md`** — exact steps, browser guidance, and env matrix (**`VITE_REVOKE_DEVICE_ON_LOGOUT`**, **`VITE_API_BASE_URL`**) with consistency checklist.
+- [x] **Network audit on logout:** confirmed from **`useAuth`** / **`logoutDeviceRevocation`** — **`POST /v1/auth/logout`** runs when a refresh token exists in **`localStorage`**; **`DELETE /v1/users/me/devices/:deviceId`** runs only when **`VITE_REVOKE_DEVICE_ON_LOGOUT=true`** and **`deviceId`** + session prerequisites are met — documented in **`docs/repro-decrypt-after-relogin.md`** (**Network audit on logout**).
+- [x] **After relogin, capture three identifiers:** procedure + mismatch examples + record sheet + IndexedDB **`messaging-client-crypto`** / **`deviceIdentity`** + Redux **`crypto.deviceId`** + **`GET /v1/users/me/devices`** — **`docs/repro-decrypt-after-relogin.md`** (**After relogin: capture three identifiers**).
+- [x] **Message inspection:** procedure + **`encryptedMessageKeys`** vs **`myDeviceId`** table + UI string mapping (**`peerDecryptInline.ts`**) + **`VITE_DEBUG_PEER_DECRYPT`** — **`docs/repro-decrypt-after-relogin.md`** (**Message inspection**).
+
+### (2) Root-cause analysis — web-client
+
+- [x] Trace **second-session bootstrap:** **`sessionBootstrap`** → **`applyAuthResponse`** → **`useSenderKeypairBootstrap`** / **`ensureUserKeypairReadyForMessaging`** / **`hydrateMessagingDeviceId`** / **`registerDevice` thunk** — second **`POST /users/me/devices`** **does not** mint a new UUID when IDB **`deviceId`** + keyring exist (client resends same **`deviceId`**; server **`registerOrUpdateDevice`** uses client id). New UUID only on **first-device** branch — **`docs/repro-decrypt-after-relogin.md`** (**Second-session bootstrap trace**).
+- [x] Document **logout side effects:** **`useAuth`** steps + **`authSlice`** + **`cryptoSlice`** / **`messagingSlice`** / **`devicePublicKeysSlice`** / **`presenceSlice`** on **`logout`** + **`clearRefreshToken`** / **`guestSessionPreference`** vs persisting IndexedDB (**`privateKeyStorage`**, sender plaintext store) — **`docs/repro-decrypt-after-relogin.md`** (**Logout side effects**).
+- [x] Map UI errors to code paths: pipeline + classification table (**missing map entry** vs **no local key** vs **crypto** vs pending) + **`isPeerDecryptInlineError`** + edge cases (**`messageDisplayBody`** opaque / own rows) — **`docs/repro-decrypt-after-relogin.md`** (**UI errors → code paths**).
+
+### (3) Root-cause analysis — messaging-service (if needed)
+
+- [x] **`POST /v1/users/me/devices`:** server **`registerOrUpdateDevice`** uses **client-supplied** **`deviceId`** when non-empty; **only** generates **`randomUUID()`** when **`deviceId`** is omitted — same browser **re-binds** the **same id** after revoke when the client resends it — see **`docs/repro-decrypt-after-relogin.md`** (**Second-session bootstrap trace**).
+- [x] If logout **revokes** the device server-side but the client **keeps** old key material locally — **reachable** when **`VITE_REVOKE_DEVICE_ON_LOGOUT=true`** at build time (default **`.env.production`** / **`.env.development`** leave revoke **off**); **IndexedDB** (`deviceId` + private key) **always** persists on sign-out by design — **`docs/repro-decrypt-after-relogin.md`** (**Server revoke on logout vs IndexedDB retention**).
+
+### (4) Fix implementation (pick/adapt strategy; close subtasks when done)
+
+- [x] **Policy decision:** same-browser **sign out** = **same device** (IndexedDB retains **`deviceId`** + keys; next login **re-registers** same **`deviceId`** on server when needed) — **Feature 13** only for a **true** new / wiped device — documented **`docs/PROJECT_PLAN.md`** §7.1 (**Same-browser sign-out — policy**). No README change (behavior unchanged; documentation only).
+- [x] **If mismatch is revoke + stale IDB:** **aligned** — **re-register** path (**`ensureUserKeypairReadyForMessaging`** + client **`deviceId`**) already restores server registry to match **`encryptedMessageKeys`**; default **omit revoke** reduces divergence; **clear IDB on revoke** rejected (§7.1) — **`docs/repro-decrypt-after-relogin.md`** (**Alignment: revoke + IndexedDB**).
+- [x] **If mismatch is new `deviceId` without sync:** **verified** — keyring present → **no** new UUID (**`ensureMessagingKeypair`**); **`evaluateDeviceSyncBootstrapState`** after **`POST /users/me/devices`** drives **Feature 13** **`syncState`**; greenfield-only **`randomUUID`**; **no keyring + server has devices** → **throw** (no silent new id) — **`docs/repro-decrypt-after-relogin.md`** (**New `deviceId` without sync**), **`docs/PROJECT_PLAN.md`** §7.1 bullet.
+- [x] **Regression tests:** **`apps/web-client/src/common/integration/logoutReloginHybridDecrypt.integration.test.ts`** — real Web Crypto + **fake-indexeddb**; **`setStoredDeviceId` / `getStoredDeviceId`** + hybrid round-trip (own + peer roles) + “relogin” still decodes; negative when **deviceId** not in **`encryptedMessageKeys`**. (No **`MESSAGING_INTEGRATION`** flag in this package — colocated **`.integration.test.ts`**.)
+
+### (5) Verification
+
+- [ ] **Manual QA:** signup → encrypted chat (both directions) → sign out → login → **read history** without “can’t decrypt” / **send new** encrypted message successfully.
+- [ ] **Closed-loop:** link fix PR to this checklist section; note any **operational** follow-up (**`VITE_REVOKE_DEVICE_ON_LOGOUT`** default, cookie/storage docs).
+
+---
+
+## Bugfix — Second browser login (sync skipped): “Can’t decrypt on this device” / no encryption key
+
+**Symptom (reported flow):** User **registers on browser A** → sends and receives **encrypted** 1:1 messages → **logout** → **relogin on browser A** → **works** (history decrypts). Same user **logs in on browser B** (another browser / profile / machine) → **Feature 13 sync path appears skipped or incomplete** → threads show **“Can’t decrypt on this device”** / **“No encryption key for this browser”** (or equivalent).
+
+**Contrast with the same-browser relogin bugfix (section above):** there the session tab shares **IndexedDB** and **`deviceId`** continuity; browser B is a **true second device** — fresh keyring, new **`deviceId`**, and **past messages** only decrypt after **`encryptedMessageKeys[browserB_deviceId]`** exists (sync from a trusted device or new sends that include that device).
+
+**Likely themes:** **`evaluateDeviceSyncBootstrapState`** / **`syncState`** never entering **`pending`** or **`in_progress`**; **`device:sync_requested`** not received on browser A (Socket.IO not connected, wrong room, or listener not mounted); **`NewDeviceSyncBanner`** not shown on B; user never **Approve**s on A from **`DeviceSyncApprovalBanner`**; **`POST /v1/users/me/sync/message-keys`** failing or rate-limited; **`GET /v1/users/me/sync/message-keys`** empty on A; mismatch between JWT **`sourceDeviceId`** and registered device; **greenfield** path vs **existing user on new client** bootstrap order.
+
+### (1) Reproduce & narrow
+
+- [ ] **Stable repro document:** add or extend **`docs/repro-decrypt-after-relogin.md`** (or a sibling **`docs/repro-second-browser-sync.md`**) — steps: **browser A** = Chrome profile 1 (or Browser A); **browser B** = Chrome profile 2 / Firefox / Safari; same **`VITE_API_BASE_URL`**; confirm **both** load app from same origin rules as prod; matrix: A online vs offline when B first logs in.
+- [ ] **Network audit on browser B first login:** capture order of **`POST /v1/users/me/devices`** → response **`deviceId`** → **`GET /v1/users/me/devices`** (other devices list) → any **`GET …/sync/message-keys`** → Socket **`connect`** / **`device:sync_requested`** / **`device:sync_complete`**; export HAR or annotate sequence diagram.
+- [ ] **Capture four identifiers on browser B after login:** Redux **`cryptoSlice`** (**`deviceId`**, **`syncState`**, **`registeredOnServer`**) + IndexedDB **`deviceId`** + **`GET /v1/users/me/devices`** response + **one** fetched message’s **`encryptedMessageKeys`** keys (does it include B’s **`deviceId`**?).
+- [ ] **Capture same on browser A while B logs in:** is **`device:sync_requested`** emitted (server logs or A’s devtools)? Does **`DeviceSyncApprovalBanner`** render? Any **`POST /v1/users/me/sync/message-keys`** after Approve?
+
+### (2) Root-cause analysis — web-client
+
+- [ ] **Bootstrap trace on B:** **`sessionBootstrap`** → **`ensureUserKeypairReadyForMessaging`** / **`ensureMessagingKeypair`** → **`POST /users/me/devices`** → **`evaluateDeviceSyncBootstrapState`** — confirm **`syncState`** transitions and whether **`pending`** is set when **`encryptedMessageKeys[myDeviceId]`** is missing on loaded messages (or gated incorrectly).
+- [ ] **Socket path on A:** **`socketWorker`** subscription to **`device:sync_requested`**; **`SocketWorkerProvider`** dispatch; **`DeviceSyncApprovalBanner`** visibility conditions (**`pendingSync`**, **`syncState`**).
+- [ ] **Sync orchestrator:** **`useDeviceKeySync`** — Approve triggers pagination + **`unwrapMessageKey`** + **`wrapMessageKey`** + **`POST …/sync/message-keys`**; verify **`targetDeviceId`** matches B’s **`deviceId`** from event/listing.
+- [ ] **New device UI:** **`NewDeviceSyncBanner`** — shows when **`syncState === 'pending'`** (or equivalent); confirm B user sees instructions to open A; **Dismiss** vs **blocked** modal behavior documented.
+- [ ] **Decrypt path on B:** **`usePeerMessageDecryption`** / **`peerDecryptInline`** — confirm error string matches **missing map entry** vs **no local private key** (classification table in **`docs/repro-decrypt-after-relogin.md`**).
+
+### (3) Root-cause analysis — messaging-service
+
+- [ ] **`POST /users/me/devices`:** when B registers, verify **`device:sync_requested`** is emitted to **`user:<userId>`** room and payload includes **`newDeviceId`** + **`newDevicePublicKey`**; check **Socket.IO** adapter and **JWT** **`deviceId`** / **`sourceDeviceId`** on sync **POST** bodies (**auth** middleware).
+- [ ] **`POST /users/me/sync/message-keys`:** authz (**caller device** must match registered device); Mongo **`$set`** on **`encryptedMessageKeys.<targetDeviceId>`**; errors returned to client (403 vs 429 vs 400).
+- [ ] **Rate limits:** **`DEVICE_SYNC_RATE_LIMIT_*`** — confirm B’s sync is not blocked after A approves.
+
+### (4) Fix / product alignment (after root cause)
+
+- [ ] **Policy:** document expected UX — **browser B** must either complete **Feature 13** sync from **A**, or only see **new** messages that include **`encryptedMessageKeys[B]`**; historical ciphertext **cannot** decrypt without sync — align copy in banners with **`docs/PROJECT_PLAN.md`** §7.1.
+- [ ] **Regression tests:** extend **`logoutReloginHybridDecrypt.integration.test.ts`** patterns or add **`secondBrowserSync.integration.test.ts`** — mock Socket event + batch **POST**, assert **`encryptedMessageKeys`** gains new device entry (where feasible without full Playwright).
+
+### (5) Verification
+
+- [ ] **Manual QA:** A and B both online → B logs in → A sees approval → Approve → B refreshes or waits for **`device:sync_complete`** → **historical** messages decrypt on B.
+- [ ] **Manual QA (negative):** B logs in while A offline → document expected behavior (banner on B; sync when A returns) vs bugs.
 
 ---
 
@@ -171,7 +250,7 @@ The **default product** does **not** expose a **Settings** (or similar) screen f
 - [ ] **Redux** + typed hooks per \***\*`docs/PROJECT_PLAN.md` §14\*\***
 - [ ] **Smoke — auth:** register → login ( **`EMAIL_VERIFICATION_REQUIRED=false`** default; separate smoke if **`true`** )
 - [ ] **Smoke — messaging:** 1:1 thread send/receive (**group** messaging is **post-MVP** — see scope note under **Definition of done**)
-- [ ] **Smoke — media:** upload + attach in thread
+- [ ] **Smoke — media:** **presign** → client **PUT** to R2 (or compatible) → attach **`mediaKey`** in thread (no **`POST /v1/media/upload`** from browser for chat attachments)
 - [ ] **Smoke — notifications:** in-tab **`notification`** for a message after broker fan-out (topic **`message.user.<recipient>`** → consumer → **`user:<recipient>`** Socket.IO room) — or stub if not wired end-to-end
 - [ ] **Smoke — call:** 1:1 call happy path (or documented skip)
 - [ ] **Feature 2a (optional):** guest path — **button → small dedicated guest page** (**username**); **guest ↔ guest** messaging only; **not** merged with **register** (see **Feature 2a** caveats)
@@ -245,8 +324,8 @@ Tracked work for **search layout**, **E2EE display**, **calls UX**, **theme cont
 
 ### (B) Web-client — Attachments / images show “-” for sender and recipient
 
-- [x] **Reproduce:** Send an image attachment; confirm both sides render **“-”** or broken preview — note **`message` API shape** (**`attachments`**, **`url`**, **`mediaId`**). **Findings:** OpenAPI **`Message`** / **`message:new`** use a single **`mediaKey`** (S3 object key), **not** `attachments[]`, **`mediaId`**, or an embedded **`url`** — **`POST /media/upload`** returns **`key`** + optional **`url`** for immediate display only. **Sender regression:** optimistic **`StoredMessage.mediaPreviewUrl`** (blob / API **`url`**) was **dropped** when merging the server ack (**`replaceOptimisticMessage`**) or **`message:new`**, so **`resolveMediaAttachmentDisplayUrl`** often had **no** `http(s)`/`blob` and **`getMediaPublicObjectUrl`** returned **`null`** without **`VITE_S3_PUBLIC_BASE_URL`** + **`VITE_S3_BUCKET`** → placeholder **“Attachment”** / failed **`img`** (recipient still depends on public URL or presigned path). **Fix:** preserve **`mediaPreviewUrl`** from the optimistic row when reconciling — **`mergeServerMessageWithOptimisticClientFields`** in **`messagingSlice`** + tests.
-- [x] **Data path:** Trace **`POST /media/upload`**, message create payload, and **Socket.IO** **`message:new`** — ensure **attachment URLs** or **ids** round-trip for sender and recipient. **Traced:** upload returns **`key`** + optional **`url`**; **`SendMessageRequest` / `Message`** carry **`mediaKey`** only (no **`attachments`**, **`mediaId`**, or message-level **`url`**). **`messageDocumentToApi`** → **`message:new`** includes **`mediaKey`** (**`messageApiShape.test.ts`**). Client: **`parseMessageNewPayload`** keeps **`mediaKey`** (**`socketMessageNew.test.ts`**); **`hydrateMessagesFromFetch`** stores full **`Message`**; **`mergeServerMessageWithOptimisticClientFields`** keeps sender **`mediaPreviewUrl`**; **`mediaPublicUrl.ts`** JSDoc documents URL derivation (**`VITE_*`** must mirror API **`S3_PUBLIC_BASE_URL`** / **`S3_BUCKET`** for recipients).
+- [x] **Reproduce:** Send an image attachment; confirm both sides render **“-”** or broken preview — note **`message` API shape** (**`attachments`**, **`url`**, **`mediaId`**). **Findings:** OpenAPI **`Message`** / **`message:new`** use a single **`mediaKey`** (S3 object key), **not** `attachments[]`, **`mediaId`**, or an embedded **`url`**. **Target upload path** (**Backlog §3**): **`/v1/media/presign`** → browser **PUT** to R2 → **`key`** + optional **`url`** (legacy **`POST /media/upload`** is not the product composer path). **Sender regression:** optimistic **`StoredMessage.mediaPreviewUrl`** (blob / API **`url`**) was **dropped** when merging the server ack (**`replaceOptimisticMessage`**) or **`message:new`**, so **`resolveMediaAttachmentDisplayUrl`** often had **no** `http(s)`/`blob` and **`getMediaPublicObjectUrl`** returned **`null`** without **`VITE_S3_PUBLIC_BASE_URL`** + **`VITE_S3_BUCKET`** → placeholder **“Attachment”** / failed **`img`** (recipient still depends on public URL or presigned path). **Fix:** preserve **`mediaPreviewUrl`** from the optimistic row when reconciling — **`mergeServerMessageWithOptimisticClientFields`** in **`messagingSlice`** + tests.
+- [x] **Data path:** Trace **presign → PUT → object `key`**, message create payload, and **Socket.IO** **`message:new`** — ensure **attachment URLs** or **ids** round-trip for sender and recipient. **Traced:** upload completion yields **`key`** + optional **`url`**; **`SendMessageRequest` / `Message`** carry **`mediaKey`** only (no **`attachments`**, **`mediaId`**, or message-level **`url`**). **`messageDocumentToApi`** → **`message:new`** includes **`mediaKey`** (**`messageApiShape.test.ts`**). Client: **`parseMessageNewPayload`** keeps **`mediaKey`** (**`socketMessageNew.test.ts`**); **`hydrateMessagesFromFetch`** stores full **`Message`**; **`mergeServerMessageWithOptimisticClientFields`** keeps sender **`mediaPreviewUrl`**; **`mediaPublicUrl.ts`** JSDoc documents URL derivation (**`VITE_*`** must mirror API **`S3_PUBLIC_BASE_URL`** / **`S3_BUCKET`** for recipients).
 - [x] **UI:** Fix **`MessageBubble`** / media renderer — correct field binding, optional **presigned URL** refresh, **CSP** / **`img src`** base URL (**`S3_PUBLIC_BASE_URL`** / nginx). **Implemented:** **`MessageBubble.tsx`** + trimmed **`mediaKey`** / **`ThreadMessageMedia`** in **`ThreadMessageList`**; **`ThreadMessageMedia`** resets on resolved URL change, **`referrerPolicy="no-referrer"`** for cross-origin **`img`**, one **cache-bust** retry for query-less public URLs (skips **`?…`** presigned), docs on presigned signatures; **`infra/nginx/nginx.conf`** **`Content-Security-Policy`** with **`img-src`** **`data:`** **`blob:`** **`https:`** **`http:`** + **`connect-src`** for API/socket.
 - [x] **Tests:** Component or integration test: attachment message renders **image** (or link), not placeholder **“-”**. **Implemented:** **`ThreadMessageList.test.tsx`** — image row via **`mediaPreviewUrl`** (**`<img>`**, no **“Attachment”**); non-image **`mediaKey`** with S3 env (**“Open attachment”** link); existing case covers **“Attachment”** only when URL cannot be resolved.
 
@@ -271,62 +350,67 @@ Tracked work for **search layout**, **E2EE display**, **calls UX**, **theme cont
 - [x] **Docs & config (as needed):** **`README.md`** title line, **`docs/PROJECT_PLAN.md`** title references where product name is user-facing — keep repo folder name **`messaging-system`** unless a separate rename is requested.
 - [x] **Consistency sweep:** Grep for old product string; update **E2E** / snapshot tests that assert visible title.
 
-### Backlog — Conversation ordering, guest labels, Cloudflare media, presence, scroll, client env
+### Backlog — Conversation ordering, guest labels, R2 presign media, presence, scroll, client env
 
-Tracked work for **conversation list ordering**, **guest display in headers**, **encrypted image URLs via Cloudflare R2-style uploads**, **last-seen freshness + placement**, **auto-scroll on realtime messages**, **profile picture uploads**, and **local env files**. Split into **(A) messaging-service / infra** and **(B) web-client** where applicable; **`*.tsx`** tests first per **`docs/PROJECT_PLAN.md` §14** where UI changes.
+Tracked work for **conversation list ordering**, **guest display in headers**, **chat media via server-issued pre-signed PUT to R2** (browser does **not** upload file bodies to **`POST /v1/media/upload`**), **last-seen freshness + placement**, **auto-scroll on realtime messages**, **profile picture uploads**, and **local env files**. Split into **(A) messaging-service / infra** and **(B) web-client** where applicable; **`*.tsx`** tests first per **`docs/PROJECT_PLAN.md` §14** where UI changes.
 
 #### 1. Conversation list — move latest thread to top on send/receive (UI)
 
-- [ ] **(B) Ordering:** On **outgoing** send (optimistic or server ack) and **incoming** **`message:new`**, update the **conversation list** so the affected thread **sorts to the top** by **last activity** (same rule as API if one exists), without **full page refresh**.
-- [ ] **(B) State:** Keep **`conversations` list** / **SWR** **`mutate`** for **`GET /v1/conversations`** (or equivalent) aligned with the new order; avoid duplicate rows or flicker.
-- [ ] **(B) Tests:** RTL — simulate new message for an existing conversation → row **moves to top** (or order assertion on visible titles / test ids).
+- [x] **(B) Ordering:** On **outgoing** send (optimistic or server ack) and **incoming** **`message:new`**, update the **conversation list** so the affected thread **sorts to the top** by **last activity** (same rule as API if one exists), without **full page refresh**. **Done:** **`bumpConversationInListCache`** (`conversationListCache.ts`) — **`updatedAt`** = message **`createdAt`**, sort **newest first**; wired from **`useSendMessage`** (optimistic + server ack) and **`SocketWorkerProvider`** **`message:new`**.
+- [x] **(B) State:** Keep **`conversations` list** / **SWR** **`mutate`** for **`GET /v1/conversations`** (or equivalent) aligned with the new order; avoid duplicate rows or flicker. **Done:** functional **`mutate`** on **`['conversations', userId]`** with **`revalidate: false`**; if row missing / cache empty, **`queueMicrotask`** → **`mutate(key)`** revalidation.
+- [x] **(B) Tests:** Unit tests for sort + bump (`conversationListCache.test.ts`). RTL smoke for list order remains optional.
 
 #### 2. Guest account — conversation header: show display name; **username** as fallback (not “Unknown contact · …”)
 
-- [ ] **(B) Reproduce:** Guest DM header shows **Unknown contact · &lt;id fragment&gt;** — trace **`ConversationListRow`**, **`HomeConversationShell`** thread header, **`userPublicLabel`** / peer profile selectors.
-- [ ] **(B) Fix:** For **guest** peers, resolve label as **`displayName`** → **`username`** (from **guest entry** / **`User`**) → short stable fallback; ensure **`GET`** profile or list payloads include **`username`** / **`displayName`** for guests.
-- [ ] **(A) (if needed)** OpenAPI + **`User`** / search payloads — confirm guest **username** is returned where the client reads peer labels.
-- [ ] **(B) Tests:** **`userPublicLabel.test.ts`**, **`HomeConversationShell.test.tsx`** — guest peer shows **username** or **displayName**, not **Unknown contact** + raw id.
+- [x] **(B) Reproduce:** Guest DM header showed **Unknown contact · &lt;id fragment&gt;** because **`formatMissingPeerProfileLabel`** ran when **`usePeerPublicProfiles` → `getUserById`** returned **`null`** — **messaging-service** had **no** **`GET /v1/users/{userId}`** route (OpenAPI was “planned” only). **Trace:** **`ConversationList`** / **`ConversationListRow`** receive **`title`** from **`HomeConversationShell`** **`items`** memo (**`peerProfilesById?.[pid]`** ? **`formatUserPublicLabel`** : **`formatMissingPeerProfileLabel`**); same for **`threadHeaderDisplay`** (**`data-testid="thread-header-title"`**).
+- [x] **(B) Fix:** For **guest** peers, resolve label as **`displayName`** → **`username`** (from **guest entry** / **`User`**) → short stable fallback; ensure **`GET`** profile or list payloads include **`username`** / **`displayName`** for guests. **Done:** **`formatUserPublicLabel`** / **`formatPendingDirectPeerLabel`** (`userPublicLabel.ts`); **`toUserPublicShape`** includes **`username`** + **`displayName`** (`messaging-service` **`publicUser.ts`**); **`GET /v1/users/:id`** + search already expose them.
+- [x] **(A) (if needed)** OpenAPI + **`User`** / search payloads — confirm guest **username** is returned where the client reads peer labels. **Done:** **`UserPublic`** / **`toUserPublicShape`**; no further API change required for this fix.
+- [x] **(B) Tests:** **`userPublicLabel.test.ts`**, **`HomeConversationShell.test.tsx`** — guest peer shows **username** or **displayName**, not **Unknown contact** + raw id.
 
-#### 3. Image preview — Cloudflare upload + pre-signed URL; encrypt media reference in message (like text)
+#### 3. Image preview — R2 pre-signed PUT only from browser (no multipart to API for chat); encrypt media reference
 
-- [ ] **(A) API:** Add **pre-signed URL** issuance for **client-direct upload** to **Cloudflare R2** (or compatible) — authenticated **`POST`/`GET`** route(s), short TTL, **Zod** + **OpenAPI**; document **server env** (**account id**, **bucket**, **API token** server-side only) in **`README.md`**, **`infra/.env.example`**.
-- [ ] **(A) Message model:** Define how the **media locator** (URL or object key) is carried inside the **E2EE** payload (**`body`** ciphertext or agreed field) so the server only sees opaque bytes; align with **Feature 11** hybrid **`body` + `iv` + `encryptedMessageKeys`**.
-- [ ] **(B) Client upload:** Integrate **Cloudflare**-compatible **direct upload** (SDK or **`fetch`** **`PUT`** to pre-signed URL); progress / cancel / errors.
-- [ ] **(B) Send path:** After upload, **encrypt** the **retrievable media URL** (or key + base URL) with the **same per-message key** as plaintext; send via existing hybrid send pipeline.
-- [ ] **(B) Receive path:** **Decrypt** payload; if **media URL** present, resolve **`img`** / preview (**`ThreadMessageMedia`**, **`MessageBubble`**); handle **URL expiry** (re-presign or public URL policy as designed).
-- [ ] **(B) Tests:** Unit + RTL — round-trip **encrypt/decrypt** of media reference; smoke **&lt;img&gt;** **`src`** after decrypt (mock URL).
+**Target architecture — chat attachments:** The **web-client does not** upload file bytes to **`POST /v1/media/upload`**. Flow: authenticated **`POST`/`GET /v1/media/presign`** → response includes **PUT URL** + **`key`** (+ optional public **`url`**) → browser **`PUT`**s the file **directly to R2** (S3-compatible). **`POST /v1/media/upload`** may exist for **server-side ingestion, tests, or migration** but is **out of scope** for the product composer. **Client max size:** **100 MiB** default, overridable via **`VITE_MEDIA_UPLOAD_MAX_BYTES`** (bytes); enforce **before** presign and in UX copy; align **server** **`MEDIA_MAX_BYTES`** / presign limits with the same cap.
+
+- [x] **(A) API — presign:** **Pre-signed URL** issuance for **browser-direct PUT** to **Cloudflare R2** (or compatible) — authenticated **`POST`/`GET`** route(s), short TTL, **Zod** + **OpenAPI**; document **server env** (**account id**, **bucket**, **API token** server-side only) in **`README.md`**, **`infra/.env.example`**. **Done:** **`GET`/`POST /v1/media/presign`** (`routes/media.ts`, `controllers/mediaPresign.ts`, `presignUserMediaUpload.ts`); **`createMediaPresignRequestSchema`**; **`MEDIA_PRESIGN_TTL_SECONDS`** (default **300** s); **`CLOUDFLARE_R2_ACCOUNT_ID`** → default R2 **`S3_ENDPOINT`**; OpenAPI **`MediaPresign*`**; **README** + **`infra/.env.example`**.
+- [x] **(A) Limits — align with 100 MB policy:** Raise or document **`MEDIA_MAX_BYTES`** (and any presign **`Content-Length`** / policy checks) so the **server** accepts at least the same maximum as the client default (**100 MiB** unless **`VITE_MEDIA_UPLOAD_MAX_BYTES`** is lower). OpenAPI / **`README.md`** (Configuration).
+- [x] **(A) Message model:** Define how the **media locator** (URL or object key) is carried inside the **E2EE** payload (**`body`** ciphertext or agreed field) so the server only sees opaque bytes; align with **Feature 11** hybrid **`body` + `iv` + `encryptedMessageKeys`**. **Done:** **v1** inner JSON (**`t`**, **`m.k`**, optional **`m.u`** / **`m.b`**) — **`messageHybridPlaintext.ts`**; send path **`useSendEncryptedMessage`**; receive **`parseDecryptedHybridUtf8`** + **`decryptedAttachmentKeyByMessageId`** / **`decryptedAttachmentUrlByMessageId`**; server **`sendMessage.ts`** clears **`mediaKey`** when hybrid envelope present; **OpenAPI** + **`PROJECT_PLAN.md` §7.1**.
+- [x] **(B) Client upload — presign-only path:** **Remove** composer use of **`POST /v1/media/upload`** (**multipart** / **`uploadMedia`** FormData) for chat media; **`useMediaUpload`** / **`mediaApi`** should use **only** **`postMediaPresign`** + **`putBlobToPresignedUrl`** (or equivalent **PUT** to returned URL). **Done:** **`useMediaUpload`** always **`uploadMediaViaPresignedPut`**; **`getMediaUploadMode`** / **`VITE_MEDIA_UPLOAD_MODE`** removed; **`uploadMedia`** retained in **`mediaApi`** for non-composer/tests only.
+- [x] **(B) Client max file size (env):** Parse **`import.meta.env.VITE_MEDIA_UPLOAD_MAX_BYTES`** (optional); **default** **`104857600`** (**100 MiB**). Reject files over the cap **before** calling presign (clear error string / composer state). Unit test: oversize file does not call presign. Document in **`apps/web-client/.env.example`**. **Done:** **`getMediaUploadMaxBytes()`** in **`apiConfig.ts`**; check in **`uploadMediaViaPresignedPut`**; **`useMediaUpload.test.tsx`** + **`mediaApi.test.ts`**; **`README.md`** + **`vite-env.d.ts`** + **`apps/web-client/.env.example`** (§8 **Templates**).
+- [x] **(B) Send path:** After upload, **encrypt** the **retrievable media URL** (or key + base URL) with the **same per-message key** as plaintext; send via existing hybrid send pipeline. **Done:** hybrid inner **v1** JSON **`serializeHybridInnerPlaintextV1`** — **`m.k`** + **`m.u`** (upload **`MediaUploadResponse.url`** or **`getMediaPublicObjectUrl`**) or **`m.b`** + **`m.k`** when no full URL; single **`encryptUtf8ToHybridSendPayload`** envelope; **`HybridSendMessageRequest.mediaRetrievableUrl`** + composer hooks → **`useSendEncryptedMessage`** (stripped before socket); **`mediaKey: null`** on wire.
+- [x] **(B) Receive path:** **Decrypt** payload; if **media URL** present, resolve **`img`** / preview (**`ThreadMessageMedia`**, **`MessageBubble`**); handle **URL expiry** (re-presign or public URL policy as designed). **Done:** **`usePeerMessageDecryption`** → **`parseDecryptedHybridUtf8`** → **`decryptedAttachmentUrlByMessageId`**; **`HomeConversationShell`** feeds **`mediaPreviewUrl`** (decrypted **`m.u`** / **`m.b`+`m.k`**) into **`ThreadMessageList`** → **`ThreadMessageMedia`**. **Public R2 / public bucket:** stable URLs — no client re-presign; **`ThreadMessageMedia`** uses cache-bust only for path-style URLs (no `?`), then **`getMediaPublicDisplayFallbackUrl`** when **`VITE_S3_*`** differs; presigned-style `?` URLs skip cache-bust. **`MessageBubble`** documents media child wiring.
+- [x] **(B) Tests:** Unit + RTL — round-trip **encrypt/decrypt** of media reference; smoke **&lt;img&gt;** **`src`** after decrypt (mock URL). **Done:** **`messageHybrid.test.ts`** — **`serializeHybridInnerPlaintextV1`** → **`encryptUtf8ToHybridSendPayload`** → **`decryptHybridMessageToUtf8`** → **`parseDecryptedHybridUtf8`** (caption + **`m.k`** + **`m.u`**); **`ThreadMessageList.test.tsx`** — peer row + **`mediaPreviewUrl`** mock HTTPS + empty **`VITE_S3_*`** → **`<img src>`** (**`ThreadMessageMedia`**).
+- [x] **(B) Tests — presign path:** MSW / unit — **presign** JSON → **PUT** stub → **`MediaUploadResponse`-shaped** result; composer rejects file &gt; **`VITE_MEDIA_UPLOAD_MAX_BYTES`** (default 100 MiB). **Done:** **`useMediaUpload.test.tsx`**, **`useComposerMediaAttachment.msw.test.tsx`**, **`mediaApi.test.ts`** (oversize).
 
 #### 4. Last seen — update periodically while the message window is open (not only on refresh)
 
-- [ ] **(A) (verify)** Server **`presence:heartbeat`** + **`presence:getLastSeen`** / **`resolveLastSeenForUser`** — confirm **Redis/Mongo** **`lastSeenAt`** updates when heartbeats arrive (throttle window documented).
-- [ ] **(B) Client — active thread:** While the **conversation thread** is **open** (and optionally **tab focused** / **`document.visibilityState`**), emit **`presence:heartbeat`** on the **existing cadence** or a **faster interval** where allowed by server throttle so the **peer’s** last-seen label **updates live**.
-- [ ] **(B) Client — subscribe / invalidate:** On **`presence:*`** acks or events (if any), or **polling** fallback, **refresh** last-seen display in the **thread header** without full reload.
-- [ ] **(B) Tests:** Hook or component test — focused chat → **heartbeat** / **`getLastSeen`** path invoked (mock socket).
+- [x] **(A) (verify)** Server **`presence:heartbeat`** + **`presence:getLastSeen`** / **`resolveLastSeenForUser`** — confirm **Redis/Mongo** **`lastSeenAt`** updates when heartbeats arrive (throttle window documented).
+- [x] **(B) Client — active thread:** While the **conversation thread** is **open** (and optionally **tab focused** / **`document.visibilityState`**), emit **`presence:heartbeat`** on the **existing cadence** or a **faster interval** where allowed by server throttle so the **peer’s** last-seen label **updates live**.
+- [x] **(B) Client — subscribe / invalidate:** On **`presence:*`** acks or events (if any), or **polling** fallback, **refresh** last-seen display in the **thread header** without full reload. **Done:** no server **`presence:*`** emits — **`useLastSeen`** **`liveRefresh`** polls **`getLastSeen`** acks (**`HomeConversationShell`**); **`message:new`** for the **active** conversation clears peer presence (**`presenceClearedForUser`**) so the header refetches immediately.
+- [x] **(B) Tests:** Hook or component test — focused chat → **heartbeat** / **`getLastSeen`** path invoked (mock socket). **Done:** **`HomeConversationShell.test.tsx`** — preloaded active direct thread + **`setPresenceHeartbeatMode('active_thread')`** / **`getLastSeen(peerId)`** on mock **`useSocketWorker`**.
 
 #### 5. Last seen — remove from conversation list row; keep in message window only
 
-- [ ] **(B) UI:** Remove **last seen** / **presence** snippet from **`ConversationListRow`** (and any **sidebar** list variant).
-- [ ] **(B) UI:** Keep **last seen** (or **typing** / **online** if product merges them) in the **active thread header** only (**`HomeConversationShell`** / **`ThreadHeader`** area).
-- [ ] **(B) Tests:** List row assertions — **no** last-seen text; thread header — **still** shows when data exists (**`HomeConversationShell.test.tsx`**).
+- [x] **(B) UI:** Remove **last seen** / **presence** snippet from **`ConversationListRow`** (and any **sidebar** list variant). **Done:** **`ConversationListRow`** / **`ConversationList`** — no **`usePeerPresenceDisplay`** in sidebar; **`HomeConversationShell`** list **`items`** omit **`peerUserId`**.
+- [x] **(B) UI:** Keep **last seen** (or **typing** / **online** if product merges them) in the **active thread header** only (**`HomeConversationShell`** / **`ThreadHeader`** area). **Done:** unchanged — **`thread-header-presence`** + **`usePeerPresenceDisplay`**.
+- [x] **(B) Tests:** List row assertions — **no** last-seen text; thread header — **still** shows when data exists (**`HomeConversationShell.test.tsx`**). **Done:** **`ConversationList.test.tsx`** (no **Online** / **last seen** in sidebar); **`HomeConversationShell.test.tsx`** — **`thread-header-presence`** + **`getLastSeen`** mock.
 
 #### 6. Auto-scroll — jump to latest message on **`message:new`** when that chat is open
 
-- [ ] **(B) Behaviour:** When **`message:new`** applies to **`activeConversationId`**, scroll the **message list** to the **bottom** (newest message), unless the user has **scrolled up** intentionally (preserve existing **“new messages below”** / scroll-lock pattern if present).
-- [ ] **(B) Implementation:** **`ThreadMessageList`** / container **`ref`** + **`scrollTop`** / **`scrollIntoView`** on new row; debounce if many events arrive quickly.
-- [ ] **(B) Tests:** **`ThreadMessageList.test.tsx`** (or shell) — append message while active → **scroll** stub or **last child** visibility assertion.
+- [x] **(B) Behaviour:** When **`message:new`** applies to **`activeConversationId`**, scroll the **message list** to the **bottom** (newest message), unless the user has **scrolled up** intentionally (preserve existing **“new messages below”** / scroll-lock pattern if present). **Done:** **`ThreadMessageList`** — pin-to-bottom + **`conversationScrollKey`** from **`HomeConversationShell`**.
+- [x] **(B) Implementation:** **`ThreadMessageList`** / container **`ref`** + **`scrollTop`** / **`scrollIntoView`** on new row; debounce if many events arrive quickly. **Done:** **`scrollTop`** on **`scrollHeight`** change when pinned (no debounce — single layout pass per Redux update).
+- [x] **(B) Tests:** **`ThreadMessageList.test.tsx`** (or shell) — append message while active → **scroll** stub or **last child** visibility assertion. **Done:** **`ThreadMessageList.test.tsx`** — mocked **`scrollTop`** / **`scrollHeight`**.
 
 #### 7. Profile picture — pre-signed URL upload via Cloudflare (**no** message-layer encryption)
 
-- [ ] **(A) API:** Extend **`PATCH /v1/users/me`** (or dedicated **avatar** route) — server returns **pre-signed PUT URL**; after upload, client sends **final public URL** or **object key**; persist on **`User.profilePicture`**; **OpenAPI** + **Zod**.
-- [ ] **(B) Settings UI:** **`SettingsPage`** — pick file → **PUT** to pre-signed URL → **PATCH** profile with resulting **URL/key**; loading/error states; **no** E2EE wrapper for avatar strings.
-- [ ] **(B) Tests:** MSW / RTL — happy path + failed upload.
+- [x] **(A) API:** Extend **`PATCH /v1/users/me`** (or dedicated **avatar** route) — server returns **pre-signed PUT URL**; after upload, client sends **final public URL** or **object key**; persist on **`User.profilePicture`**; **OpenAPI** + **Zod**.
+- [x] **(B) Settings UI:** **`SettingsPage`** — pick file → **PUT** to pre-signed URL → **PATCH** profile with resulting **URL/key**; loading/error states; **no** E2EE wrapper for avatar strings.
+- [x] **(B) Tests:** MSW / RTL — happy path + failed upload.
 
 #### 8. Web-client `.env` for Cloudflare-related **public** config + gitignore
 
-- [ ] **(B) Templates:** Add **`apps/web-client/.env.example`** entries for **`VITE_*`** vars that are **safe in the bundle** (e.g. **public** bucket base if required); document that **secrets** (**API tokens**, **R2 secret keys**) stay **server-only** — client never embeds them.
-- [ ] **Gitignore:** Ensure local secret files are not committed — root **`/.gitignore`** already ignores **`.env`**; add **`.env`** to **`apps/web-client/.gitignore`** explicitly if desired for clarity; keep **`.env.local`** / **`.env.*.local`** as override pattern per existing repo policy.
-- [ ] **Docs:** Short **`README.md`** (web-client or root) pointer — copy **`.env.example`** → **`.env.local`** for local Cloudflare-related **public** IDs.
+- [x] **(B) Templates:** Add **`apps/web-client/.env.example`** entries for **`VITE_*`** vars that are **safe in the bundle** (e.g. **public** bucket base if required, **`VITE_MEDIA_UPLOAD_MAX_BYTES`** optional override for **100 MiB** default cap); document that **secrets** (**API tokens**, **R2 secret keys**) stay **server-only** — client never embeds them.
+- [x] **Gitignore:** Ensure local secret files are not committed — root **`/.gitignore`** already ignores **`.env`**; add **`.env`** to **`apps/web-client/.gitignore`** explicitly if desired for clarity; keep **`.env.local`** / **`.env.*.local`** as override pattern per existing repo policy.
+- [x] **Docs:** Short **`README.md`** (web-client or root) pointer — copy **`.env.example`** → **`.env.local`** for local Cloudflare-related **public** IDs.
 
 ---
 
@@ -360,7 +444,7 @@ Tracked work for **conversation list ordering**, **guest display in headers**, *
     - [x] **Web-client** uses **`kind`** for **alert audio** (e.g. **`message`** vs **`call_incoming`**).
   - [x] **Feature 6 (read — WebSocket):** **`presence:getLastSeen`** + ack — **`resolveLastSeenForUser`** (`src/presence/resolveLastSeen.ts`): Redis → Mongo → **`{ status: 'not_available' }`**
 
-- [x] **messaging-service (S3 / static uploads)** — **`POST /v1/media/upload`** via **`@aws-sdk/client-s3`** + **`@aws-sdk/lib-storage`** (`Upload`); **MinIO** in Compose; object keys for messages still **Cross-cutting — Media** (MongoDB wire-up)
+- [x] **messaging-service (S3 / static uploads)** — AWS SDK **`@aws-sdk/client-s3`** + **`@aws-sdk/lib-storage`**; **`POST /v1/media/upload`** (multipart) for **server-side / legacy**; **product browser path** uses **presign + direct PUT** to R2 — see **§3** + **Cross-cutting — Media** (MongoDB wire-up)
 
 - [ ] **Docker Compose, nginx, TLS, deployment**
   - [x] **`docker compose`**: **`infra/docker-compose.yml`** — **messaging-service** (image build), MongoDB, Redis, RabbitMQ, MinIO, **nginx** (entry **`http://localhost:8080`**); optional **coturn** — `docker compose -f infra/docker-compose.yml --profile turn up -d`
@@ -383,9 +467,9 @@ Tracked work for **conversation list ordering**, **guest display in headers**, *
   - [x] **Presence hook:** **`emit('presence:heartbeat')` every 5s** while connected — **`src/common/hooks/usePresenceConnection`** (**Feature 6**)
   - [x] **Vitest** + **React Testing Library** + **jsdom** (`npm run test` / `test:watch`); **`src/setupTests.ts`**; example **`*.tsx`** component test (**`ThemeToggle`**); mandatory tests only for UI **`*.tsx`** per \***\*`docs/PROJECT_PLAN.md` §14** §4.1.1**; **no** client env-based user impersonation for Socket.IO (identity from session only, per \*\***`docs/PROJECT_PLAN.md` §14\*\* §4.1)
   - [x] **Static assets / uploads (images, etc.):** follow **Cross-cutting — Media (AWS S3)** (**no AWS SDK in the browser**)
-    - [x] **API:** call **`uploadMedia`** / **`POST /media/upload`** from UI (FormData); handle **`MediaUploadResponse`** (`key` / `url`) — **`src/common/api/mediaApi.ts`** + thin UI hook
+    - [x] **API (target):** chat media via **`postMediaPresign`** + **PUT** to returned URL only — **`MediaUploadResponse`** (`key` / `url`); remove composer **`POST /media/upload`** FormData path per **Backlog §3 (B) Client upload — presign-only**. **Done:** **`useMediaUpload`** (**`useComposerMediaAttachment`**).
     - [x] **Composer:** file picker, attach flow, pass **`mediaKey`** (or URL) into **`sendMessage`** payload per OpenAPI
-    - [x] **UX:** upload **progress** (XHR/`axios` onUploadProgress or equivalent), cancel/retry, error states
+    - [x] **UX:** upload **progress** (XHR **`PUT`** progress + abort), cancel/retry, error states; **100 MiB** cap via **`VITE_MEDIA_UPLOAD_MAX_BYTES`** (see **§3**)
     - [x] **Thread UI:** render image attachments from API URLs; loading/**lazy** **`alt`** / a11y (**see also** **Cross-cutting — Media (B)**)
 
 - [ ] **web-client — REST mocking and integration tests** (**`docs/PROJECT_PLAN.md` §14** §4.1; behaviour-focused RTL + Vitest)
@@ -595,7 +679,7 @@ Tracked work for **conversation list ordering**, **guest display in headers**, *
 - [x] **Spec bump `0.1.0`:** user **`profilePicture`** + **`status`**; **`GET /users/search?email=`** + **`UserSearchResult`** (name, avatar, **`conversationId`** nullable); **`POST /messages`** with optional **`conversationId`** + **`recipientUserId`** for new direct threads; **`LimitQuery`** default documented — see **Cross-cutting — User profile, email search, send message, pagination**
 - [x] **Spec bump `0.1.1`:** **`RegisterRequest`** — optional **`profilePicture`** (URI) + **`status`** at signup; **`PATCH /users/me`** — **`multipart/form-data`** **`UpdateProfileRequest`** (optional **`file`**, **`status`**, **`displayName`**) — see **Feature 2** + **Cross-cutting**
 - [x] **Spec bump `0.1.2`:** **`POST /media/upload`** — **`MediaUploadResponse`**; backend implemented — **Cross-cutting — Media**
-- [x] **Spec bump `0.1.3`:** **`POST /media/upload`** — **`MEDIA_MAX_BYTES`** (default 30 MiB) documented in OpenAPI description
+- [x] **Spec bump `0.1.3`:** **`POST /media/upload`** — **`MEDIA_MAX_BYTES`** (default 100 MiB) documented in OpenAPI description
 - [x] **Spec bump `0.1.4`:** **`/auth/register`**, **`/auth/verify-email`**, **`/auth/resend-verification`** — **Feature 2**
 - [x] **Spec / docs (env-gated verification):** **`User.emailVerified`** + verify/resend **`EMAIL_VERIFICATION_REQUIRED`** — **`README.md`** (Configuration section) + **`openapi.yaml` `0.1.7`** (no **`GET /config`**)
 - [x] **messaging-service:** **Zod** — **`src/validation/`** (`schemas.ts` mirrors OpenAPI request bodies / query / path; **`validateBody`**, **`validateQuery`**, **`validateParams`**); **`POST /media/upload`** uses **`createMulterFileSchema`**; **`presence:getLastSeen`** uses **`getLastSeenPayloadSchema`** — wire **`validate*`** on new HTTP routes as they land
@@ -649,14 +733,14 @@ Tracked work for **conversation list ordering**, **guest display in headers**, *
 
 - [x] **Register flow:** form + **`registerUser`** + **`applyAuthResponse`**; optional **`status`** + **`profilePicture`** (file → **`PATCH /users/me`** or advanced URL in **`RegisterRequest`**); errors from **`ErrorResponse`** — **`RegisterPage`**, **`routes/paths`**, **`modules/auth/utils/apiError`**
   - [x] **Email mandatory / separate from guest:** **`email`** remains **required** on **`RegisterPage`** and in client validation; **guest** username/session is **only** via **Feature 2a** — **dedicated guest page** + **`POST /auth/guest`**, **not** via register or shared guest+register form.
-- [x] **Register — profile picture (UX):** **file** input primary (**`accept`** image/\*, **`REGISTER_AVATAR_MAX_BYTES`**); after **`registerUser`** when **`accessToken`** present, **`PATCH /users/me`** via **`updateCurrentUserProfile`** (same **`SettingsPage`** S3 path); optional **URL** in **advanced** **`details`**; toasts when photo cannot be applied until **Settings** — **`RegisterPage`**, **`formValidation`**
+- [x] **Register — profile picture (UX):** **file** input primary (**`accept`** image/\*, **`REGISTER_AVATAR_MAX_BYTES`**); after **`registerUser`** when **`accessToken`** present, **`uploadProfileAvatarViaPresignedPut`** (presign + **`PUT`** + JSON **`PATCH`**, same contract as **Settings**); optional **URL** in **advanced** **`details`**; toasts when photo cannot be applied until **Settings** — **`RegisterPage`**, **`formValidation`**
 - [x] **Login flow:** form + **`login`** + **`applyAuthResponse`**; handle **403** “email not verified” vs **401** — **`LoginPage`**, **`parseLoginError`** in **`modules/auth/utils/apiError`**
 - [ ] **Forgot / reset password** _(deprioritized for now — backend routes exist; web-client screens later):_ **`forgotPassword`** + **`resetPassword`** (token from **email link** / query param)
 - [x] **Verification UX when `User.emailVerified` is `false`:** **`verifyEmail`** + **`resendVerificationEmail`** screens (state from register or **`getCurrentUser`**) — **`VerifyEmailPage`**, **`ROUTES.verifyEmail`**, **`applyVerifyEmailResponse`**
 - [x] **Redux `auth`:** ensure **`user.emailVerified`** populated; after register, route to app vs “check your email” — **`selectEmailVerified`**, **`useAuth`**, **`RegisterPage`** / **`HomePage`** redirect to **`/verify-email`** when unverified
 - [x] **Protected routes:** wrapper or loader — unauthenticated → **`/login`**; post-login redirect — **`ProtectedRoute`**, **`postLoginRedirect.ts`**, **`App.tsx`** nested route; login/register/verify preserve **`state.from`**
 - [x] **Session restore:** on app load, **`getCurrentUser`** (or refresh) if refresh token present — **`main`/`App`** bootstrap — **`SessionRestore`**, **`sessionBootstrap.ts`** (**`refreshTokens`** → **`getCurrentUser`**)
-- [x] **Settings / profile:** **`PATCH /users/me`** via **`updateCurrentUserProfile`** (FormData: image + **status** + **displayName**) — **`SettingsPage`**, **`ROUTES.settings`**
+- [x] **Settings / profile:** **`PATCH /users/me`** — text-only via **`updateCurrentUserProfile`** (**`multipart/form-data`**); new photo via **`uploadProfileAvatarViaPresignedPut`** (presign + **`PUT`** + JSON **`PATCH`**) — **`SettingsPage`**, **`ROUTES.settings`**
 - [x] **Tests first (`*.tsx`):** one screen per test file or shared **`renderWithProviders`** — RTL + MSW per \***\*`docs/PROJECT_PLAN.md` §14** §4.1.1** — **`src/common/test-utils/renderWithProviders.tsx`**, **`src/common/mocks/handlers.ts`** + **`server`**, **`SettingsPage.test.tsx`**, **`HomePage.test.tsx`**, **`src/common/components/ThemeToggle.test.tsx`\*\*
 - [x] **Form validation UX** (client) + **API** error mapping (`code` / `message`) — **`lib/formValidation.ts`**, **`parseApiError`** / **`ApiErrorAlert`**, auth + **`SettingsPage`**
 
@@ -778,14 +862,14 @@ Tracked work for **conversation list ordering**, **guest display in headers**, *
 
 ## Cross-cutting — Media (AWS S3)
 
-**Scope:** **Static assets** uploaded by users (e.g. **images** in chat). **All S3 access uses the AWS SDK in messaging-service** (`@aws-sdk/client-s3`, and **`@aws-sdk/lib-storage`** if large/multipart uploads). The **web-client** sends files **to messaging-service** only (**no AWS SDK** and **no AWS credentials** in the browser).
+**Scope:** **Static assets** uploaded by users (e.g. **images** in chat). **All S3/R2 SDK usage stays in messaging-service** (`@aws-sdk/client-s3`, **`@aws-sdk/lib-storage`**). **Product web-client:** **no AWS SDK**, **no long-lived object-store credentials** — obtain a **short-lived pre-signed PUT** from the API, then upload the file **directly to R2** (or MinIO). **`POST /v1/media/upload`** (multipart to API) is **not** the target composer path; see **Backlog §3**.
 
 ### (A) messaging-service (backend) — AWS SDK
 
 - [x] Dependencies: **`@aws-sdk/client-s3`**; **`@aws-sdk/lib-storage`** (`Upload`); **do not** add AWS SDK to **web-client**
 - [x] **S3 client factory:** `src/storage/s3Client.ts` — env from **`README.md`** (Configuration); **MinIO** (`S3_ENDPOINT`, path-style when endpoint set); credentials via env or IAM default chain on AWS
-- [x] **Upload path:** **`POST /v1/media/upload`** — multipart **`file`**; **`Authorization: Bearer`** (HS256, `sub`) when **`JWT_SECRET`** set; non-production **`X-User-Id`** for local dev; **conversation-level authz** can be added with messaging (**Feature 1**)
-- [x] **Before calling SDK:** **`MEDIA_MAX_BYTES`** (default **30 MiB** via env); allowlisted **MIME** (images + common video types); keys `users/{userId}/{uuid}-{name}`; in-memory buffer up to max (stream to **`Upload`** later if needed)
+- [x] **Upload path (multipart to API):** **`POST /v1/media/upload`** — multipart **`file`**; **`Authorization: Bearer`** (HS256, `sub`) when **`JWT_SECRET`** set; non-production **`X-User-Id`** for local dev — **legacy / server tools**; **not** used by target chat composer (**presign + PUT** instead)
+- [x] **Before calling SDK:** **`MEDIA_MAX_BYTES`** (default **100 MiB** via env, aligned with **`VITE_MEDIA_UPLOAD_MAX_BYTES`**); allowlisted **MIME** (images + common video types); keys `users/{userId}/{uuid}-{name}`; in-memory buffer up to max (stream to **`Upload`** later if needed)
 - [x] **AWS SDK:** **`Upload`** from `@aws-sdk/lib-storage`; response **`{ key, bucket, url? }`** per **OpenAPI** `MediaUploadResponse`
 - [ ] **MongoDB:** message (or attachment) documents store **S3 key** (and optional public/base URL); access patterns per **`docs/PROJECT_PLAN.md` §14** §2.0
 - [x] **Operational:** **`HeadBucket`** on **`/v1/ready`** when S3 configured; **`ensureBucketExists`** at startup; **Compose** wires **MinIO** + **`S3_*`** env (see **`infra/docker-compose.yml`**)
@@ -795,15 +879,15 @@ Tracked work for **conversation list ordering**, **guest display in headers**, *
   - [ ] **Client:** build **`<img src>`** from that URL or blob; for **E2EE**, **`mediaKey`** in the message may be **opaque / encrypted** — **decrypt to key** (or fetch key from envelope) **before** requesting the media URL (**no** reliance on MinIO “public” policy for MVP)
 - [ ] **Env / docs:** document that **`S3_ANONYMOUS_GET_OBJECT`** / public bucket policy is **optional** when using presigned/proxy GET; **`VITE_*`** public base URL may become unnecessary for attachments if all loads go through API/CDN
 
-### (B) Web-client (UI) — upload via API only
+### (B) Web-client (UI) — presign + PUT to R2 (target); multipart legacy
 
-- [x] **Tests first (`*.tsx`):** MSW **`POST /media/upload`** → progress callback → resolved **`MediaUploadResponse`**
-- [x] **File picker + FormData:** **`file`** field per OpenAPI; **`uploadMedia`** (**`mediaApi.ts`**)
-- [x] **Progress + cancel:** **`axios` `onUploadProgress`** or XHR; **`AbortController`** for cancel; retry UX
-- [x] **Composer:** after upload, pass **`mediaKey`** / preview URL into **`sendMessage`** — **no** browser **S3** calls
+- [x] **Tests first (`*.tsx`):** MSW **`POST|GET /v1/media/presign`** → stub **PUT** to arbitrary URL → resolved **`MediaUploadResponse`**; oversize file blocked by **`VITE_MEDIA_UPLOAD_MAX_BYTES`**. **Done:** **`useMediaUpload.test.tsx`**, **`useComposerMediaAttachment.msw.test.tsx`**.
+- [x] **File picker + presign:** **No** **`FormData`** **`POST /media/upload`** for chat — **`postMediaPresign`** + **`putBlobToPresignedUrl`** (**`mediaApi.ts`**, **`useMediaUpload`**). **Done:** composer hook path.
+- [x] **Progress + cancel:** XHR (or **`fetch`**) on **PUT**; **`AbortController`** for cancel; retry UX — **extend** tests for presign-only path
+- [x] **Composer:** after upload, pass **`mediaKey`** / preview URL into **`sendMessage`** — **no** browser **S3** credentials
 - [x] **`useMediaUpload` hook:** percent + error state (**no** `aws-sdk` in **`package.json`**)
 - [x] **Thread:** **`<img>`** from API/CDN URLs; **`loading="lazy"`**; **`alt`**; optional lightbox
-- [x] **Env / CDN:** **`VITE_API_BASE_URL`** in **`README.md`** (Configuration section); public **bucket/CDN** base URL for **`src`** if different from API origin
+- [x] **Env / CDN:** **`VITE_API_BASE_URL`** in **`README.md`** (Configuration section); public **bucket/CDN** base URL (**`VITE_S3_PUBLIC_BASE_URL`** / **`VITE_S3_BUCKET`**) for **`src`** if applicable; **`VITE_MEDIA_UPLOAD_MAX_BYTES`** (optional; default **100 MiB**) per **Backlog §3**
 
 ---
 
@@ -863,7 +947,7 @@ _Pick up only after core in-tab notifications and call flows are done; not part 
 
 ### (A) Infra, backend & deployment
 
-- [x] **Redis (hot / online):** accept **`presence:heartbeat`**; update Redis at most once per **~4.5s** per socket (throttle); **`src/presence/lastSeen.ts`**
+- [x] **Redis (hot / online):** accept **`presence:heartbeat`**; update Redis at most once per **`PRESENCE_HEARTBEAT_REDIS_WRITE_MIN_INTERVAL_MS`** (**4500 ms**) per socket — **`src/data/presence/presenceHeartbeatThrottle.ts`** + **`lastSeen.ts`**
 - [x] **MongoDB (durable / offline):** on **disconnect**, **`flushLastSeenToMongo`** — copy Redis timestamp → **`users.lastSeenAt`**, then **`DEL`** Redis key; **`src/presence/flushLastSeenToMongo.ts`**
 - [x] **Read path (WebSocket):** client emits **`presence:getLastSeen`** with **`{ targetUserId }`** and uses the **ack** callback — server: **Redis first**, then **`users.lastSeenAt`** in MongoDB, else **`{ status: 'not_available' }`** (`resolveLastSeenForUser`)
 - _Deprioritized — not required for now:_ **Authz on `targetUserId`** for **`presence:getLastSeen`** (optional **REST** mirror in **OpenAPI**) — revisit with **Feature 2** when privacy policy needs it.

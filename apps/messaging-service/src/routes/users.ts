@@ -8,9 +8,10 @@ import {
   getSyncMessageKeys,
   postBatchSyncMessageKeys,
   getSearchUsers,
+  getUserById,
   getUserDevicePublicKeys,
   patchMe,
-  patchMeMultipart,
+  postMyAvatarPresign,
   postRegisterDevice,
   rateLimitDeviceSyncBatch,
   rateLimitPublicKeyWrites,
@@ -25,6 +26,7 @@ import {
 } from '../validation/middleware.js';
 import {
   batchSyncMessageKeysRequestSchema,
+  createAvatarPresignRequestSchema,
   createSearchUsersQuerySchema,
   deviceIdPathSchema,
   listMyDevicesQuerySchema,
@@ -36,6 +38,7 @@ import {
 /**
  * User profile, search, E2EE public key directory — **wiring only**. Handlers live in **`src/controllers/users.ts`**.
  * **`PATCH /users/me`** uses **`rejectGuestUserMiddleware`** after auth (guests cannot update profile — **Feature 2a**).
+ * **`POST /users/me/avatar/presign`** issues a short-lived **`PUT`** URL for profile images (**image/** MIME only).
  * User-search and device-key **`POST`/`DELETE`** rate limits **stack** with the global REST cap (global middleware runs first).
  */
 export function createUsersRouter(env: Env): Router {
@@ -59,8 +62,15 @@ export function createUsersRouter(env: Env): Router {
     '/users/me',
     requireAuthMiddleware(env),
     rejectGuestUserMiddleware(),
-    patchMeMultipart(upload),
-    patchMe(env, s3Client),
+    patchMe(env, s3Client, upload),
+  );
+
+  router.post(
+    '/users/me/avatar/presign',
+    requireAuthMiddleware(env),
+    rejectGuestUserMiddleware(),
+    validateBody(createAvatarPresignRequestSchema(env.MEDIA_MAX_BYTES)),
+    postMyAvatarPresign(env, s3Client),
   );
 
   router.get(
@@ -106,6 +116,13 @@ export function createUsersRouter(env: Env): Router {
     requireAuthMiddleware(env),
     validateParams(userIdPathSchema),
     getUserDevicePublicKeys(env),
+  );
+
+  router.get(
+    '/users/:userId',
+    requireAuthMiddleware(env),
+    validateParams(userIdPathSchema),
+    getUserById(),
   );
 
   return router;

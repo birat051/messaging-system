@@ -89,9 +89,30 @@ const envSchema = z.object({
 
   /** When set, media uploads and S3 readiness are enabled. Omit to run without object storage (dev). */
   S3_BUCKET: z.string().min(1).optional(),
+  /**
+   * **Cloudflare R2** account id (32 hex chars from the dashboard). **Server-side only** — never expose in the web client.
+   * When **`S3_ENDPOINT`** is unset, the default endpoint is **`https://<id>.r2.cloudflarestorage.com`** (S3-compatible API).
+   * Pair with **`S3_BUCKET`** and an R2 **API token** mapped to **`AWS_ACCESS_KEY_ID`** / **`AWS_SECRET_ACCESS_KEY`**.
+   */
+  CLOUDFLARE_R2_ACCOUNT_ID: z.preprocess(
+    (v) => (v === '' || v === undefined ? undefined : v),
+    z.string().regex(/^[a-fA-F0-9]{32}$/).optional(),
+  ),
   S3_REGION: z.string().min(1).default('us-east-1'),
-  /** MinIO / S3-compatible API base URL, e.g. `http://127.0.0.1:9000` or `http://minio:9000` in Compose. */
-  S3_ENDPOINT: z.string().url().optional(),
+  /**
+   * MinIO / S3-compatible API base URL, e.g. `http://127.0.0.1:9000` or **`https://<accountid>.r2.cloudflarestorage.com`** for R2.
+   * If omitted and **`CLOUDFLARE_R2_ACCOUNT_ID`** is set, defaults to the R2 endpoint above.
+   */
+  S3_ENDPOINT: z.preprocess((val) => {
+    if (val !== undefined && val !== null && String(val).trim() !== '') {
+      return val;
+    }
+    const id = process.env.CLOUDFLARE_R2_ACCOUNT_ID?.trim();
+    if (id && /^[a-fA-F0-9]{32}$/.test(id)) {
+      return `https://${id}.r2.cloudflarestorage.com`;
+    }
+    return undefined;
+  }, z.string().url().optional()),
   /** Path-style addressing; MinIO / custom endpoints need `true` (set automatically when `S3_ENDPOINT` is set in the S3 client factory). */
   S3_FORCE_PATH_STYLE: z.preprocess((val) => {
     if (val === undefined || val === '') {
@@ -109,6 +130,13 @@ const envSchema = z.object({
    */
   S3_PUBLIC_BASE_URL: z.string().url().optional(),
   /**
+   * S3-compatible API base URL used **only** when signing pre-signed **`PUT`** URLs for direct browser uploads.
+   * Server-side **`S3_ENDPOINT`** may be an internal hostname (e.g. **`http://minio:9000`** in Docker) that the browser
+   * cannot resolve — in that case set **`S3_PUBLIC_BASE_URL`** to the host the browser uses (often **`http://localhost:9000`**),
+   * or set this variable to override when presign must target a different API origin than **`S3_PUBLIC_BASE_URL`**.
+   */
+  S3_PRESIGN_ENDPOINT: z.string().url().optional(),
+  /**
    * When `true`, apply an **anonymous `s3:GetObject`** bucket policy on startup so browser **`img src`** URLs
    * (see **`S3_PUBLIC_BASE_URL`**) work against **MinIO** / private S3 buckets. **Do not** enable on AWS public
    * buckets meant to stay private behind CloudFront/OAI — use **`false`** (default) there.
@@ -123,14 +151,26 @@ const envSchema = z.object({
     return val === true || val === 'true' || val === '1' || val === 1;
   }, z.boolean()),
   /**
-   * Max upload size in bytes per multipart `file` (images and videos). Default **30 MiB**; override via env for deployments that need a different cap.
+   * Max upload size in bytes per multipart `file` (images and videos) and max **`contentLength`** for **`/v1/media/presign`**.
+   * Default **100 MiB** — matches **`VITE_MEDIA_UPLOAD_MAX_BYTES`** on web-client; lower or raise per deployment.
    */
   MEDIA_MAX_BYTES: z.coerce
     .number()
     .int()
     .positive()
     .max(524288000)
-    .default(31457280),
+    .default(104857600),
+  /**
+   * Lifetime (seconds) for **`GET`/`POST /v1/media/presign`** — pre-signed **`PUT`** URLs for direct browser uploads.
+   * Short default (**5 min**); max **1 h**.
+   */
+  MEDIA_PRESIGN_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .min(60)
+    .max(3600)
+    .default(300),
   /** HS256 secret for JWTs (media upload auth, access tokens, email verification tokens). */
   JWT_SECRET: z.string().min(1).optional(),
   /**

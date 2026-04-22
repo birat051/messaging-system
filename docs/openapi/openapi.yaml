@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Ekko API
-  version: 0.1.46
+  version: 0.1.48
   description: |
     **Source of truth** for REST contracts between **web-client** and **messaging-service**
     (single HTTP API; there is no separate notification REST service).
@@ -52,9 +52,11 @@ info:
     (normalized handle) on new accounts.
     At **signup** (`POST /auth/register`), **`email`**, **`password`**, **`username`**, and **`displayName`** are required; **`profilePicture`**
     (URL) and **`status`** are **optional** — avatar URL may come from a prior **`POST /media/upload`**
+    or a **client-direct `PUT`** after **`GET`/`POST /media/presign`**
     if the client uploads before register. **Update profile** — **`PATCH /users/me`** accepts
-    **`multipart/form-data`** with an optional **profile image** (`file`) plus optional **`status`** and
-    **`displayName`** parts.
+    **`multipart/form-data`** (optional **`file`** image plus **`status`** / **`displayName`**) or
+    **`application/json`** (**`UpdateProfileJsonRequest`**) to set **`profilePicture`** from a **public URL** or
+    from **`profilePictureMediaKey`** after **`POST /users/me/avatar/presign`** + client **`PUT`**.
     **Search** matches **substring** on **normalized email** and **username** — provide **`q`** or legacy **`email`** query — see `GET /users/search`. **Guest** sessions (**`User.guest === true`**) only see **other guests** in search results; registered accounts never appear.
     **Guest privilege ceiling:** **`PATCH /users/me`**, **`POST /auth/verify-email`**, and **`POST /auth/reset-password`** return **403** **`GUEST_ACTION_FORBIDDEN`** for guest accounts; full signup remains **`POST /auth/register`**.
 
@@ -109,7 +111,9 @@ tags:
   - name: Contacts
     description: Contact lists and requests
   - name: Media
-    description: Uploads via messaging-service (AWS SDK → S3)
+    description: |
+      Uploads via messaging-service (**`POST /media/upload`** through the API, or **client-direct `PUT`** using
+      **`GET`/`POST /media/presign`** pre-signed URLs to S3-compatible storage — e.g. **MinIO**, **AWS S3**, **Cloudflare R2**).
   - name: 'Device sync (Feature 13)'
     description: |
       Per-device E2EE registry and multi-device key sync (**`docs/TASK_CHECKLIST.md`** §A). REST paths under **`/users/me/devices`**
@@ -527,10 +531,14 @@ paths:
       operationId: updateCurrentUserProfile
       summary: Update current user profile
       description: |
-        **Multipart** profile update: optional **profile image** (`file` part), optional **status**
-        text, optional **displayName**. At least one part should be supplied; omitted fields are left
-        unchanged. Server stores the image via the same pipeline as **`POST /media/upload`** (S3 key
-        on user document + public URL in **`profilePicture`**).
+        **Multipart** — optional **profile image** (`file` part), optional **status**, optional **displayName**.
+        At least one part should be supplied; omitted fields are unchanged. The server may upload **`file`**
+        with the same object-key layout as **`POST /media/upload`** and persists a public URL (or key) in **`profilePicture`**.
+
+        **JSON** — optional **`profilePicture`** (HTTPS URL or **`null`** to clear), optional **`profilePictureMediaKey`**
+        (S3 object key returned from **`POST /users/me/avatar/presign`** after the client **`PUT`** completes — must
+        belong to **`users/{callerId}/…`**), optional **`displayName`**, optional **`status`**. Send at least one field;
+        do not send both **`profilePicture`** and **`profilePictureMediaKey`**.
 
         **Not available for guest sessions** — use **`POST /auth/register`** for a full account. Guests receive **403** **`GUEST_ACTION_FORBIDDEN`**.
       tags:
@@ -543,6 +551,9 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/UpdateProfileRequest'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileJsonRequest'
       responses:
         '200':
           description: Updated user
@@ -556,6 +567,58 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           description: Guest session — profile update not allowed (**`GUEST_ACTION_FORBIDDEN`**)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Multipart **`file`** upload when S3 is not configured (**`MEDIA_NOT_CONFIGURED`**)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /users/me/avatar/presign:
+    post:
+      operationId: postMyAvatarPresign
+      summary: Pre-signed PUT URL for profile avatar upload
+      description: |
+        Returns a short-lived **pre-signed `PUT` URL** for an object key under **`users/{userId}/…`** (same layout as
+        **`POST /media/presign`**). **`contentType`** must be an **image/** MIME from **`AvatarPresignContentType`**;
+        **`contentLength`** must match the **`PUT`** body. After upload, call **`PATCH /users/me`** with
+        **`application/json`** and **`profilePictureMediaKey`** set to the returned **`key`** (or set **`profilePicture`**
+        to the final public HTTPS URL if you host it elsewhere).
+
+        **Not available for guest sessions** (**403** **`GUEST_ACTION_FORBIDDEN`**). Requires S3 (**503** **`MEDIA_NOT_CONFIGURED`** when omitted).
+      tags:
+        - Users
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AvatarPresignRequest'
+      responses:
+        '200':
+          description: Pre-signed upload target (same shape as **`MediaPresignResponse`**)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaPresignResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Guest session — not allowed (**`GUEST_ACTION_FORBIDDEN`**)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: S3 not configured (**`MEDIA_NOT_CONFIGURED`**)
           content:
             application/json:
               schema:
@@ -1099,7 +1162,7 @@ paths:
       summary: Upload a file; messaging-service stores in S3 via AWS SDK (`@aws-sdk/lib-storage` Upload)
       description: |
         Multipart field **`file`**. Max size is enforced by **`MEDIA_MAX_BYTES`** on the server
-        (default **30 MiB** per file for image/video; override via environment). Allowed MIME types
+        (default **100 MiB** per file for image/video; override via environment). Allowed MIME types
         are server-defined (see messaging-service implementation).
       tags:
         - Media
@@ -1134,6 +1197,78 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
+  /media/presign:
+    get:
+      operationId: getMediaPresign
+      summary: Issue a short-lived pre-signed PUT URL for direct client upload (query params)
+      description: |
+        Same contract as **`POST /media/presign`**, with **`contentType`**, **`contentLength`**, and optional **`filename`**
+        passed as **query** parameters. Prefer **`POST`** when **`filename`** or future fields might exceed URL length.
+        **`contentLength`** must not exceed **`MEDIA_MAX_BYTES`** (default **100 MiB**; configurable per deployment).
+      tags:
+        - Media
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: contentType
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/MediaPresignContentType'
+        - name: contentLength
+          in: query
+          required: true
+          description: >
+            Declared **`PUT`** body size; must not exceed **`MEDIA_MAX_BYTES`** (default **100 MiB** unless the server overrides).
+          schema:
+            type: integer
+            minimum: 1
+        - name: filename
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 128
+      responses:
+        '200':
+          description: Pre-signed upload target
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaPresignResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      operationId: postMediaPresign
+      summary: Issue a short-lived pre-signed PUT URL for direct client upload (JSON body)
+      description: |
+        Returns a pre-signed **`PUT`** URL and metadata so the browser (or native client) can upload bytes **directly**
+        to object storage without streaming through messaging-service. **`contentLength`** must match the **`PUT`** body size.
+        TTL is **`MEDIA_PRESIGN_TTL_SECONDS`** on the server (default **300** seconds). Allowed **`contentType`** values match **`POST /media/upload`**.
+      tags:
+        - Media
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MediaPresignRequest'
+      responses:
+        '200':
+          description: Pre-signed upload target
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaPresignResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
 components:
   securitySchemes:
@@ -1416,6 +1551,51 @@ components:
           type: string
           description: New display name (omit to leave unchanged)
 
+    UpdateProfileJsonRequest:
+      type: object
+      description: JSON PATCH /users/me — at least one field; do not send profilePicture and profilePictureMediaKey together
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        status:
+          type: string
+          nullable: true
+          maxLength: 280
+        profilePicture:
+          type: string
+          nullable: true
+          format: uri
+          maxLength: 2048
+        profilePictureMediaKey:
+          type: string
+          minLength: 1
+          maxLength: 1024
+
+    AvatarPresignContentType:
+      type: string
+      enum:
+        - image/jpeg
+        - image/png
+        - image/webp
+        - image/gif
+
+    AvatarPresignRequest:
+      type: object
+      required:
+        - contentType
+        - contentLength
+      properties:
+        contentType:
+          $ref: '#/components/schemas/AvatarPresignContentType'
+        contentLength:
+          type: integer
+          minimum: 1
+        filename:
+          type: string
+          maxLength: 128
+
     LoginRequest:
       type: object
       required:
@@ -1565,6 +1745,10 @@ components:
       properties:
         id:
           type: string
+        username:
+          type: string
+          nullable: true
+          description: Normalized handle for display when displayName is unset (guest and registered).
         displayName:
           type: string
           nullable: true
@@ -1576,6 +1760,9 @@ components:
           type: string
           nullable: true
           maxLength: 280
+        guest:
+          type: boolean
+          description: True for guest sandbox accounts (POST /auth/guest).
 
     RegisterDeviceRequest:
       type: object
@@ -1909,15 +2096,20 @@ components:
           type: string
           nullable: true
           description: |
-            **Text or opaque E2EE payload.** Plain UTF-8 text, or **AES-256-GCM** ciphertext of the message plaintext
-            when hybrid E2EE is enabled (see **`docs/PROJECT_PLAN.md` §7.1**). The server **stores and routes**
-            this value **without** decrypting. Use **`encryptedMessageKeys`** + **`iv`** with device-key APIs
-            (`POST /users/me/devices`, `GET /users/{userId}/devices/public-keys`) per **Prerequisite — User keypair**
-            in **`docs/TASK_CHECKLIST.md`**.
+            **Text or opaque E2EE payload.** Plain UTF-8 text, or **AES-256-GCM** ciphertext of the **inner** UTF-8
+            plaintext when hybrid E2EE is enabled (see **`docs/PROJECT_PLAN.md` §7.1**). For **attachments with hybrid E2EE**,
+            that inner plaintext is a small **JSON** object (**v1**) holding caption + **`m.k`** (object storage key) so the
+            server never learns the key — **`mediaKey`** below is **null** on the wire. Legacy / non-E2EE sends may use
+            plaintext **`body`** + optional cleartext **`mediaKey`**. The server **stores and routes** **`body`** **without**
+            decrypting. Use **`encryptedMessageKeys`** + **`iv`** with device-key APIs (`POST /users/me/devices`,
+            `GET /users/{userId}/devices/public-keys`) per **Prerequisite — User keypair** in **`docs/TASK_CHECKLIST.md`**.
         mediaKey:
           type: string
           nullable: true
-          description: S3 object key when message has an attachment
+          description: |
+            S3 object key for an attachment when **not** using hybrid E2EE, or when the client still uses the legacy
+            cleartext path. When **`encryptedMessageKeys`** + **`algorithm`** are present (**Feature 11** hybrid), the
+            server **must** persist **`null`** here — the media locator lives only inside opaque **`body`** ciphertext.
         encryptedMessageKeys:
           type: object
           nullable: true
@@ -2037,12 +2229,15 @@ components:
           type: string
           description: |
             **Message body text or opaque E2EE ciphertext** — same semantics as **`Message.body`** (server does not decrypt).
+            Hybrid sends with attachments encrypt a **v1 JSON** inner form (caption + **`m.k`**) — see **`Message.body`**.
             When sending E2EE payloads, clients **depend on** user public-key directory APIs and the **Prerequisite — User keypair**
             implementation (`docs/TASK_CHECKLIST.md`, `docs/PROJECT_PLAN.md` §14).
         mediaKey:
           type: string
           nullable: true
-          description: From prior upload response
+          description: |
+            From prior upload response. **Omit or send null** when using hybrid E2EE with attachments — the server drops
+            this field for hybrid envelopes (**`docs/PROJECT_PLAN.md` §7.1**).
         encryptedMessageKeys:
           type: object
           nullable: true
@@ -2100,3 +2295,68 @@ components:
           format: uri
           nullable: true
           description: Optional HTTPS URL for display if bucket policy allows
+
+    MediaPresignContentType:
+      type: string
+      description: Same allowlist as **`POST /media/upload`** (images and short videos).
+      enum:
+        - image/jpeg
+        - image/png
+        - image/webp
+        - image/gif
+        - video/mp4
+        - video/webm
+        - video/quicktime
+        - video/ogg
+
+    MediaPresignRequest:
+      type: object
+      required:
+        - contentType
+        - contentLength
+      properties:
+        contentType:
+          $ref: '#/components/schemas/MediaPresignContentType'
+        contentLength:
+          type: integer
+          minimum: 1
+          description: >
+            Must equal the **`PUT`** body length when uploading to the pre-signed URL, and must not exceed
+            **`MEDIA_MAX_BYTES`** (default **100 MiB** per deployment unless overridden).
+        filename:
+          type: string
+          maxLength: 128
+          description: Optional hint for the object key suffix; sanitized server-side.
+
+    MediaPresignResponse:
+      type: object
+      required:
+        - method
+        - url
+        - key
+        - bucket
+        - expiresAt
+        - headers
+      properties:
+        method:
+          type: string
+          enum:
+            - PUT
+        url:
+          type: string
+          format: uri
+          description: Pre-signed URL — **`PUT`** the object bytes here.
+        key:
+          type: string
+        bucket:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+          description: Approximate wall-clock expiry ( **`MEDIA_PRESIGN_TTL_SECONDS`** after issuance ).
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: >-
+            Headers the client must send on **`PUT`** (e.g. **`Content-Type`**, **`Content-Length`**) so the signature matches.

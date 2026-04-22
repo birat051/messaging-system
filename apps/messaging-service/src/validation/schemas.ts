@@ -463,6 +463,119 @@ export function createMulterFileSchema(maxBytes: number) {
     .strict();
 }
 
+/**
+ * **`GET` / `POST /v1/media/presign`** — same fields; query or JSON body.
+ * **`filename`** seeds the object key suffix (sanitized server-side); if omitted, a default per **`contentType`** is used.
+ */
+export function createMediaPresignRequestSchema(maxBytes: number) {
+  return z
+    .object({
+      contentType: mediaUploadMimeEnum,
+      contentLength: z.coerce
+        .number()
+        .int()
+        .positive()
+        .max(maxBytes),
+      filename: z
+        .string()
+        .max(128)
+        .optional()
+        .transform((s) => {
+          const t = s?.trim();
+          return t === '' ? undefined : t;
+        }),
+    })
+    .strict();
+}
+
+export type MediaPresignRequestInput = z.infer<
+  ReturnType<typeof createMediaPresignRequestSchema>
+>;
+
+/** Image MIME subset for **`POST /users/me/avatar/presign`** — aligned with OpenAPI **`AvatarPresignContentType`**. */
+export const AVATAR_PRESIGN_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+] as const;
+
+export type AvatarPresignMimeType = (typeof AVATAR_PRESIGN_MIME_TYPES)[number];
+
+export const avatarPresignMimeEnum = z.enum(AVATAR_PRESIGN_MIME_TYPES);
+
+/**
+ * **`POST /users/me/avatar/presign`** — same shape as media presign; **`contentType`** is **image/** only.
+ */
+export function createAvatarPresignRequestSchema(maxBytes: number) {
+  return z
+    .object({
+      contentType: avatarPresignMimeEnum,
+      contentLength: z.coerce
+        .number()
+        .int()
+        .positive()
+        .max(maxBytes),
+      filename: z
+        .string()
+        .max(128)
+        .optional()
+        .transform((s) => {
+          const t = s?.trim();
+          return t === '' ? undefined : t;
+        }),
+    })
+    .strict();
+}
+
+export type AvatarPresignRequestInput = z.infer<
+  ReturnType<typeof createAvatarPresignRequestSchema>
+>;
+
+/**
+ * **`PATCH /users/me`** with **`Content-Type: application/json`** — set **`profilePicture`** by public URL,
+ * by **`profilePictureMediaKey`** after a client **`PUT`** to **`POST /users/me/avatar/presign`**, and/or update
+ * **`displayName`** / **`status`**. At least one field is required.
+ */
+export const patchProfileJsonBodySchema = z
+  .object({
+    displayName: z.string().trim().min(1).max(200).optional(),
+    status: z.union([z.string().trim().max(280), z.null()]).optional(),
+    profilePicture: z.union([z.string().url().max(2048), z.null()]).optional(),
+    profilePictureMediaKey: z
+      .string()
+      .trim()
+      .min(1)
+      .max(1024)
+      .optional(),
+  })
+  .strict()
+  .superRefine((val, ctx) => {
+    const defined = [
+      val.displayName !== undefined,
+      val.status !== undefined,
+      val.profilePicture !== undefined,
+      val.profilePictureMediaKey !== undefined,
+    ].filter(Boolean).length;
+    if (defined === 0) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Provide at least one of displayName, status, profilePicture, profilePictureMediaKey',
+      });
+    }
+    if (
+      val.profilePicture !== undefined &&
+      val.profilePictureMediaKey !== undefined
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Use only one of profilePicture or profilePictureMediaKey',
+      });
+    }
+  });
+
+export type PatchProfileJsonBody = z.infer<typeof patchProfileJsonBodySchema>;
+
 export type LoginRequest = z.infer<typeof loginRequestSchema>;
 export type RefreshRequest = z.infer<typeof refreshRequestSchema>;
 export type LogoutRequest = z.infer<typeof logoutRequestSchema>;

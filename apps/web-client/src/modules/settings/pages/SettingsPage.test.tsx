@@ -60,6 +60,39 @@ describe('SettingsPage', () => {
     localStorage.clear();
   });
 
+  it('opens profile photo dialog from avatar control and closes on Cancel', async () => {
+    const ue = userEvent.setup();
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/settings" element={<SettingsPage />} />
+      </Routes>,
+      {
+        route: '/settings',
+        preloadedState: {
+          auth: { user: { ...defaultMockUser }, accessToken: 'test-token' },
+        },
+      },
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: /change profile photo/i }),
+      ).toBeInTheDocument();
+    });
+
+    await ue.click(screen.getByRole('button', { name: /change profile photo/i }));
+
+    expect(screen.getByRole('heading', { name: /^profile photo$/i })).toBeVisible();
+    await ue.click(screen.getByRole('button', { name: /^cancel$/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('heading', { name: /^profile photo$/i }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
   it('shows loading when there is no authenticated user', () => {
     renderWithProviders(
       <Routes>

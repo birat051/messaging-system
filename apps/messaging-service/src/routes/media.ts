@@ -1,10 +1,12 @@
 import { Router } from 'express';
 import multer from 'multer';
 import type { Env } from '../config/env.js';
-import { AppError } from '../utils/errors/AppError.js';
+import { getMediaPresign, postMediaPresign } from '../controllers/mediaPresign.js';
 import { postMediaUpload } from '../controllers/media.js';
+import { requireAuthMiddleware } from '../middleware/requireAuth.js';
 import { requireUploadAuth } from '../middleware/uploadAuth.js';
 import { getS3Client } from '../data/storage/s3Client.js';
+import { AppError } from '../utils/errors/AppError.js';
 
 /** **`POST /media/upload`** — **wiring only** (multer + auth). Handler in **`src/controllers/media.ts`**. */
 export function createMediaRouter(env: Env): Router {
@@ -18,6 +20,17 @@ export function createMediaRouter(env: Env): Router {
     storage: multer.memoryStorage(),
     limits: { fileSize: env.MEDIA_MAX_BYTES },
   });
+
+  router.post(
+    '/media/presign',
+    requireAuthMiddleware(env),
+    postMediaPresign(env),
+  );
+  router.get(
+    '/media/presign',
+    requireAuthMiddleware(env),
+    getMediaPresign(env),
+  );
 
   router.post(
     '/media/upload',
