@@ -5,8 +5,8 @@ export type ThreadMessageMediaProps = {
   /** Own message vs peer — drives attachment **`alt`** / **`aria-label`** context. */
   isOwn: boolean;
   /**
-   * **`blob:`** or **`http(s):`** from composer upload — used before **`getMediaPublicObjectUrl(mediaKey)`**
-   * resolves (no AWS SDK in the browser).
+   * **`blob:`** or **`http(s):`** — optimistic upload preview, or **decrypted** hybrid **`m.u`** / built URL from **`usePeerMessageDecryption`**
+   * (**`HomeConversationShell`** → **`mediaPreviewUrl`**). Preferred over **`getMediaPublicObjectUrl(mediaKey)`** when set.
    */
   previewUrlOverride?: string | null;
   /**

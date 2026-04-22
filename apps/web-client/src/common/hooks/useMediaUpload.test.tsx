@@ -6,39 +6,51 @@ import { describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { API_PATHS } from '@/common/api/paths';
 import { server } from '@/common/mocks/server';
-import { MEDIA_UPLOAD_FORM_FIELD } from '@/common/utils/buildMediaUploadFormData';
 import { useMediaUpload } from './useMediaUpload';
 
-const MEDIA_UPLOAD = `*/v1${API_PATHS.media.upload}`;
+const PRESIGN = `*/v1${API_PATHS.media.presign}`;
 
 /**
- * **MSW** + real **`httpClient`** (**`fetch`** adapter when **`MODE === 'test'`** — see **`mediaApi.ts`**).
- * The hook skips Axios **`onUploadProgress`** in tests ( **`useMediaUpload.ts`** ) so **`fetch` + MSW** multipart does not stall; **`mediaApi.test.ts`** still covers **`onUploadProgress`** / **`contentLength`** via mocked **`post`**.
- * **Production** uses the default Axios adapter (**XHR**) so upload progress is available; **`signal`** aborts in-app (**Cancel upload**).
+ * **MSW** + **`POST /v1/media/presign`** + **`PUT`** pre-signed URL (**`useMediaUpload`**).
+ * **`onUploadProgress`** is skipped in **`MODE === 'test'`** for **`PUT`** (see **`uploadMediaViaPresignedPut`**).
  */
-describe('useMediaUpload (MSW)', () => {
-  it('POST /media/upload resolves MediaUploadResponse; progress ends at 100', async () => {
-    const mediaResponse = {
-      key: 'users/u-test/k-1.png',
-      bucket: 'media-bucket',
-      url: 'https://cdn.example.com/obj',
-    } as const;
-
+describe('useMediaUpload (MSW, presign + PUT)', () => {
+  it('presign + PUT resolves MediaUploadResponse; progress ends at 100', async () => {
     server.use(
-      http.post(MEDIA_UPLOAD, () => HttpResponse.json(mediaResponse)),
+      http.post(PRESIGN, async ({ request }) => {
+        const body = (await request.json()) as {
+          contentType: string;
+          contentLength: number;
+        };
+        return HttpResponse.json({
+          method: 'PUT',
+          url: 'https://r2.example/presigned-put-target',
+          key: 'users/u-test/k-1.png',
+          bucket: 'media-bucket',
+          expiresAt: '2026-01-01T12:00:00.000Z',
+          headers: {
+            'Content-Type': body.contentType,
+            'Content-Length': String(body.contentLength),
+          },
+        });
+      }),
+      http.put('https://r2.example/presigned-put-target', () =>
+        HttpResponse.json(null, { status: 200 }),
+      ),
     );
 
     const { result } = renderHook(() => useMediaUpload());
     const file = new File(['hello-world'], 'photo.png', { type: 'image/png' });
-    const appendSpy = vi.spyOn(FormData.prototype, 'append');
     await act(async () => {
       await result.current.upload(file);
     });
-    expect(appendSpy).toHaveBeenCalledWith(MEDIA_UPLOAD_FORM_FIELD, file);
-    appendSpy.mockRestore();
 
     await waitFor(() => {
-      expect(result.current.result).toEqual(mediaResponse);
+      expect(result.current.result).toEqual({
+        key: 'users/u-test/k-1.png',
+        bucket: 'media-bucket',
+        url: null,
+      });
     });
 
     expect(result.current.progress).toBe(100);
@@ -46,25 +58,33 @@ describe('useMediaUpload (MSW)', () => {
     expect(result.current.error).toBeNull();
   });
 
-  it('retryUpload re-POSTs after failure and resolves MediaUploadResponse', async () => {
-    const mediaResponse = {
-      key: 'users/u-test/k-2.png',
-      bucket: 'media-bucket',
-      url: null,
-    } as const;
-    let posts = 0;
+  it('retryUpload re-runs presign + PUT after failure and resolves MediaUploadResponse', async () => {
+    let presignCalls = 0;
     server.use(
-      http.post(MEDIA_UPLOAD, () => {
-        posts += 1;
-        if (posts === 1) {
+      http.post(PRESIGN, () => {
+        presignCalls += 1;
+        if (presignCalls === 1) {
           return HttpResponse.json({ message: 'server error' }, { status: 500 });
         }
-        return HttpResponse.json(mediaResponse);
+        return HttpResponse.json({
+          method: 'PUT',
+          url: 'https://r2.example/retry-target',
+          key: 'users/u-test/k-2.png',
+          bucket: 'media-bucket',
+          expiresAt: '2026-01-01T12:00:00.000Z',
+          headers: {
+            'Content-Type': 'image/png',
+            'Content-Length': '1',
+          },
+        });
       }),
+      http.put('https://r2.example/retry-target', () =>
+        HttpResponse.json(null, { status: 200 }),
+      ),
     );
 
     const { result } = renderHook(() => useMediaUpload());
-    const file = new File(['a'], 'f.bin', { type: 'application/octet-stream' });
+    const file = new File(['x'], 'f.png', { type: 'image/png' });
 
     await act(async () => {
       try {
@@ -79,22 +99,26 @@ describe('useMediaUpload (MSW)', () => {
       await result.current.retryUpload();
     });
 
-    expect(posts).toBe(2);
+    expect(presignCalls).toBe(2);
     await waitFor(() => {
-      expect(result.current.result).toEqual(mediaResponse);
+      expect(result.current.result).toEqual({
+        key: 'users/u-test/k-2.png',
+        bucket: 'media-bucket',
+        url: null,
+      });
     });
     expect(result.current.error).toBeNull();
   });
 
   it('exposes error state on failed upload; reset clears error and progress', async () => {
     server.use(
-      http.post(MEDIA_UPLOAD, () =>
+      http.post(PRESIGN, () =>
         HttpResponse.json({ message: 'payload too large' }, { status: 413 }),
       ),
     );
 
     const { result } = renderHook(() => useMediaUpload());
-    const file = new File(['a'], 'f.bin', { type: 'application/octet-stream' });
+    const file = new File(['a'], 'f.png', { type: 'image/png' });
 
     await act(async () => {
       try {
@@ -105,7 +129,6 @@ describe('useMediaUpload (MSW)', () => {
     });
 
     expect(result.current.error).toBeTruthy();
-    /** **`MODE === 'test'`** skips **`onUploadProgress`** — percent stays **0** on failure (not **100**). */
     expect(result.current.progress).toBe(0);
     expect(result.current.isUploading).toBe(false);
 
@@ -115,6 +138,32 @@ describe('useMediaUpload (MSW)', () => {
     expect(result.current.error).toBeNull();
     expect(result.current.progress).toBeNull();
     expect(result.current.result).toBeNull();
+  });
+
+  it('rejects file over VITE_MEDIA_UPLOAD_MAX_BYTES before presign', async () => {
+    vi.stubEnv('VITE_MEDIA_UPLOAD_MAX_BYTES', '10');
+    const presignSpy = vi.fn();
+    server.use(
+      http.post(PRESIGN, () => {
+        presignSpy();
+        return HttpResponse.json({ message: 'unexpected' }, { status: 500 });
+      }),
+    );
+
+    const { result } = renderHook(() => useMediaUpload());
+    const file = new File([new Uint8Array(20)], 'big.bin', { type: 'image/png' });
+
+    await act(async () => {
+      try {
+        await result.current.upload(file);
+      } catch {
+        /* expected */
+      }
+    });
+
+    expect(presignSpy).not.toHaveBeenCalled();
+    expect(result.current.error).toMatch(/too large/i);
+    vi.unstubAllEnvs();
   });
 
   it('web-client package.json has no aws-sdk / @aws-sdk (upload via REST only)', () => {

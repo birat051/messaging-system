@@ -49,6 +49,7 @@ export function createSocketWorkerBridge(
     payload: unknown,
   ) => Promise<void>;
   getLastSeen: (targetUserId: string) => Promise<PresenceLastSeenResult>;
+  setPresenceHeartbeatMode: (mode: 'default' | 'active_thread') => void;
   disconnect: () => void;
   terminate: () => void;
 } {
@@ -203,6 +204,12 @@ export function createSocketWorkerBridge(
           targetUserId,
         } satisfies MainToWorkerMessage);
       });
+    },
+    setPresenceHeartbeatMode(mode: 'default' | 'active_thread') {
+      worker.postMessage({
+        type: 'presence_heartbeat_mode',
+        mode,
+      } satisfies MainToWorkerMessage);
     },
     disconnect() {
       worker.postMessage({ type: 'disconnect' } satisfies MainToWorkerMessage);

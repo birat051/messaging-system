@@ -3,6 +3,8 @@ import type { components } from '../../generated/api-types';
 type S = components['schemas'];
 
 export type MediaUploadResponse = S['MediaUploadResponse'];
+export type MediaPresignResponse = S['MediaPresignResponse'];
+export type MediaPresignRequestBody = S['MediaPresignRequest'];
 
 export type UploadMediaOptions = {
   /** 0–100 while upload is in progress. */

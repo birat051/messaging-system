@@ -20,7 +20,7 @@ export type ThreadComposerProps = {
 
 /**
  * Message input + send — trimmed body and/or **`mediaKey`** from **`POST /media/upload`**;
- * **`mediaPreviewUrl`** (blob or API **`url`**) is passed for optimistic thread display only — **`message:send`** still sends **`mediaKey`** (**no** browser S3).
+ * **`mediaPreviewUrl`** (blob or API **`url`**) is for optimistic display; **`mediaRetrievableUrl`** encrypts the HTTPS upload URL when present.
  * Send disabled when empty (no text and no uploaded attachment), while upload is in flight, or while **`onSend`** runs.
  */
 export function ThreadComposer({
@@ -70,6 +70,7 @@ export function ThreadComposer({
           text,
           mediaKey: mediaKey ?? null,
           mediaPreviewUrl: attachment.mediaPreviewUrl ?? null,
+          mediaRetrievableUrl: attachment.mediaRetrievableUrl ?? null,
         }),
       );
       setValue('');

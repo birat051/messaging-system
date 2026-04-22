@@ -30,7 +30,10 @@ const presenceSlice = createSlice({
   name: 'presence',
   initialState,
   reducers: {
-    /** Drop cached presence for one user (e.g. socket down). */
+    /**
+     * Drop cached presence for one user (socket down, sign-out, or **invalidate** e.g. peer **`message:new`**
+     * on the active thread — **`useLastSeen`** will **`getLastSeen`** again).
+     */
     presenceClearedForUser(state, action: PayloadAction<{ userId: string }>) {
       delete state.byUserId[action.payload.userId];
     },

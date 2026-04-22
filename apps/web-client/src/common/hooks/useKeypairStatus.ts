@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { components } from '../../generated/api-types';
-import { listUserDevicePublicKeys } from '../api/usersApi';
+import { listMyDevices, listUserDevicePublicKeys } from '../api/usersApi';
 import {
   getKeyringPublicSpkiOptional,
   getStoredDeviceId,
@@ -8,6 +8,8 @@ import {
   listKeyringVersions,
 } from '../crypto/privateKeyStorage';
 import { parseApiError } from '../../modules/auth/utils/apiError';
+import { selectMessagingDeviceId } from '../../modules/crypto/stores/selectors';
+import { useAppSelector } from '../../store/hooks';
 import { useAuth } from './useAuth';
 
 type DevicePublicKeyEntry = components['schemas']['DevicePublicKeyEntry'];
@@ -70,23 +72,26 @@ async function computeAlignment(
 }
 
 /**
- * Loads the signed-in user’s **device** keys (**`GET /users/me/devices/public-keys`**) and compares with
- * locally stored **`deviceId`** (IndexedDB) plus **SPKI** metadata on the active keyring version.
+ * Loads the signed-in user’s **device** rows (**`GET /users/me/devices`**) and **public-key directory**
+ * (**`GET /users/me/devices/public-keys`**) and compares with local **`deviceId`**: **IndexedDB** first, then
+ * Redux **`hydrateMessagingDeviceId`** (session bootstrap) if IDB is empty. **Registration** requires the id in
+ * **both** lists so “present + registered on server” is explicit.
  */
 export function useKeypairStatus(): {
   loading: boolean;
   alignment: KeypairAlignment;
-  /** Server row for **`storedDeviceId`**, when that device is listed. */
+  /** Server row for **`storedDeviceId`**, when that device is listed (**public-keys** response). */
   serverDevice: DevicePublicKeyEntry | null;
-  /** Opaque id persisted next to the keyring (**IndexedDB**). */
+  /** Effective **deviceId**: IndexedDB **`deviceIdentity`**, else Redux **`crypto.deviceId`**. */
   storedDeviceId: string | null;
-  /** True when **`storedDeviceId`** is set and appears in the server list. */
+  /** True when **`storedDeviceId`** is set and appears in **`GET /users/me/devices`** and **`…/public-keys`**. */
   deviceRegisteredOnServer: boolean;
   serverError: string | null;
   localKeyPresent: boolean;
   refresh: () => Promise<void>;
 } {
   const { user, isAuthenticated } = useAuth();
+  const reduxDeviceId = useAppSelector(selectMessagingDeviceId);
   const [loading, setLoading] = useState(true);
   const [alignment, setAlignment] = useState<KeypairAlignment>('loading');
   const [serverDevice, setServerDevice] = useState<DevicePublicKeyEntry | null>(
@@ -115,28 +120,48 @@ export function useKeypairStatus(): {
     setServerError(null);
     try {
       const local = await hasStoredPrivateKey(uid);
-      const devId = await getStoredDeviceId(uid);
+      const idbDeviceId = await getStoredDeviceId(uid);
+      const devId =
+        idbDeviceId?.trim() ||
+        reduxDeviceId?.trim() ||
+        null;
       setLocalKeyPresent(local);
       setStoredDeviceId(devId);
 
-      let list: Awaited<ReturnType<typeof listUserDevicePublicKeys>>;
+      let keysList: Awaited<ReturnType<typeof listUserDevicePublicKeys>>;
       try {
-        list = await listUserDevicePublicKeys('me');
+        keysList = await listUserDevicePublicKeys('me');
       } catch (e) {
         const p = parseApiError(e);
         if (p.httpStatus === 404) {
-          list = { items: [] };
+          keysList = { items: [] };
         } else {
           throw e;
         }
       }
 
-      const anyServerDevices = list.items.length > 0;
+      let devicesList: Awaited<ReturnType<typeof listMyDevices>>;
+      try {
+        devicesList = await listMyDevices();
+      } catch (e) {
+        const p = parseApiError(e);
+        if (p.httpStatus === 404) {
+          devicesList = { items: [] };
+        } else {
+          throw e;
+        }
+      }
+
+      const anyServerDevices = devicesList.items.length > 0;
       const entry =
         devId != null
-          ? list.items.find((i) => i.deviceId === devId) ?? null
+          ? keysList.items.find((i) => i.deviceId === devId) ?? null
           : null;
-      const registered = Boolean(devId && entry);
+      const onDeviceRegistry =
+        devId != null
+          ? devicesList.items.some((i) => i.deviceId === devId)
+          : false;
+      const registered = Boolean(devId && entry && onDeviceRegistry);
       setServerDevice(entry);
       setDeviceRegisteredOnServer(registered);
 
@@ -151,7 +176,7 @@ export function useKeypairStatus(): {
     } finally {
       setLoading(false);
     }
-  }, [isAuthenticated, user?.id]);
+  }, [isAuthenticated, reduxDeviceId, user?.id]);
 
   useEffect(() => {
     void refresh();

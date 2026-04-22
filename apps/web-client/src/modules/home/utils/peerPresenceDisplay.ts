@@ -37,7 +37,7 @@ export function formatRelativeLastSeenAge(iso: string, nowMs: number): string {
 }
 
 /**
- * Maps **`useLastSeen`** state to a compact line + style variant (**Feature 6**).
+ * Maps **`useLastSeen`** state to a compact line + style variant (**Feature 6**), e.g. **thread header** only.
  */
 export function peerPresenceDisplay(
   state: UserPresenceEntry,

@@ -36,6 +36,7 @@ export function lastMessagePreviewLine(
   userId: string,
   senderPlaintextByMessageId: Record<string, string>,
   decryptedBodyByMessageId: Record<string, string>,
+  decryptedAttachmentKeyByMessageId?: Record<string, string>,
 ): string {
   const isOwn = m.senderId === userId;
   const display = resolveMessageDisplayBody(
@@ -48,7 +49,11 @@ export function lastMessagePreviewLine(
   if (trimmed) {
     return trimmed;
   }
-  if (m.mediaKey) {
+  const effKey =
+    m.mediaKey?.trim() ||
+    decryptedAttachmentKeyByMessageId?.[m.id]?.trim() ||
+    '';
+  if (effKey.length > 0) {
     return 'Attachment';
   }
   return '';

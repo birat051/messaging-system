@@ -25,9 +25,11 @@ import {
   deleteMyDevice,
   getCurrentUser,
   listUserDevicePublicKeys,
+  postMyAvatarPresign,
   registerMyDevice,
   searchUsers,
   updateCurrentUserProfile,
+  updateCurrentUserProfileJson,
 } from './usersApi';
 
 describe('usersApi (vi.mock httpClient)', () => {
@@ -116,6 +118,46 @@ describe('usersApi (vi.mock httpClient)', () => {
 
     expect(del).toHaveBeenCalledTimes(1);
     expect(del).toHaveBeenCalledWith(API_PATHS.users.meDeviceById('dev-abc'));
+  });
+
+  it('POST /users/me/avatar/presign uses API_PATHS.users.meAvatarPresign', async () => {
+    post.mockResolvedValue({
+      data: {
+        method: 'PUT',
+        url: 'https://example/p',
+        key: 'users/u1/k',
+        bucket: 'b',
+        expiresAt: '2026-01-01T00:00:00.000Z',
+        headers: { 'Content-Type': 'image/png', 'Content-Length': '3' },
+      },
+    });
+
+    await postMyAvatarPresign({
+      contentType: 'image/png',
+      contentLength: 3,
+    });
+
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(post).toHaveBeenCalledWith(
+      API_PATHS.users.meAvatarPresign,
+      { contentType: 'image/png', contentLength: 3 },
+      expect.anything(),
+    );
+  });
+
+  it('PATCH profile JSON uses API_PATHS.users.me', async () => {
+    patch.mockResolvedValue({
+      data: { id: 'u1', email: 'a@b.com', displayName: 'X' },
+    });
+
+    await updateCurrentUserProfileJson({ profilePictureMediaKey: 'users/u1/k' });
+
+    expect(patch).toHaveBeenCalledTimes(1);
+    expect(patch).toHaveBeenCalledWith(
+      API_PATHS.users.me,
+      { profilePictureMediaKey: 'users/u1/k' },
+      expect.anything(),
+    );
   });
 
   it('POST register device uses API_PATHS.users.meDevices', async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/common/test-utils';
 import { ThreadMessageMedia } from './ThreadMessageMedia';
@@ -109,6 +109,59 @@ describe('ThreadMessageMedia', () => {
         name: /image attachment from the other person/i,
       });
       expect(img).toHaveAttribute('loading', 'lazy');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('retries with cache-bust then VITE public URL when preview URL fails', () => {
+    vi.stubEnv('VITE_S3_PUBLIC_BASE_URL', 'http://localhost:9000');
+    vi.stubEnv('VITE_S3_BUCKET', 'messaging-media');
+    try {
+      renderWithProviders(
+        <ThreadMessageMedia
+          mediaKey="users/1/photo.png"
+          messageId="m-fb"
+          isOwn={false}
+          previewUrlOverride="https://cdn.other.example/photo.png"
+          lightboxEnabled={false}
+        />,
+      );
+      const img = screen.getByRole('img', {
+        name: /image attachment from the other person/i,
+      });
+      const expectedFallback =
+        'http://localhost:9000/messaging-media/users/1/photo.png';
+      fireEvent.error(img);
+      expect(img.getAttribute('src')).toMatch(/\?_ekko_cb=\d+$/);
+      fireEvent.error(img);
+      expect(img).toHaveAttribute('src', expectedFallback);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('skips cache-bust for query URLs and tries fallback in one error', () => {
+    vi.stubEnv('VITE_S3_PUBLIC_BASE_URL', 'http://localhost:9000');
+    vi.stubEnv('VITE_S3_BUCKET', 'messaging-media');
+    try {
+      renderWithProviders(
+        <ThreadMessageMedia
+          mediaKey="users/1/photo.png"
+          messageId="m-pre"
+          isOwn={false}
+          previewUrlOverride="https://signed.example/o.png?token=abc"
+          lightboxEnabled={false}
+        />,
+      );
+      const img = screen.getByRole('img', {
+        name: /image attachment from the other person/i,
+      });
+      fireEvent.error(img);
+      expect(img).toHaveAttribute(
+        'src',
+        'http://localhost:9000/messaging-media/users/1/photo.png',
+      );
     } finally {
       vi.unstubAllEnvs();
     }

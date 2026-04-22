@@ -48,3 +48,6 @@ export function useRegisterDevice() {
     dismissError,
   };
 }
+
+/** @deprecated Use **`useRegisterDevice`** — same hook (per-device **`POST /users/me/devices`**). */
+export const useRegisterPublicKey = useRegisterDevice;

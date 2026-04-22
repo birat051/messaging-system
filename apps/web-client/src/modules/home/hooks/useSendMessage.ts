@@ -3,6 +3,7 @@ import { useSWRConfig } from 'swr';
 import { useSendEncryptedMessage } from '@/common/hooks/useSendEncryptedMessage';
 import { useAuth } from '@/common/hooks/useAuth';
 import { parseApiError } from '@/modules/auth/utils/apiError';
+import { bumpConversationInListCache } from '@/modules/home/utils/conversationListCache';
 import type { StoredMessage } from '@/modules/home/stores/messagingSlice';
 import {
   appendMessageFromSend,
@@ -45,6 +46,7 @@ export function useSendMessage(options: UseSendMessageOptions) {
       const text = payload.text.trim();
       const mediaKey = payload.mediaKey?.trim() ?? null;
       const mediaPreviewUrl = payload.mediaPreviewUrl?.trim() ?? null;
+      const mediaRetrievableUrl = payload.mediaRetrievableUrl?.trim() ?? null;
       if (!text && !mediaKey) {
         throw new Error('Message body or attachment is required.');
       }
@@ -63,12 +65,14 @@ export function useSendMessage(options: UseSendMessageOptions) {
       dispatch(appendMessageFromSend({ conversationId: cid, message: optimisticMessage }));
       dispatch(setSendPending({ conversationId: cid, pending: true }));
       dispatch(setSendError({ conversationId: cid, error: null }));
+      bumpConversationInListCache(mutate, user.id, cid, optimisticMessage.createdAt);
 
       try {
         const serverMessage = await sendEncrypted({
           conversationId: cid,
           body: text.length > 0 ? text : undefined,
           mediaKey: mediaKey ?? undefined,
+          ...(mediaRetrievableUrl ? { mediaRetrievableUrl } : {}),
         });
         dispatch(
           replaceOptimisticMessage({
@@ -77,6 +81,7 @@ export function useSendMessage(options: UseSendMessageOptions) {
             message: serverMessage,
           }),
         );
+        bumpConversationInListCache(mutate, user.id, cid, serverMessage.createdAt);
         await mutate(['conversation-messages', cid, user.id]);
       } catch (e: unknown) {
         dispatch(removeOptimisticMessage({ conversationId: cid, clientId: optimisticId }));

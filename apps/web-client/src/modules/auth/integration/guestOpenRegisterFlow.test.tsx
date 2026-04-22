@@ -41,6 +41,7 @@ vi.mock('@/common/realtime/SocketWorkerProvider', () => ({
     emitReceipt: vi.fn().mockResolvedValue(undefined),
     emitWebRtcSignaling: vi.fn().mockResolvedValue(undefined),
     getLastSeen: vi.fn().mockResolvedValue({ status: 'not_available' as const }),
+    setPresenceHeartbeatMode: vi.fn(),
     setWebRtcInboundHandler: vi.fn(),
     status: { kind: 'connected', socketId: 'sk-test' },
     sendMessage: vi.fn(),

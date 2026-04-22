@@ -15,7 +15,7 @@ import { useToast } from '@/common/components/toast/useToast';
 import { registerUser } from '../../../common/api/authApi';
 import {
   getCurrentUser,
-  updateCurrentUserProfile,
+  uploadProfileAvatarViaPresignedPut,
 } from '../../../common/api/usersApi';
 import { ApiErrorAlert } from '../../../common/components/ApiErrorAlert';
 import { parseApiError, type ParsedApiError } from '../utils/apiError';
@@ -130,9 +130,7 @@ export function RegisterPage() {
       if (data.accessToken) {
         applyAuthResponse(dispatch, data, null);
         if (profileFile) {
-          const fd = new FormData();
-          fd.append('file', profileFile);
-          await updateCurrentUserProfile(fd);
+          await uploadProfileAvatarViaPresignedPut(profileFile);
         }
         const user = await getCurrentUser();
         dispatch(setUser(user));

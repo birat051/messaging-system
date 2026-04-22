@@ -60,6 +60,9 @@ export function NewDirectThreadComposer({ recipient, onConversationIdStored }: P
         recipientUserId: recipient.userId,
         body: trimmed.length > 0 ? trimmed : undefined,
         mediaKey: mediaKey ?? undefined,
+        ...(attachment.mediaRetrievableUrl?.trim()
+          ? { mediaRetrievableUrl: attachment.mediaRetrievableUrl.trim() }
+          : {}),
       });
       if (trimmed.length > 0) {
         dispatch(

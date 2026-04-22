@@ -46,8 +46,11 @@ export async function refreshTokens(
   return res.data;
 }
 
+/** Revokes refresh token on server — **`skipAuthRefresh`** avoids **`401`** refresh loops on failure. */
 export async function logout(body: S['LogoutRequest']): Promise<void> {
-  await httpClient.post(API_PATHS.auth.logout, body);
+  await httpClient.post(API_PATHS.auth.logout, body, {
+    skipAuthRefresh: true,
+  });
 }
 
 export async function forgotPassword(

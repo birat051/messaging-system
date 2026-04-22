@@ -26,6 +26,25 @@ export function getApiBaseUrl(): string {
 /**
  * Origin for **Socket.IO** (path **`/socket.io`** on the same host as the API).
  */
+/** Default **100 MiB** — chat composer **`postMediaPresign`** + **`PUT`** path (**`Backlog §3`**). */
+export const DEFAULT_MEDIA_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
+
+/**
+ * Max bytes per attachment before calling **`postMediaPresign`** — **`VITE_MEDIA_UPLOAD_MAX_BYTES`** (optional),
+ * otherwise **`DEFAULT_MEDIA_UPLOAD_MAX_BYTES`**.
+ */
+export function getMediaUploadMaxBytes(): number {
+  const raw = import.meta.env.VITE_MEDIA_UPLOAD_MAX_BYTES?.trim();
+  if (!raw) {
+    return DEFAULT_MEDIA_UPLOAD_MAX_BYTES;
+  }
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    return DEFAULT_MEDIA_UPLOAD_MAX_BYTES;
+  }
+  return Math.floor(n);
+}
+
 export function getSocketUrl(): string {
   const raw = import.meta.env.VITE_API_BASE_URL;
   if (raw?.startsWith('http')) {

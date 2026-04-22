@@ -6,6 +6,7 @@ import {
   createEmptyMessagePage,
   createEmptyMessageReceiptPage,
   defaultMockUser,
+  DEFAULT_MOCK_USER_ID,
 } from './__fixtures__';
 
 export { defaultMockUser } from './__fixtures__';
@@ -20,6 +21,7 @@ type DevicePublicKeyListResponse =
  * Path patterns use a host wildcard so tests work regardless of **`window.location.origin`** (Vitest jsdom).
  */
 export const handlers = [
+  http.post(`*/v1${API_PATHS.auth.logout}`, () => new HttpResponse(null, { status: 204 })),
   http.get(`*/v1${API_PATHS.conversations.list}`, () =>
     HttpResponse.json(createEmptyConversationPage()),
   ),
@@ -114,9 +116,50 @@ export const handlers = [
       status: null,
     });
   }),
+  http.post(`*/v1${API_PATHS.users.meAvatarPresign}`, async ({ request }) => {
+    const body = (await request.json()) as {
+      contentType?: string;
+      contentLength?: number;
+    };
+    return HttpResponse.json({
+      method: 'PUT',
+      url: 'https://r2.mock/presigned-avatar',
+      key: `users/${DEFAULT_MOCK_USER_ID}/mock-avatar-key`,
+      bucket: 'mock',
+      expiresAt: '2026-12-31T23:59:59.000Z',
+      headers: {
+        'Content-Type': body.contentType ?? 'image/jpeg',
+        'Content-Length': String(body.contentLength ?? 0),
+      },
+    });
+  }),
+  http.put('https://r2.mock/presigned-avatar', () => new HttpResponse(null, { status: 200 })),
   http.patch('*/v1/users/me', async ({ request }) => {
     let next: User = { ...defaultMockUser };
     const ct = request.headers.get('content-type') ?? '';
+    if (ct.includes('application/json')) {
+      const body = (await request.json()) as Record<string, unknown>;
+      if (typeof body.displayName === 'string') {
+        next = { ...next, displayName: body.displayName };
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'status')) {
+        const s = body.status;
+        next = {
+          ...next,
+          status: s === null || s === undefined ? null : String(s).trim() || null,
+        };
+      }
+      if (typeof body.profilePicture === 'string') {
+        next = { ...next, profilePicture: body.profilePicture };
+      }
+      if (typeof body.profilePictureMediaKey === 'string') {
+        next = {
+          ...next,
+          profilePicture: `https://cdn.example/${body.profilePictureMediaKey}`,
+        };
+      }
+      return HttpResponse.json(next);
+    }
     if (ct.includes('multipart/form-data')) {
       const fd = await request.formData();
       const dn = fd.get('displayName');

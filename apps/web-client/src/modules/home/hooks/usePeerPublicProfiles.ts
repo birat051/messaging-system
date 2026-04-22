@@ -8,6 +8,10 @@ type UserPublic = components['schemas']['UserPublic'];
 /**
  * Loads **`GET /users/{userId}`** (**`UserPublic`**) for each id — parallel requests, one SWR cache entry.
  * Missing ids resolve to **`null`** in the map when the request fails.
+ *
+ * **Home shell / list titles:** **`HomeConversationShell`** uses this map with **`formatUserPublicLabel`** /
+ * **`formatMissingPeerProfileLabel`**. If **`GET /users/{userId}`** is unavailable, every peer resolves to
+ * **`null`** → **“Unknown contact · …”** (see **`userPublicLabel.ts`**).
  */
 export function usePeerPublicProfiles(userIds: (string | null | undefined)[]) {
   const sortedKey = useMemo(() => {

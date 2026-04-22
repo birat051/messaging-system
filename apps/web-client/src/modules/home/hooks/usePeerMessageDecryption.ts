@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useStore } from 'react-redux';
+import { parseDecryptedHybridUtf8 } from '@/common/crypto/messageHybridPlaintext';
 import {
   decryptHybridMessageToUtf8,
   isHybridE2eeMessage,
@@ -158,8 +159,17 @@ export function usePeerMessageDecryption(
             deviceId.trim(),
             pk,
           );
+          const parsed = parseDecryptedHybridUtf8(pt);
           if (!cancelled) {
-            dispatch(setPeerDecryptedBody({ messageId: m.id, plaintext: pt }));
+            const url = parsed.mediaRetrievableUrl?.trim() ?? '';
+            dispatch(
+              setPeerDecryptedBody({
+                messageId: m.id,
+                plaintext: parsed.text,
+                resolvedAttachmentKey: parsed.mediaObjectKey ?? undefined,
+                ...(url.length > 0 ? { resolvedAttachmentUrl: url } : {}),
+              }),
+            );
           }
         } catch (err) {
           debugPeerDecrypt('unwrap or decryptMessageBody threw', {

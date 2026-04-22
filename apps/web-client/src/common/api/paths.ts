@@ -18,6 +18,7 @@ export const API_PATHS = {
   },
   users: {
     me: '/users/me',
+    meAvatarPresign: '/users/me/avatar/presign',
     meDevices: '/users/me/devices',
     meDeviceById: (deviceId: string) =>
       `/users/me/devices/${encodeURIComponent(deviceId)}`,
@@ -42,5 +43,6 @@ export const API_PATHS = {
   },
   media: {
     upload: '/media/upload',
+    presign: '/media/presign',
   },
 } as const;

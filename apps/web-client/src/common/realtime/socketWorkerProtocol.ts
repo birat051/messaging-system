@@ -107,4 +107,9 @@ export type MainToWorkerMessage =
       /** User id to resolve last-seen for (server **`resolveLastSeenForUser`**). */
       targetUserId: string;
     }
+  | {
+      type: 'presence_heartbeat_mode';
+      /** **`active_thread`** → compact interval (server-throttle-safe); **`default`** → relaxed. */
+      mode: 'default' | 'active_thread';
+    }
   | { type: 'disconnect' };

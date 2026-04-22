@@ -236,14 +236,44 @@ export interface paths {
         head?: never;
         /**
          * Update current user profile
-         * @description **Multipart** profile update: optional **profile image** (`file` part), optional **status**
-         *     text, optional **displayName**. At least one part should be supplied; omitted fields are left
-         *     unchanged. Server stores the image via the same pipeline as **`POST /media/upload`** (S3 key
-         *     on user document + public URL in **`profilePicture`**).
+         * @description **Multipart** — optional **profile image** (`file` part), optional **status**, optional **displayName**.
+         *     At least one part should be supplied; omitted fields are unchanged. The server may upload **`file`**
+         *     with the same object-key layout as **`POST /media/upload`** and persists a public URL (or key) in **`profilePicture`**.
+         *
+         *     **JSON** — optional **`profilePicture`** (HTTPS URL or **`null`** to clear), optional **`profilePictureMediaKey`**
+         *     (S3 object key returned from **`POST /users/me/avatar/presign`** after the client **`PUT`** completes — must
+         *     belong to **`users/{callerId}/…`**), optional **`displayName`**, optional **`status`**. Send at least one field;
+         *     do not send both **`profilePicture`** and **`profilePictureMediaKey`**.
          *
          *     **Not available for guest sessions** — use **`POST /auth/register`** for a full account. Guests receive **403** **`GUEST_ACTION_FORBIDDEN`**.
          */
         patch: operations["updateCurrentUserProfile"];
+        trace?: never;
+    };
+    "/users/me/avatar/presign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pre-signed PUT URL for profile avatar upload
+         * @description Returns a short-lived **pre-signed `PUT` URL** for an object key under **`users/{userId}/…`** (same layout as
+         *     **`POST /media/presign`**). **`contentType`** must be an **image/** MIME from **`AvatarPresignContentType`**;
+         *     **`contentLength`** must match the **`PUT`** body. After upload, call **`PATCH /users/me`** with
+         *     **`application/json`** and **`profilePictureMediaKey`** set to the returned **`key`** (or set **`profilePicture`**
+         *     to the final public HTTPS URL if you host it elsewhere).
+         *
+         *     **Not available for guest sessions** (**403** **`GUEST_ACTION_FORBIDDEN`**). Requires S3 (**503** **`MEDIA_NOT_CONFIGURED`** when omitted).
+         */
+        post: operations["postMyAvatarPresign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/users/me/devices": {
@@ -559,10 +589,38 @@ export interface paths {
         /**
          * Upload a file; messaging-service stores in S3 via AWS SDK (`@aws-sdk/lib-storage` Upload)
          * @description Multipart field **`file`**. Max size is enforced by **`MEDIA_MAX_BYTES`** on the server
-         *     (default **30 MiB** per file for image/video; override via environment). Allowed MIME types
+         *     (default **100 MiB** per file for image/video; override via environment). Allowed MIME types
          *     are server-defined (see messaging-service implementation).
          */
         post: operations["uploadMedia"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/media/presign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Issue a short-lived pre-signed PUT URL for direct client upload (query params)
+         * @description Same contract as **`POST /media/presign`**, with **`contentType`**, **`contentLength`**, and optional **`filename`**
+         *     passed as **query** parameters. Prefer **`POST`** when **`filename`** or future fields might exceed URL length.
+         *     **`contentLength`** must not exceed **`MEDIA_MAX_BYTES`** (default **100 MiB**; configurable per deployment).
+         */
+        get: operations["getMediaPresign"];
+        put?: never;
+        /**
+         * Issue a short-lived pre-signed PUT URL for direct client upload (JSON body)
+         * @description Returns a pre-signed **`PUT`** URL and metadata so the browser (or native client) can upload bytes **directly**
+         *     to object storage without streaming through messaging-service. **`contentLength`** must match the **`PUT`** body size.
+         *     TTL is **`MEDIA_PRESIGN_TTL_SECONDS`** on the server (default **300** seconds). Allowed **`contentType`** values match **`POST /media/upload`**.
+         */
+        post: operations["postMediaPresign"];
         delete?: never;
         options?: never;
         head?: never;
@@ -663,6 +721,21 @@ export interface components {
             /** @description New display name (omit to leave unchanged) */
             displayName?: string;
         };
+        /** @description JSON PATCH /users/me — at least one field; do not send profilePicture and profilePictureMediaKey together */
+        UpdateProfileJsonRequest: {
+            displayName?: string;
+            status?: string | null;
+            /** Format: uri */
+            profilePicture?: string | null;
+            profilePictureMediaKey?: string;
+        };
+        /** @enum {string} */
+        AvatarPresignContentType: "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+        AvatarPresignRequest: {
+            contentType: components["schemas"]["AvatarPresignContentType"];
+            contentLength: number;
+            filename?: string;
+        };
         LoginRequest: {
             /** Format: email */
             email: string;
@@ -731,10 +804,14 @@ export interface components {
         };
         UserPublic: {
             id: string;
+            /** @description Normalized handle for display when displayName is unset (guest and registered). */
+            username?: string | null;
             displayName?: string | null;
             /** Format: uri */
             profilePicture?: string | null;
             status?: string | null;
+            /** @description True for guest sandbox accounts (POST /auth/guest). */
+            guest: boolean;
         };
         /**
          * @description Register or update one device — **never** include a private key. Supply **`publicKey`** *or* **`pubKey`**
@@ -887,14 +964,20 @@ export interface components {
             conversationId: string;
             senderId: string;
             /**
-             * @description **Text or opaque E2EE payload.** Plain UTF-8 text, or **AES-256-GCM** ciphertext of the message plaintext
-             *     when hybrid E2EE is enabled (see **`docs/PROJECT_PLAN.md` §7.1**). The server **stores and routes**
-             *     this value **without** decrypting. Use **`encryptedMessageKeys`** + **`iv`** with device-key APIs
-             *     (`POST /users/me/devices`, `GET /users/{userId}/devices/public-keys`) per **Prerequisite — User keypair**
-             *     in **`docs/TASK_CHECKLIST.md`**.
+             * @description **Text or opaque E2EE payload.** Plain UTF-8 text, or **AES-256-GCM** ciphertext of the **inner** UTF-8
+             *     plaintext when hybrid E2EE is enabled (see **`docs/PROJECT_PLAN.md` §7.1**). For **attachments with hybrid E2EE**,
+             *     that inner plaintext is a small **JSON** object (**v1**) holding caption + **`m.k`** (object storage key) so the
+             *     server never learns the key — **`mediaKey`** below is **null** on the wire. Legacy / non-E2EE sends may use
+             *     plaintext **`body`** + optional cleartext **`mediaKey`**. The server **stores and routes** **`body`** **without**
+             *     decrypting. Use **`encryptedMessageKeys`** + **`iv`** with device-key APIs (`POST /users/me/devices`,
+             *     `GET /users/{userId}/devices/public-keys`) per **Prerequisite — User keypair** in **`docs/TASK_CHECKLIST.md`**.
              */
             body?: string | null;
-            /** @description S3 object key when message has an attachment */
+            /**
+             * @description S3 object key for an attachment when **not** using hybrid E2EE, or when the client still uses the legacy
+             *     cleartext path. When **`encryptedMessageKeys`** + **`algorithm`** are present (**Feature 11** hybrid), the
+             *     server **must** persist **`null`** here — the media locator lives only inside opaque **`body`** ciphertext.
+             */
             mediaKey?: string | null;
             /** @description Per-device wrapped symmetric keys (**deviceId** → opaque base64). Omitted for plaintext messages. See **`docs/PROJECT_PLAN.md` §7.1**. */
             encryptedMessageKeys?: {
@@ -951,11 +1034,15 @@ export interface components {
             recipientUserId?: string | null;
             /**
              * @description **Message body text or opaque E2EE ciphertext** — same semantics as **`Message.body`** (server does not decrypt).
+             *     Hybrid sends with attachments encrypt a **v1 JSON** inner form (caption + **`m.k`**) — see **`Message.body`**.
              *     When sending E2EE payloads, clients **depend on** user public-key directory APIs and the **Prerequisite — User keypair**
              *     implementation (`docs/TASK_CHECKLIST.md`, `docs/PROJECT_PLAN.md` §14).
              */
             body?: string;
-            /** @description From prior upload response */
+            /**
+             * @description From prior upload response. **Omit or send null** when using hybrid E2EE with attachments — the server drops
+             *     this field for hybrid envelopes (**`docs/PROJECT_PLAN.md` §7.1**).
+             */
             mediaKey?: string | null;
             /** @description Hybrid E2EE — per-device wrapped message keys; server stores opaquely */
             encryptedMessageKeys?: {
@@ -983,6 +1070,38 @@ export interface components {
              * @description Optional HTTPS URL for display if bucket policy allows
              */
             url?: string | null;
+        };
+        /**
+         * @description Same allowlist as **`POST /media/upload`** (images and short videos).
+         * @enum {string}
+         */
+        MediaPresignContentType: "image/jpeg" | "image/png" | "image/webp" | "image/gif" | "video/mp4" | "video/webm" | "video/quicktime" | "video/ogg";
+        MediaPresignRequest: {
+            contentType: components["schemas"]["MediaPresignContentType"];
+            /** @description Must equal the **`PUT`** body length when uploading to the pre-signed URL, and must not exceed **`MEDIA_MAX_BYTES`** (default **100 MiB** per deployment unless overridden). */
+            contentLength: number;
+            /** @description Optional hint for the object key suffix; sanitized server-side. */
+            filename?: string;
+        };
+        MediaPresignResponse: {
+            /** @enum {string} */
+            method: "PUT";
+            /**
+             * Format: uri
+             * @description Pre-signed URL — **`PUT`** the object bytes here.
+             */
+            url: string;
+            key: string;
+            bucket: string;
+            /**
+             * Format: date-time
+             * @description Approximate wall-clock expiry ( **`MEDIA_PRESIGN_TTL_SECONDS`** after issuance ).
+             */
+            expiresAt: string;
+            /** @description Headers the client must send on **`PUT`** (e.g. **`Content-Type`**, **`Content-Length`**) so the signature matches. */
+            headers: {
+                [key: string]: string;
+            };
         };
     };
     responses: {
@@ -1529,6 +1648,7 @@ export interface operations {
         requestBody: {
             content: {
                 "multipart/form-data": components["schemas"]["UpdateProfileRequest"];
+                "application/json": components["schemas"]["UpdateProfileJsonRequest"];
             };
         };
         responses: {
@@ -1545,6 +1665,59 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             /** @description Guest session — profile update not allowed (**`GUEST_ACTION_FORBIDDEN`**) */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Multipart **`file`** upload when S3 is not configured (**`MEDIA_NOT_CONFIGURED`**) */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    postMyAvatarPresign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AvatarPresignRequest"];
+            };
+        };
+        responses: {
+            /** @description Pre-signed upload target (same shape as **`MediaPresignResponse`**) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaPresignResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description Guest session — not allowed (**`GUEST_ACTION_FORBIDDEN`**) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description S3 not configured (**`MEDIA_NOT_CONFIGURED`**) */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2058,6 +2231,59 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+        };
+    };
+    getMediaPresign: {
+        parameters: {
+            query: {
+                contentType: components["schemas"]["MediaPresignContentType"];
+                /** @description Declared **`PUT`** body size; must not exceed **`MEDIA_MAX_BYTES`** (default **100 MiB** unless the server overrides). */
+                contentLength: number;
+                filename?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pre-signed upload target */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaPresignResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    postMediaPresign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MediaPresignRequest"];
+            };
+        };
+        responses: {
+            /** @description Pre-signed upload target */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaPresignResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
         };
     };
 }

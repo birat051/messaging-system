@@ -17,6 +17,7 @@ vi.mock('@/common/hooks/useComposerMediaAttachment', () => ({
     fileName: null,
     imagePreviewUrl: null,
     mediaPreviewUrl: null,
+    mediaRetrievableUrl: null,
     openFilePicker: vi.fn(),
     onFileInputChange: vi.fn(),
     clearAttachment: vi.fn(),

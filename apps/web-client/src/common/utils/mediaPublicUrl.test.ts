@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  getMediaPublicDisplayFallbackUrl,
   getMediaPublicObjectUrl,
   isLikelyImageMediaKey,
   resolveMediaAttachmentDisplayUrl,
@@ -51,5 +52,26 @@ describe('mediaPublicUrl', () => {
     expect(
       resolveMediaAttachmentDisplayUrl('users/1/a.png', 'javascript:alert(1)'),
     ).toBe('http://localhost:9000/messaging-media/users/1/a.png');
+  });
+
+  it('getMediaPublicDisplayFallbackUrl returns key URL when primary differs', () => {
+    const keyUrl = getMediaPublicObjectUrl('users/1/a.png');
+    expect(
+      getMediaPublicDisplayFallbackUrl(
+        'users/1/a.png',
+        'https://cdn.example.com/other-path/a.png',
+      ),
+    ).toBe(keyUrl);
+  });
+
+  it('getMediaPublicDisplayFallbackUrl returns null when primary matches key URL or env missing', () => {
+    const keyUrl = getMediaPublicObjectUrl('users/1/a.png');
+    expect(getMediaPublicDisplayFallbackUrl('users/1/a.png', keyUrl)).toBeNull();
+    expect(getMediaPublicDisplayFallbackUrl('users/1/a.png', '')).toBeNull();
+    vi.stubEnv('VITE_S3_BUCKET', '');
+    expect(
+      getMediaPublicDisplayFallbackUrl('users/1/a.png', 'https://x.example/a.png'),
+    ).toBeNull();
+    vi.stubEnv('VITE_S3_BUCKET', 'messaging-media');
   });
 });

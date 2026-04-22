@@ -21,11 +21,14 @@ const getLastSeenMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ status: 'not_available' as const }),
 );
 
+const setPresenceHeartbeatModeMock = vi.hoisted(() => vi.fn());
+
 vi.mock('@/common/realtime/SocketWorkerProvider', () => ({
   useSocketWorker: () => ({
     emitReceipt: emitReceiptMock,
     emitWebRtcSignaling: vi.fn().mockResolvedValue(undefined),
     getLastSeen: getLastSeenMock,
+    setPresenceHeartbeatMode: setPresenceHeartbeatModeMock,
     setWebRtcInboundHandler: vi.fn(),
     status: { kind: 'connected', socketId: 'sk-test' },
     sendMessage: vi.fn(),
@@ -55,6 +58,8 @@ vi.mock('@/common/hooks/useSendEncryptedMessage', async () => {
 describe('HomeConversationShell', () => {
   beforeEach(() => {
     emitReceiptMock.mockClear();
+    getLastSeenMock.mockClear();
+    setPresenceHeartbeatModeMock.mockClear();
     vi.stubGlobal(
       'IntersectionObserver',
       class {
@@ -116,9 +121,9 @@ describe('HomeConversationShell', () => {
     });
 
     const placeholder = await screen.findByTestId('thread-empty-placeholder');
-    expect(placeholder).toHaveClass('items-center', 'justify-center', 'text-center');
+    expect(placeholder).toHaveClass('items-center', 'justify-center');
     expect(
-      within(placeholder).getByText(/select a conversation to open the thread/i),
+      within(placeholder).getByText(/choose a conversation to view messages/i),
     ).toBeInTheDocument();
   });
 
@@ -311,6 +316,71 @@ describe('HomeConversationShell', () => {
       expect(
         within(shell).getByTestId('thread-header-title'),
       ).toHaveTextContent('Ada');
+    });
+
+    it('shows @username for a guest peer when displayName is absent (GET user includes username)', async () => {
+      const u = userEvent.setup();
+      const guestPeerId = 'guest-peer-uuid-1';
+      const items: Conversation[] = [
+        {
+          id: 'conv-guest',
+          title: null,
+          isGroup: false,
+          peerUserId: guestPeerId,
+          updatedAt: '2026-01-01T12:00:00.000Z',
+        },
+      ];
+
+      server.use(
+        http.get('*/v1/conversations', () =>
+          HttpResponse.json({
+            items,
+            nextCursor: null,
+            hasMore: false,
+          }),
+        ),
+        http.get('*/v1/users/:userId', ({ params }) => {
+          const id = params.userId as string;
+          if (id !== guestPeerId) {
+            return HttpResponse.json({
+              id,
+              guest: false,
+              username: null,
+              displayName: null,
+              profilePicture: null,
+              status: null,
+            });
+          }
+          return HttpResponse.json({
+            id,
+            guest: true,
+            username: 'tea_guest',
+            displayName: null,
+            profilePicture: null,
+            status: null,
+          });
+        }),
+      );
+
+      renderWithProviders(<HomeConversationShell />, {
+        preloadedState: {
+          auth: {
+            user: { ...defaultMockUser, emailVerified: true },
+            accessToken: 'test-token',
+          },
+        },
+      });
+
+      const shell = await screen.findByTestId('home-conversation-shell');
+      expect(
+        within(shell).getByRole('button', { name: /@tea_guest/i }),
+      ).toBeInTheDocument();
+
+      await u.click(within(shell).getByRole('button', { name: /@tea_guest/i }));
+
+      expect(
+        within(shell).getByTestId('thread-header-title'),
+      ).toHaveTextContent('@tea_guest');
     });
 
     it('uses explicit conversation title in list and thread header when the API provides one', async () => {
@@ -524,6 +594,116 @@ describe('HomeConversationShell', () => {
       expect(emitReceiptMock).not.toHaveBeenCalled();
     });
   });
+
+  it('focused direct thread invokes compact heartbeat + getLastSeen (mock socket)', async () => {
+    const selfId = defaultMockUser.id;
+    const peerId = 'peer-focused-live';
+    const convId = 'conv-focused-live';
+    const msgId = 'm-focused-1';
+
+    server.use(
+      http.get('*/v1/conversations', () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: convId,
+              title: null,
+              isGroup: false,
+              peerUserId: peerId,
+              updatedAt: '2026-01-01T12:00:00.000Z',
+            },
+          ],
+          nextCursor: null,
+          hasMore: false,
+        }),
+      ),
+    );
+
+    renderWithProviders(<HomeConversationShell />, {
+      preloadedState: {
+        auth: {
+          user: { ...defaultMockUser, id: selfId, emailVerified: true },
+          accessToken: 'test-token',
+        },
+        messaging: {
+          ...messagingInitialState,
+          activeConversationId: convId,
+          messageIdsByConversationId: { [convId]: [msgId] },
+          messagesById: {
+            [msgId]: {
+              id: msgId,
+              conversationId: convId,
+              senderId: peerId,
+              body: 'hello focus',
+              mediaKey: null,
+              createdAt: '2026-01-01T12:00:00.000Z',
+            },
+          },
+        },
+      },
+    });
+
+    expect(await screen.findByText('hello focus')).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(
+        setPresenceHeartbeatModeMock.mock.calls.some(
+          (c) => c[0] === 'active_thread',
+        ),
+      ).toBe(true);
+    });
+
+    await waitFor(() => {
+      expect(getLastSeenMock).toHaveBeenCalledWith(peerId);
+    });
+  });
+
+  it('thread header shows peer presence when getLastSeen returns redis (mock socket)', async () => {
+    getLastSeenMock.mockResolvedValue({
+      status: 'ok',
+      source: 'redis',
+      lastSeenAt: '2026-04-12T12:00:00.000Z',
+    });
+    const selfId = defaultMockUser.id;
+    const peerId = 'peer-header-presence';
+    const convId = 'conv-header-presence';
+
+    server.use(
+      http.get('*/v1/conversations', () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: convId,
+              title: null,
+              isGroup: false,
+              peerUserId: peerId,
+              updatedAt: '2026-01-01T12:00:00.000Z',
+            },
+          ],
+          nextCursor: null,
+          hasMore: false,
+        }),
+      ),
+    );
+
+    renderWithProviders(<HomeConversationShell />, {
+      preloadedState: {
+        auth: {
+          user: { ...defaultMockUser, id: selfId, emailVerified: true },
+          accessToken: 'test-token',
+        },
+        messaging: {
+          ...messagingInitialState,
+          activeConversationId: convId,
+        },
+      },
+    });
+
+    const shell = await screen.findByTestId('home-conversation-shell');
+    expect(await within(shell).findByTestId('thread-header-presence')).toHaveTextContent(
+      'Online',
+    );
+  });
 });
 
 describe('HomeConversationShell — user search (bar + list column)', () => {
@@ -671,5 +851,56 @@ describe('HomeConversationShell — user search (bar + list column)', () => {
 
     expect(store.getState().messaging.pendingDirectPeer?.userId).toBe('u-new');
     expect(screen.queryByTestId('user-search-results')).not.toBeInTheDocument();
+  });
+
+  it('pending guest peer without displayName shows @username in thread header', async () => {
+    const u = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    server.use(
+      http.get('*/v1/conversations', () =>
+        HttpResponse.json({
+          items: [],
+          nextCursor: null,
+          hasMore: false,
+        }),
+      ),
+      http.get('*/v1/users/search', () =>
+        HttpResponse.json([
+          {
+            userId: 'guest-pending-1',
+            username: 'guest_handle',
+            displayName: null,
+            profilePicture: null,
+            conversationId: null,
+            guest: true,
+          },
+        ]),
+      ),
+    );
+
+    renderWithProviders(<HomeConversationShell />, {
+      preloadedState: {
+        auth: {
+          user: { ...defaultMockUser, emailVerified: true },
+          accessToken: 'test-token',
+        },
+      },
+    });
+
+    const shell = await screen.findByTestId('home-conversation-shell');
+    const bar = screen.getByTestId('user-search-bar');
+    await u.type(
+      within(bar).getByRole('textbox', { name: /search users/i }),
+      'gue',
+    );
+    await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+
+    const results = await screen.findByTestId('user-search-results');
+    await u.click(
+      within(results).getByRole('button', { name: /@guest_handle/i }),
+    );
+
+    expect(
+      within(shell).getByTestId('thread-header-title'),
+    ).toHaveTextContent('@guest_handle');
   });
 });

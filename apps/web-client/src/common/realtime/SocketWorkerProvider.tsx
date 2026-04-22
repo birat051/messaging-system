@@ -24,6 +24,7 @@ import { syncRequested } from '@/modules/crypto/stores/cryptoSlice';
 import { useAppDispatch } from '@/store/hooks';
 import { useSWRConfig } from 'swr';
 import { setPresenceStatus } from '@/modules/app/stores/connectionSlice';
+import { presenceClearedForUser } from '@/modules/app/stores/presenceSlice';
 import { clearInboundToastDedupe } from '@/common/notifications/inboundToastDedupe';
 import {
   appendInboundNotification,
@@ -45,6 +46,7 @@ import type {
   ReceiptEmitSocketEvent,
   SendMessageRequest,
 } from './socketWorkerProtocol';
+import { bumpConversationInListCache } from '@/modules/home/utils/conversationListCache';
 
 export type SocketWorkerContextValue = {
   status: PresenceConnectionStatus;
@@ -60,6 +62,10 @@ export type SocketWorkerContextValue = {
   ) => Promise<void>;
   /** Resolve last-seen for **`targetUserId`** via **`presence:getLastSeen`** ack (Feature 6). */
   getLastSeen: (targetUserId: string) => Promise<PresenceLastSeenResult>;
+  /**
+   * **`active_thread`** uses a compact heartbeat interval (server-throttle-safe); **`default`** is the relaxed cadence.
+   */
+  setPresenceHeartbeatMode: (mode: 'default' | 'active_thread') => void;
   /** Register handler for inbound WebRTC signaling (answer / ICE after initial offer routing). */
   setWebRtcInboundHandler: (
     handler: ((msg: WebRtcInboundMessage) => void) | null,
@@ -131,6 +137,25 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
           }
           dispatch(appendIncomingMessageIfNew({ message, currentUserId: uid }));
           void mutate(['conversation-messages', message.conversationId, uid]);
+          bumpConversationInListCache(
+            mutate,
+            uid,
+            message.conversationId,
+            message.createdAt,
+          );
+          {
+            const activeId =
+              reduxStore.getState().messaging.activeConversationId?.trim() ?? '';
+            if (
+              activeId.length > 0 &&
+              message.conversationId === activeId &&
+              message.senderId !== uid
+            ) {
+              dispatch(
+                presenceClearedForUser({ userId: message.senderId }),
+              );
+            }
+          }
           {
             const st = reduxStore.getState();
             const { syncState, deviceId } = st.crypto;
@@ -327,6 +352,13 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
     return b.getLastSeen(targetUserId);
   }, []);
 
+  const setPresenceHeartbeatMode = useCallback(
+    (mode: 'default' | 'active_thread') => {
+      bridgeRef.current?.setPresenceHeartbeatMode(mode);
+    },
+    [],
+  );
+
   useEffect(() => {
     dispatch(setPresenceStatus(status));
   }, [dispatch, status]);
@@ -338,6 +370,7 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
       emitReceipt,
       emitWebRtcSignaling,
       getLastSeen,
+      setPresenceHeartbeatMode,
       setWebRtcInboundHandler,
     }),
     [
@@ -346,6 +379,7 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
       emitReceipt,
       emitWebRtcSignaling,
       getLastSeen,
+      setPresenceHeartbeatMode,
       setWebRtcInboundHandler,
     ],
   );

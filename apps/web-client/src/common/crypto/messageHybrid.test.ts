@@ -5,6 +5,10 @@ import {
   MESSAGE_HYBRID_ALGORITHM,
   mergeHybridDeviceRows,
 } from './messageHybrid';
+import {
+  parseDecryptedHybridUtf8,
+  serializeHybridInnerPlaintextV1,
+} from './messageHybridPlaintext';
 import { exportPublicKeySpkiBase64, generateP256EcdhKeyPair } from './keypair';
 
 describe('messageHybrid', () => {
@@ -95,5 +99,31 @@ describe('messageHybrid', () => {
       pair.privateKey,
     );
     expect(plain).toBe('Round-trip body');
+  });
+
+  it('round-trips inner v1 media key + retrievable URL through hybrid envelope (same msgKey as caption)', async () => {
+    const pair = await generateP256EcdhKeyPair();
+    const spki = await exportPublicKeySpkiBase64(pair.publicKey);
+    const devices = mergeHybridDeviceRows([{ deviceId: 'dev-media', publicKey: spki }]);
+    const mockUrl = 'https://public.example/users/u/shot.png';
+    const inner = serializeHybridInnerPlaintextV1({
+      text: 'sunset',
+      mediaObjectKey: 'users/u/shot.png',
+      mediaRetrievableUrl: mockUrl,
+    });
+    const send = await encryptUtf8ToHybridSendPayload(inner, devices);
+    const pt = await decryptHybridMessageToUtf8(
+      {
+        body: send.body,
+        iv: send.iv,
+        encryptedMessageKeys: send.encryptedMessageKeys,
+      },
+      'dev-media',
+      pair.privateKey,
+    );
+    const parsed = parseDecryptedHybridUtf8(pt);
+    expect(parsed.text).toBe('sunset');
+    expect(parsed.mediaObjectKey).toBe('users/u/shot.png');
+    expect(parsed.mediaRetrievableUrl).toBe(mockUrl);
   });
 });

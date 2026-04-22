@@ -1,4 +1,7 @@
-# Local overrides layered on `.env.development` / `.env.production`.
+# Local env files — never commit secrets. Root `/.gitignore` also ignores `.env`;
+# listing here makes the web-client package self-explanatory in isolation.
+.env
+# Overrides layered on `.env.development` / `.env.production` (Vite convention).
 .env.local
 .env.development.local
 .env.production.local

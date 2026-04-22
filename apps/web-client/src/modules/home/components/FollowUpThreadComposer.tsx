@@ -61,6 +61,9 @@ export function FollowUpThreadComposer({
         conversationId,
         body: trimmed.length > 0 ? trimmed : undefined,
         mediaKey: mediaKey ?? undefined,
+        ...(attachment.mediaRetrievableUrl?.trim()
+          ? { mediaRetrievableUrl: attachment.mediaRetrievableUrl.trim() }
+          : {}),
       });
       setBody('');
       attachment.clearAttachment();

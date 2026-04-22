@@ -1,11 +1,14 @@
 import { useCallback } from 'react';
 import { importKeyringBackupFromArrayBuffer } from '../crypto/keyringBackup';
+import { hydrateMessagingDeviceId } from '../../modules/crypto/stores/cryptoSlice';
+import { useAppDispatch } from '../../store/hooks';
 import { useAuth } from './useAuth';
 
 /**
  * Restore **private key material** from an encrypted backup file on this device (**new browser** flow).
- * Writes keyring rows and, when the backup includes **`deviceId`**, persists it in **IndexedDB** next to the keyring
- * (same store as **`ensureUserKeypairReadyForMessaging`**). Same underlying import as **`useKeypairMaintenance`**
+ * Writes keyring rows; when the backup includes **`deviceId`**, persists it via **`setStoredDeviceId`** (**IndexedDB**
+ * **`deviceIdentity`**) and mirrors it into Redux (**`hydrateMessagingDeviceId`**) so **`crypto.deviceId`** matches
+ * **IndexedDB** before **`POST /users/me/devices`** / **`useKeypairStatus`**. Same crypto path as **`useKeypairMaintenance`**
  * **`importBackup`** — split for clearer call sites.
  */
 export function useRestorePrivateKey(): {
@@ -16,6 +19,7 @@ export function useRestorePrivateKey(): {
   ) => Promise<{ importedVersions: number[]; deviceId: string | null }>;
 } {
   const { user } = useAuth();
+  const dispatch = useAppDispatch();
 
   const restorePrivateKeyFromBackup = useCallback(
     async (
@@ -26,14 +30,18 @@ export function useRestorePrivateKey(): {
       if (!user?.id) {
         throw new Error('You must be signed in to restore a backup.');
       }
-      return importKeyringBackupFromArrayBuffer(
+      const result = await importKeyringBackupFromArrayBuffer(
         user.id,
         fileBytes,
         backupPassphrase,
         storagePassphrase,
       );
+      if (result.deviceId) {
+        dispatch(hydrateMessagingDeviceId(result.deviceId));
+      }
+      return result;
     },
-    [user?.id],
+    [dispatch, user?.id],
   );
 
   return { restorePrivateKeyFromBackup };

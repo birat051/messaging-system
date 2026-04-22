@@ -14,9 +14,13 @@ export type UseComposerMediaAttachmentResult = {
   imagePreviewUrl: string | null;
   /**
    * For **`sendMessage`** / optimistic UI: **`imagePreviewUrl`**, else **`MediaUploadResponse.url`** (HTTPS)
-   * when the API returns one — **not** sent on **`message:send`** (wire carries **`mediaKey`** only).
+   * when the API returns one.
    */
   mediaPreviewUrl: string | null;
+  /**
+   * Upload response **`url`** only (no **`blob:`**) — passed into hybrid encrypt as **`mediaRetrievableUrl`**.
+   */
+  mediaRetrievableUrl: string | null;
   openFilePicker: () => void;
   onFileInputChange: (e: ChangeEvent<HTMLInputElement>) => Promise<void>;
   clearAttachment: () => void;

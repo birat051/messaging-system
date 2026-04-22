@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { PRESENCE_HEARTBEAT_COMPACT_MS } from '../utils/presenceCadence';
 import { useSocketWorker } from '../realtime/SocketWorkerProvider';
 import {
   presenceClearedForUser,
@@ -15,6 +16,16 @@ import { useAppDispatch, useAppSelector } from '@/store/hooks';
 
 export type UseLastSeenState = UserPresenceEntry;
 
+export type UseLastSeenOptions = {
+  /**
+   * When **`true`**, re-fetch **`presence:getLastSeen`** on a compact interval while the socket stays connected
+   * (direct thread header “live” last-seen; aligns with **`PRESENCE_HEARTBEAT_COMPACT_MS`**).
+   * There is no server→client **`presence:*`** push today — this is the polling fallback; the cache is also
+   * cleared on **`message:new`** for the active conversation (**`SocketWorkerProvider`**) so the header refetches immediately.
+   */
+  liveRefresh?: boolean;
+};
+
 /** In-flight **`getLastSeen`** per user — avoids duplicate requests (list + header). */
 const presenceFetchInflight = new Map<string, Promise<void>>();
 
@@ -27,11 +38,15 @@ function tryBeginPresenceFetch(userId: string): boolean {
 }
 
 /**
- * Loads last-seen for **`targetUserId`** via **`presence:getLastSeen`**, cached in Redux **`presence.byUserId`**.
+ * Loads last-seen for **`targetUserId`** via **`presence:getLastSeen`** ack, cached in Redux **`presence.byUserId`**.
+ * **`liveRefresh`** polls acks on an interval; **`presenceClearedForUser`** (e.g. inbound **`message:new`** in the open thread)
+ * drops the cache so this hook’s load effect runs again — no full page reload.
  */
 export function useLastSeen(
   targetUserId: string | null | undefined,
+  options?: UseLastSeenOptions,
 ): UseLastSeenState {
+  const liveRefresh = options?.liveRefresh === true;
   const dispatch = useAppDispatch();
   const socket = useSocketWorker();
   const getLastSeen = socket?.getLastSeen;
@@ -39,6 +54,9 @@ export function useLastSeen(
 
   const socketLiveRef = useRef(false);
   socketLiveRef.current = Boolean(connected && getLastSeen);
+
+  const liveRefreshRef = useRef(liveRefresh);
+  liveRefreshRef.current = liveRefresh;
 
   const id = targetUserId?.trim() ?? '';
   const entry = useAppSelector((s) =>
@@ -90,6 +108,39 @@ export function useLastSeen(
       }
     })();
   }, [id, connected, getLastSeen, dispatch, entryStatus]);
+
+  useEffect(() => {
+    if (!liveRefresh || !id || !connected || !getLastSeen) {
+      return;
+    }
+
+    const tick = (): void => {
+      void (async () => {
+        try {
+          const result = await getLastSeen(id);
+          if (!socketLiveRef.current || !liveRefreshRef.current) {
+            return;
+          }
+          if (result.status === 'ok' || result.status === 'not_available') {
+            dispatch(presenceUserFromResult({ userId: id, result }));
+          }
+        } catch (err: unknown) {
+          if (!socketLiveRef.current || !liveRefreshRef.current) {
+            return;
+          }
+          const message =
+            err instanceof Error ? err.message : 'Last seen unavailable';
+          dispatch(presenceUserError({ userId: id, message }));
+        }
+      })();
+    };
+
+    tick();
+    const t = window.setInterval(tick, PRESENCE_HEARTBEAT_COMPACT_MS);
+    return () => {
+      window.clearInterval(t);
+    };
+  }, [liveRefresh, id, connected, getLastSeen, dispatch]);
 
   return entry;
 }

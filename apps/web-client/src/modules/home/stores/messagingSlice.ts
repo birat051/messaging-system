@@ -56,6 +56,15 @@ export type MessagingState = {
   senderPlaintextByMessageId: Record<string, string>;
   /** **Peer** messages: UTF-8 plaintext after hybrid decrypt, keyed by **`message.id`**. */
   decryptedBodyByMessageId: Record<string, string>;
+  /**
+   * **Peer** messages: S3 key parsed from hybrid **v1** inner JSON (**`m.k`**) when **`Message.mediaKey`** is null on the wire.
+   */
+  decryptedAttachmentKeyByMessageId: Record<string, string>;
+  /**
+   * **Peer** messages: retrievable **http(s)** URL from hybrid **v1** (**`m.u`** or **`m.b`+`m.k`**) for **`ThreadMessageMedia`** when
+   * **`VITE_S3_*`** is unavailable on the recipient.
+   */
+  decryptedAttachmentUrlByMessageId: Record<string, string>;
 };
 
 const initialState: MessagingState = {
@@ -70,6 +79,8 @@ const initialState: MessagingState = {
   sendErrorByConversationId: {},
   senderPlaintextByMessageId: {},
   decryptedBodyByMessageId: {},
+  decryptedAttachmentKeyByMessageId: {},
+  decryptedAttachmentUrlByMessageId: {},
 };
 
 function mergeReceiptSummary(
@@ -138,10 +149,19 @@ function mergeServerMessageWithOptimisticClientFields(
     ? mergeOwnHybridWireBodyFromOptimistic(serverMsg, optimistic.body ?? undefined)
     : serverMsg;
   const preview = (optimistic as StoredMessage | undefined)?.mediaPreviewUrl?.trim();
+  const serverMk = serverMsg.mediaKey?.trim() ?? '';
+  const optMk = optimistic?.mediaKey?.trim() ?? '';
+  const mediaKey =
+    serverMk.length > 0
+      ? serverMsg.mediaKey
+      : optMk.length > 0
+        ? optimistic!.mediaKey
+        : null;
+  const withKey = { ...bodyMerged, mediaKey };
   if (preview) {
-    return { ...bodyMerged, mediaPreviewUrl: preview };
+    return { ...withKey, mediaPreviewUrl: preview };
   }
-  return bodyMerged;
+  return withKey;
 }
 
 /**
@@ -213,6 +233,8 @@ const messagingSlice = createSlice({
           delete state.receiptsByMessageId[id];
           delete state.senderPlaintextByMessageId[id];
           delete state.decryptedBodyByMessageId[id];
+          delete state.decryptedAttachmentKeyByMessageId[id];
+          delete state.decryptedAttachmentUrlByMessageId[id];
         }
       }
       state.messageIdsByConversationId[conversationId] = ordered.map((m) => m.id);
@@ -383,10 +405,34 @@ const messagingSlice = createSlice({
     },
     setPeerDecryptedBody(
       state,
-      action: PayloadAction<{ messageId: string; plaintext: string }>,
+      action: PayloadAction<{
+        messageId: string;
+        plaintext: string;
+        /** From hybrid plaintext **v1** **`m.k`** when the server did not store **`mediaKey`**. */
+        resolvedAttachmentKey?: string | null;
+        /** From hybrid **v1** **`m.u`** / **`m.b`+`m.k`** — display URL for attachments. */
+        resolvedAttachmentUrl?: string | null;
+      }>,
     ) {
-      state.decryptedBodyByMessageId[action.payload.messageId] =
-        action.payload.plaintext;
+      const { messageId, plaintext, resolvedAttachmentKey, resolvedAttachmentUrl } =
+        action.payload;
+      state.decryptedBodyByMessageId[messageId] = plaintext;
+      if (resolvedAttachmentKey !== undefined) {
+        const k = resolvedAttachmentKey?.trim() ?? '';
+        if (k.length > 0) {
+          state.decryptedAttachmentKeyByMessageId[messageId] = k;
+        } else {
+          delete state.decryptedAttachmentKeyByMessageId[messageId];
+        }
+      }
+      if (resolvedAttachmentUrl !== undefined) {
+        const u = resolvedAttachmentUrl?.trim() ?? '';
+        if (u.length > 0) {
+          state.decryptedAttachmentUrlByMessageId[messageId] = u;
+        } else {
+          delete state.decryptedAttachmentUrlByMessageId[messageId];
+        }
+      }
     },
     removeOptimisticMessage(
       state,

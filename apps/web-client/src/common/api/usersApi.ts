@@ -1,8 +1,42 @@
+/**
+ * User REST helpers. **Device keys** use **`registerMyDevice`** / **`listMyDevices`** / **`deleteMyDevice`**
+ * (`POST/GET/DELETE /users/me/devices/...`). Legacy **`PUT /users/me/public-key`** and **`.../rotate`** are **not**
+ * implemented here — removed in favor of the per-device registry (**`docs/PROJECT_PLAN.md` §7.1**).
+ */
 import type { components } from '../../generated/api-types';
+import type { UploadMediaOptions } from '../types/mediaApi-types';
+import { putBlobToPresignedUrl } from '../utils/presignedObjectUpload';
+import { resolveMediaMimeForUpload } from '../utils/mediaAllowedMime';
 import { httpClient } from './httpClient';
 import { API_PATHS } from './paths';
 
 type S = components['schemas'];
+
+function resolveAvatarPresignContentType(
+  file: File,
+): S['AvatarPresignContentType'] | null {
+  const resolved = resolveMediaMimeForUpload(file);
+  if (
+    resolved === 'image/jpeg' ||
+    resolved === 'image/png' ||
+    resolved === 'image/webp' ||
+    resolved === 'image/gif'
+  ) {
+    return resolved;
+  }
+  return null;
+}
+
+/** True when the file can be used for **`POST /users/me/avatar/presign`** (image MIME allowlist). */
+export function isAllowedProfileAvatarFile(file: File): boolean {
+  return resolveAvatarPresignContentType(file) !== null;
+}
+
+/** Shown when **`File.type`** / extension is not an allowed avatar image (client-side, before presign). */
+export const PROFILE_AVATAR_CLIENT_TYPE_ERROR =
+  'Use a supported image for your profile photo (JPEG, PNG, WebP, or GIF).';
+
+export type ProfileAvatarUploadPhase = 'presign' | 'put' | 'patch';
 
 export async function getCurrentUser(): Promise<S['User']> {
   const res = await httpClient.get<S['User']>(API_PATHS.users.me);
@@ -15,6 +49,72 @@ export async function updateCurrentUserProfile(formData: FormData): Promise<S['U
     headers: { 'Content-Type': false },
   });
   return res.data;
+}
+
+/** `PATCH /users/me` with **`application/json`** — URL or **`profilePictureMediaKey`** after avatar presign + **`PUT`**. */
+export async function updateCurrentUserProfileJson(
+  body: S['UpdateProfileJsonRequest'],
+  options?: { signal?: AbortSignal },
+): Promise<S['User']> {
+  const res = await httpClient.patch<S['User']>(API_PATHS.users.me, body, {
+    signal: options?.signal,
+  });
+  return res.data;
+}
+
+/** `POST /users/me/avatar/presign` — image MIME only; requires object storage on the server. */
+export async function postMyAvatarPresign(
+  body: S['AvatarPresignRequest'],
+  options?: { signal?: AbortSignal },
+): Promise<S['MediaPresignResponse']> {
+  const res = await httpClient.post<S['MediaPresignResponse']>(
+    API_PATHS.users.meAvatarPresign,
+    body,
+    { signal: options?.signal },
+  );
+  return res.data;
+}
+
+export type UploadProfileAvatarOptions = UploadMediaOptions & {
+  /** Merged into the final **`PATCH /users/me`** JSON with **`profilePictureMediaKey`**. */
+  profilePatch?: Omit<S['UpdateProfileJsonRequest'], 'profilePicture' | 'profilePictureMediaKey'>;
+  /** Fires before each network step (plain **`PATCH`** JSON for **`profilePicture`** / key — not message E2EE). */
+  onUploadPhase?: (phase: ProfileAvatarUploadPhase) => void;
+};
+
+/**
+ * Profile photo: **`POST /users/me/avatar/presign`** → **`PUT`** bytes → one **`PATCH /users/me`** JSON
+ * (**`profilePictureMediaKey`** plus optional **`profilePatch`**).
+ */
+export async function uploadProfileAvatarViaPresignedPut(
+  file: File,
+  options?: UploadProfileAvatarOptions,
+): Promise<S['User']> {
+  const contentType = resolveAvatarPresignContentType(file);
+  if (!contentType) {
+    throw new Error(PROFILE_AVATAR_CLIENT_TYPE_ERROR);
+  }
+  const { profilePatch, signal, onUploadProgress, onUploadPhase } = options ?? {};
+  onUploadPhase?.('presign');
+  const presign = await postMyAvatarPresign(
+    {
+      contentType,
+      contentLength: file.size,
+      filename: file.name || undefined,
+    },
+    { signal },
+  );
+  onUploadPhase?.('put');
+  await putBlobToPresignedUrl(presign.url, file, {
+    headers: presign.headers,
+    signal,
+    onProgress: onUploadProgress,
+  });
+  onUploadPhase?.('patch');
+  return updateCurrentUserProfileJson(
+    { profilePictureMediaKey: presign.key, ...profilePatch },
+    { signal },
+  );
 }
 
 export async function getUserById(userId: string): Promise<S['UserPublic']> {

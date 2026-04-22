@@ -6,8 +6,8 @@ export const PASSWORD_MIN_LENGTH = 8;
 export const STATUS_MAX_LENGTH = 280;
 export const DISPLAY_NAME_MAX_LENGTH = 200;
 
-/** Align with **`MEDIA_MAX_BYTES`** default on messaging-service (30 MiB). */
-export const REGISTER_AVATAR_MAX_BYTES = 31457280;
+/** Align with **`MEDIA_MAX_BYTES`** default on messaging-service (100 MiB). */
+export const REGISTER_AVATAR_MAX_BYTES = 104857600;
 
 const EMAIL_RE =
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

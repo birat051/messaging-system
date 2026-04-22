@@ -9,7 +9,9 @@ import {
 import type { components } from '@/generated/api-types';
 import useSWR, { useSWRConfig } from 'swr';
 import { listConversations } from '@/common/api';
+import { NoMessagesIcon } from '@/common/components/NoMessagesIcon';
 import { useAuth } from '@/common/hooks/useAuth';
+import { useDocumentVisibilityVisible } from '@/common/hooks/useDocumentVisibility';
 import { usePrefetchDevicePublicKeys } from '@/common/hooks/usePrefetchDevicePublicKeys';
 import { usePeerPublicProfiles } from '@/modules/home/hooks/usePeerPublicProfiles';
 import { usePeerPresenceDisplay } from '@/modules/home/hooks/usePeerPresenceDisplay';
@@ -28,6 +30,7 @@ import {
 } from '@/modules/home/utils/conversationListPreview';
 import {
   formatMissingPeerProfileLabel,
+  formatPendingDirectPeerLabel,
   formatUserPublicLabel,
   isDirectPeerSelf,
   SELF_DIRECT_THREAD_LABEL,
@@ -44,7 +47,6 @@ import {
   setActiveConversationId,
   setPendingDirectPeer,
   setSendError,
-  type PendingDirectPeer,
   type StoredMessage,
 } from '@/modules/home/stores/messagingSlice';
 import {
@@ -65,18 +67,6 @@ const EMPTY_USER_IDS: string[] = [];
 const EMPTY_THREAD_MESSAGES: ThreadMessageItem[] = [];
 
 type UserSearchResult = components['schemas']['UserSearchResult'];
-
-function directThreadLabelFromPending(p: PendingDirectPeer): string {
-  const name = p.displayName?.trim();
-  if (name) {
-    return name;
-  }
-  const handle = p.username?.trim();
-  if (handle) {
-    return `@${handle}`;
-  }
-  return `User ${p.userId.slice(0, 8)}`;
-}
 
 function formatConversationListSubtitle(iso: string): string {
   const d = new Date(iso);
@@ -284,8 +274,21 @@ export function HomeConversationShell() {
         ...(!isOwn && isPeerDecryptInlineError(body)
           ? { bodyPresentation: 'decrypt_error' as const }
           : {}),
-        mediaKey: m.mediaKey ?? null,
-        mediaPreviewUrl: stored.mediaPreviewUrl ?? null,
+        mediaKey: (() => {
+          const w = m.mediaKey?.trim();
+          if (w) {
+            return w;
+          }
+          const d = messaging.decryptedAttachmentKeyByMessageId[m.id]?.trim();
+          return d && d.length > 0 ? d : null;
+        })(),
+        mediaPreviewUrl: (() => {
+          const u = messaging.decryptedAttachmentUrlByMessageId[m.id]?.trim() ?? '';
+          if (u.length > 0) {
+            return u;
+          }
+          return stored.mediaPreviewUrl ?? null;
+        })(),
         isOwn,
         createdAt: m.createdAt,
         outboundReceipt: receipt?.state,
@@ -435,23 +438,17 @@ export function HomeConversationShell() {
           uid,
           messaging.senderPlaintextByMessageId,
           messaging.decryptedBodyByMessageId,
+          messaging.decryptedAttachmentKeyByMessageId,
         );
         subtitle = preview || formatConversationListSubtitle(c.updatedAt);
       } else {
         subtitle = formatConversationListSubtitle(c.updatedAt);
       }
-      const peerForPresence =
-        c.isGroup === true
-          ? null
-          : isDirectPeerSelf(c.peerUserId, uid)
-            ? null
-            : (c.peerUserId ?? null);
       return {
         id: c.id,
         title,
         subtitle,
         avatarInitials: conversationListAvatarInitials(title),
-        peerUserId: peerForPresence,
       };
     });
   }, [
@@ -474,7 +471,7 @@ export function HomeConversationShell() {
         return { text: SELF_DIRECT_THREAD_LABEL, loading: false };
       }
       return {
-        text: directThreadLabelFromPending(pendingDirectPeer),
+        text: formatPendingDirectPeerLabel(pendingDirectPeer),
         loading: false,
       };
     }
@@ -514,14 +511,35 @@ export function HomeConversationShell() {
   ]);
 
   const threadPaneOpen = Boolean(activeConversationId || pendingDirectPeer);
+  const tabVisible = useDocumentVisibilityVisible();
 
-  const headerPeerPresence = usePeerPresenceDisplay(
-    !isGroupThread &&
-      selectedPeerUserId &&
-      !isDirectPeerSelf(selectedPeerUserId, user?.id)
-      ? selectedPeerUserId
-      : null,
-  );
+  const headerPresencePeerUserId = useMemo(() => {
+    if (isGroupThread) {
+      return null;
+    }
+    const p = selectedPeerUserId?.trim();
+    if (!p || isDirectPeerSelf(p, user?.id)) {
+      return null;
+    }
+    return p;
+  }, [isGroupThread, selectedPeerUserId, user?.id]);
+
+  const presenceThreadLiveBoost =
+    threadPaneOpen && Boolean(headerPresencePeerUserId) && tabVisible;
+
+  useEffect(() => {
+    const sw = socketWorker;
+    if (!sw?.setPresenceHeartbeatMode) {
+      return;
+    }
+    sw.setPresenceHeartbeatMode(
+      presenceThreadLiveBoost ? 'active_thread' : 'default',
+    );
+  }, [socketWorker, presenceThreadLiveBoost]);
+
+  const headerPeerPresence = usePeerPresenceDisplay(headerPresencePeerUserId, {
+    liveRefresh: presenceThreadLiveBoost,
+  });
 
   const handleSearchSelectUser = useCallback(
     (hit: UserSearchResult) => {
@@ -596,6 +614,7 @@ export function HomeConversationShell() {
                 headerPeerPresence.variant !== 'hidden' &&
                 headerPeerPresence.text ? (
                   <span
+                    data-testid="thread-header-presence"
                     className={`truncate text-xs ${peerPresenceTextClassName(headerPeerPresence.variant)}`}
                   >
                     {headerPeerPresence.text}
@@ -639,6 +658,7 @@ export function HomeConversationShell() {
               </div>
               <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
               <ThreadMessageList
+                conversationScrollKey={activeConversationId}
                 messages={
                   activeConversationId ? threadMessages : EMPTY_THREAD_MESSAGES
                 }
@@ -707,12 +727,15 @@ export function HomeConversationShell() {
           ) : (
             <div
               data-testid="thread-empty-placeholder"
-              className="text-muted flex min-h-0 w-full flex-1 flex-col items-center justify-center px-4 py-6 text-center text-sm md:min-h-0 md:min-w-0 md:flex-1 md:py-8"
+              className="text-muted flex min-h-0 w-full flex-1 flex-col items-center justify-center px-4 py-6 md:min-h-0 md:min-w-0 md:flex-1 md:py-8"
               aria-live="polite"
             >
-              <p role="status" className="max-w-sm">
-                Select a conversation to open the thread.
-              </p>
+              <div className="flex max-w-md flex-row flex-wrap items-center justify-center gap-3 text-center text-sm">
+                <NoMessagesIcon className="size-10 shrink-0 opacity-90" />
+                <p role="status" className="max-w-[16rem] text-pretty sm:max-w-none">
+                  Choose a conversation to view messages
+                </p>
+              </div>
             </div>
           )}
         </section>

@@ -5,11 +5,14 @@ import type {
   MainToWorkerMessage,
   WorkerToMainMessage,
 } from '../common/realtime/socketWorkerProtocol';
-
-const HEARTBEAT_MS = 5000;
+import {
+  PRESENCE_HEARTBEAT_COMPACT_MS,
+  PRESENCE_HEARTBEAT_RELAXED_MS,
+} from '../common/utils/presenceCadence';
 
 let socket: Socket | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let heartbeatIntervalMs = PRESENCE_HEARTBEAT_RELAXED_MS;
 
 function post(msg: WorkerToMainMessage): void {
   self.postMessage(msg);
@@ -28,7 +31,21 @@ function startHeartbeat(): void {
     if (socket?.connected) {
       socket.emit('presence:heartbeat');
     }
-  }, HEARTBEAT_MS);
+  }, heartbeatIntervalMs);
+}
+
+function applyHeartbeatMode(mode: 'default' | 'active_thread'): void {
+  const next =
+    mode === 'active_thread'
+      ? PRESENCE_HEARTBEAT_COMPACT_MS
+      : PRESENCE_HEARTBEAT_RELAXED_MS;
+  if (next === heartbeatIntervalMs) {
+    return;
+  }
+  heartbeatIntervalMs = next;
+  if (socket?.connected) {
+    startHeartbeat();
+  }
 }
 
 function connectSocket(msg: Extract<MainToWorkerMessage, { type: 'connect' }>): void {
@@ -146,9 +163,15 @@ self.onmessage = (ev: MessageEvent<MainToWorkerMessage>) => {
 
   if (msg.type === 'disconnect') {
     clearHeartbeat();
+    heartbeatIntervalMs = PRESENCE_HEARTBEAT_RELAXED_MS;
     socket?.disconnect();
     socket = null;
     post({ type: 'disconnected', reason: 'client' });
+    return;
+  }
+
+  if (msg.type === 'presence_heartbeat_mode') {
+    applyHeartbeatMode(msg.mode);
     return;
   }
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import {
   ReceiptTicks,
   describeOutboundReceiptStatus,
@@ -33,8 +33,24 @@ export type ThreadMessageItem = {
   groupReceiptSubtitle?: string | null;
 };
 
+/** Pixels from the bottom of the log considered “still at bottom” for auto-scroll. */
+const SCROLL_BOTTOM_THRESHOLD_PX = 80;
+
+function isNearBottom(el: HTMLElement): boolean {
+  const { scrollTop, scrollHeight, clientHeight } = el;
+  return scrollHeight - scrollTop - clientHeight <= SCROLL_BOTTOM_THRESHOLD_PX;
+}
+
+function scrollLogToBottom(el: HTMLElement): void {
+  el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+}
+
 export type ThreadMessageListProps = {
   messages: ThreadMessageItem[];
+  /**
+   * When this changes (e.g. **`activeConversationId`**), the log jumps to the **newest** message — new thread context.
+   */
+  conversationScrollKey?: string | null;
   /** Initial load: show only when there are no messages yet. */
   isLoading?: boolean;
   /** Background revalidation (e.g. SWR) while messages may already be visible. */
@@ -204,15 +220,76 @@ function formatMessageTimestamp(iso: string): string {
 /**
  * Thread message log — **`role="log"`** on the scroll viewport; **empty**, **loading**, and **error**
  * states for production (no placeholder demo content).
+ * New rows scroll into view when the tail changes and the user is **pinned to the bottom**; scrolling up releases the pin (**`message:new`** / optimistic sends respect the same rule).
  */
 export function ThreadMessageList({
   messages,
+  conversationScrollKey = null,
   isLoading = false,
   isValidating = false,
   errorMessage = null,
   emptyLabel = 'No messages yet',
   onPeerMessageVisible,
 }: ThreadMessageListProps) {
+  const scrollElRef = useRef<HTMLDivElement>(null);
+  /** **`true`** when the user is within **`SCROLL_BOTTOM_THRESHOLD_PX`** of the bottom (or we forced scroll). */
+  const pinnedToBottomRef = useRef(true);
+  const prevConversationKeyRef = useRef<string | null>(null);
+  const prevMessageTailRef = useRef<{ len: number; lastId: string | null }>({
+    len: 0,
+    lastId: null,
+  });
+
+  const onScrollLog = useCallback(() => {
+    const el = scrollElRef.current;
+    if (!el) {
+      return;
+    }
+    pinnedToBottomRef.current = isNearBottom(el);
+  }, []);
+
+  useLayoutEffect(() => {
+    const el = scrollElRef.current;
+    const key = conversationScrollKey ?? '';
+    const conversationChanged = prevConversationKeyRef.current !== key;
+    prevConversationKeyRef.current = key;
+
+    if (!el) {
+      return;
+    }
+
+    if (messages.length === 0) {
+      prevMessageTailRef.current = { len: 0, lastId: null };
+      if (conversationChanged) {
+        pinnedToBottomRef.current = true;
+      }
+      return;
+    }
+
+    const lastId = messages[messages.length - 1]!.id;
+    const len = messages.length;
+
+    if (conversationChanged) {
+      scrollLogToBottom(el);
+      pinnedToBottomRef.current = true;
+      prevMessageTailRef.current = { len, lastId };
+      return;
+    }
+
+    const tailChanged =
+      len !== prevMessageTailRef.current.len ||
+      lastId !== prevMessageTailRef.current.lastId;
+    prevMessageTailRef.current = { len, lastId };
+
+    if (!tailChanged) {
+      return;
+    }
+
+    if (pinnedToBottomRef.current) {
+      scrollLogToBottom(el);
+    }
+  }, [messages, conversationScrollKey]);
+
   const showInitialLoad = isLoading && messages.length === 0;
   const showEmpty =
     !errorMessage && !showInitialLoad && messages.length === 0;
@@ -257,11 +334,13 @@ export function ThreadMessageList({
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div
+        ref={scrollElRef}
         role="log"
         aria-label="Conversation messages"
         aria-live="polite"
         aria-busy={isValidating}
         data-testid="thread-message-scroll"
+        onScroll={onScrollLog}
         className="border-border bg-background/40 min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain rounded-xl border px-2 py-3 sm:px-3"
       >
         <div className="flex min-w-0 flex-col gap-3">

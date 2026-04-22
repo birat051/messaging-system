@@ -7,7 +7,7 @@ import { server } from '@/common/mocks/server';
 import { ComposerAttachmentToolbar } from '@/modules/home/components/ComposerAttachmentToolbar';
 import { useComposerMediaAttachment } from './useComposerMediaAttachment';
 
-const MEDIA_UPLOAD = `*/v1${API_PATHS.media.upload}`;
+const PRESIGN = `*/v1${API_PATHS.media.presign}`;
 
 function Harness() {
   const a = useComposerMediaAttachment();
@@ -30,20 +30,33 @@ function Harness() {
 }
 
 /**
- * **File picker** → **`buildMediaUploadFormData`** (OpenAPI **`file`**) → **`uploadMedia`** (**`mediaApi.ts`**).
- * **Note:** MSW handlers that **`await request.formData()`** can deadlock with Axios **`fetch`** + multipart in Vitest; the **`file`** part name is asserted in **`buildMediaUploadFormData.test.ts`** and **`useMediaUpload.test.tsx`**.
+ * **File picker** → **`POST /v1/media/presign`** + **`PUT`** pre-signed URL (**`useMediaUpload`**).
  */
 describe('useComposerMediaAttachment (MSW + file input)', () => {
-  it('POST /media/upload uses multipart field file per OpenAPI', async () => {
+  it('presign + PUT completes and shows ready state', async () => {
     const user = userEvent.setup();
-    const mediaResponse = {
-      key: 'users/u-test/k-1.png',
-      bucket: 'media-bucket',
-      url: 'https://cdn.example.com/obj',
-    } as const;
 
     server.use(
-      http.post(MEDIA_UPLOAD, () => HttpResponse.json(mediaResponse)),
+      http.post(PRESIGN, async ({ request }) => {
+        const body = (await request.json()) as {
+          contentType: string;
+          contentLength: number;
+        };
+        return HttpResponse.json({
+          method: 'PUT',
+          url: 'https://r2.example/presigned-put-target',
+          key: 'users/u-test/k-1.png',
+          bucket: 'media-bucket',
+          expiresAt: '2026-01-01T12:00:00.000Z',
+          headers: {
+            'Content-Type': body.contentType,
+            'Content-Length': String(body.contentLength),
+          },
+        });
+      }),
+      http.put('https://r2.example/presigned-put-target', () =>
+        HttpResponse.json(null, { status: 200 }),
+      ),
     );
 
     render(<Harness />);

@@ -17,6 +17,7 @@ vi.mock('@/common/hooks/useComposerMediaAttachment', () => ({
     fileName: attachment.mediaKey ? 'photo.png' : null,
     imagePreviewUrl: attachment.imagePreviewUrl,
     mediaPreviewUrl: attachment.mediaPreviewUrl,
+    mediaRetrievableUrl: null,
     openFilePicker: vi.fn(),
     onFileInputChange: vi.fn(),
     clearAttachment: attachment.clearAttachment,
@@ -62,6 +63,7 @@ describe('ThreadComposer', () => {
       text: 'Hello world',
       mediaKey: null,
       mediaPreviewUrl: null,
+      mediaRetrievableUrl: null,
     });
     expect(input).toHaveValue('');
     expect(attachment.clearAttachment).toHaveBeenCalled();
@@ -80,6 +82,7 @@ describe('ThreadComposer', () => {
       text: '',
       mediaKey: 'users/me/obj.png',
       mediaPreviewUrl: null,
+      mediaRetrievableUrl: null,
     });
     expect(attachment.clearAttachment).toHaveBeenCalled();
   });
@@ -98,6 +101,7 @@ describe('ThreadComposer', () => {
       text: '',
       mediaKey: 'users/me/obj.png',
       mediaPreviewUrl: 'blob:local-preview',
+      mediaRetrievableUrl: null,
     });
   });
 

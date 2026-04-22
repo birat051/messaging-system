@@ -1,6 +1,7 @@
 import { renderWithProviders } from '@/common/test-utils';
 import * as deviceBootstrapSync from '@/common/crypto/deviceBootstrapSync';
 import { defaultMockUser } from '@/common/mocks/handlers';
+import { messagingInitialState } from '@/modules/home/stores/messagingSlice';
 import { waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSocketWorkerBridge } from './socketBridge';
@@ -28,6 +29,7 @@ describe('SocketWorkerProvider — message:new receive path', () => {
         emitReceipt: mockEmitReceipt,
         emitWebRtcSignaling: vi.fn().mockResolvedValue(undefined),
         getLastSeen: vi.fn().mockResolvedValue({ status: 'not_available' }),
+        setPresenceHeartbeatMode: vi.fn(),
         disconnect: mockDisconnect,
         terminate: mockTerminate,
       };
@@ -78,6 +80,108 @@ describe('SocketWorkerProvider — message:new receive path', () => {
       conversationId: 'conv-abc',
     });
 
+    unmount();
+  });
+
+  it('clears peer presence cache when message:new is for the active conversation (invalidate thread header)', async () => {
+    const peerId = 'peer-other-user';
+    const { store, unmount } = renderWithProviders(
+      <SocketWorkerProvider>
+        <div />
+      </SocketWorkerProvider>,
+      {
+        preloadedState: {
+          auth: {
+            user: defaultMockUser,
+            accessToken: 'test-access-token',
+          },
+          messaging: {
+            ...messagingInitialState,
+            activeConversationId: 'conv-abc',
+          },
+          presence: {
+            byUserId: {
+              [peerId]: {
+                status: 'ok',
+                source: 'redis',
+                lastSeenAt: '2026-01-01T00:00:00.000Z',
+              },
+            },
+          },
+        },
+      },
+    );
+
+    await waitFor(() => {
+      expect(bridgeHandler).not.toBeNull();
+    });
+
+    bridgeHandler!({
+      type: 'message_new',
+      payload: {
+        id: 'm-invalidate',
+        conversationId: 'conv-abc',
+        senderId: peerId,
+        body: 'hi',
+        mediaKey: null,
+        createdAt: '2026-04-12T12:00:00.000Z',
+      },
+    });
+
+    expect(store.getState().presence.byUserId[peerId]).toBeUndefined();
+    unmount();
+  });
+
+  it('does not clear peer presence when message:new targets a different conversation', async () => {
+    const peerId = 'peer-other-user';
+    const { store, unmount } = renderWithProviders(
+      <SocketWorkerProvider>
+        <div />
+      </SocketWorkerProvider>,
+      {
+        preloadedState: {
+          auth: {
+            user: defaultMockUser,
+            accessToken: 'test-access-token',
+          },
+          messaging: {
+            ...messagingInitialState,
+            activeConversationId: 'conv-other',
+          },
+          presence: {
+            byUserId: {
+              [peerId]: {
+                status: 'ok',
+                source: 'mongodb',
+                lastSeenAt: '2026-01-01T00:00:00.000Z',
+              },
+            },
+          },
+        },
+      },
+    );
+
+    await waitFor(() => {
+      expect(bridgeHandler).not.toBeNull();
+    });
+
+    bridgeHandler!({
+      type: 'message_new',
+      payload: {
+        id: 'm-other-conv',
+        conversationId: 'conv-abc',
+        senderId: peerId,
+        body: 'hi',
+        mediaKey: null,
+        createdAt: '2026-04-12T12:00:00.000Z',
+      },
+    });
+
+    expect(store.getState().presence.byUserId[peerId]).toEqual({
+      status: 'ok',
+      source: 'mongodb',
+      lastSeenAt: '2026-01-01T00:00:00.000Z',
+    });
     unmount();
   });
 

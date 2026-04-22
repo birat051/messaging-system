@@ -1,4 +1,5 @@
 import type { components } from '@/generated/api-types';
+import type { PendingDirectPeer } from '../stores/messagingSlice';
 
 type UserPublic = components['schemas']['UserPublic'];
 
@@ -28,17 +29,38 @@ export function formatMissingPeerProfileLabel(peerId: string): string {
 }
 
 /**
- * Display line for a **`UserPublic`** profile — **`displayName`**, then **`guest`**-aware id fallback (no **`username`**
- * on this schema).
+ * Display line for a **`UserPublic`** profile — **`displayName`**, then **`@username`** (when present), then id slice.
+ * **`GET /users/{userId}`** now returns **`username`** + **`guest`** so guest DMs match search / guest entry labels.
  */
 export function formatUserPublicLabel(user: UserPublic): string {
   const name = user.displayName?.trim();
   if (name) {
     return name;
   }
+  const handle = user.username?.trim();
+  if (handle) {
+    return `@${handle}`;
+  }
   const id = user.id;
   if (user.guest) {
     return `Guest ${id.slice(0, 8)}`;
   }
   return `User ${id.slice(0, 8)}`;
+}
+
+/**
+ * **New DM from search** — same resolution order as **`formatUserPublicLabel`**: **`displayName`** → **`@username`**
+ * → **`Guest …` / `User …`** id slice using **`PendingDirectPeer.guest`** (guest entry / **`UserSearchResult`**).
+ */
+export function formatPendingDirectPeerLabel(p: PendingDirectPeer): string {
+  const name = p.displayName?.trim();
+  if (name) {
+    return name;
+  }
+  const handle = p.username?.trim();
+  if (handle) {
+    return `@${handle}`;
+  }
+  const id = p.userId;
+  return p.guest ? `Guest ${id.slice(0, 8)}` : `User ${id.slice(0, 8)}`;
 }

@@ -40,6 +40,8 @@ const base = {
   sendErrorByConversationId: {},
   senderPlaintextByMessageId: {},
   decryptedBodyByMessageId: {},
+  decryptedAttachmentKeyByMessageId: {},
+  decryptedAttachmentUrlByMessageId: {},
 };
 
 describe('recordOwnSendPlaintext', () => {

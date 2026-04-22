@@ -1,29 +1,13 @@
 import { useId } from 'react';
-import { usePeerPresenceDisplay } from '@/modules/home/hooks/usePeerPresenceDisplay';
-import { ConversationListRow, type ConversationListRowProps } from './ConversationListRow';
+import { ConversationListRow } from './ConversationListRow';
 
 export type ConversationListItem = {
   id: string;
   title: string;
   subtitle?: string;
-  /**
-   * **Direct** thread: peer user id — used for optional **Feature 6** presence line
-   * (**`usePeerPresenceDisplay`** → **`ConversationListRow`**).
-   */
-  peerUserId?: string | null;
   /** **1–2** characters for the circular avatar; omitted rows derive from **`title`**. */
   avatarInitials?: string;
 };
-
-function ConversationListRowWithPresence({
-  peerUserId,
-  ...row
-}: Omit<ConversationListRowProps, 'presence'> & {
-  peerUserId?: string | null;
-}) {
-  const presence = usePeerPresenceDisplay(peerUserId ?? null);
-  return <ConversationListRow {...row} presence={presence} />;
-}
 
 export type ConversationListProps = {
   items: ConversationListItem[];
@@ -94,24 +78,13 @@ export function ConversationList({
         <ul className="divide-border min-h-0 flex-1 divide-y overflow-y-auto p-1.5 sm:p-2">
           {items.map((c) => (
             <li key={c.id}>
-              {c.peerUserId ? (
-                <ConversationListRowWithPresence
-                  peerUserId={c.peerUserId}
-                  title={c.title}
-                  subtitle={c.subtitle}
-                  avatarInitials={c.avatarInitials}
-                  isActive={c.id === selectedId}
-                  onSelect={onSelect ? () => onSelect(c.id) : undefined}
-                />
-              ) : (
-                <ConversationListRow
-                  title={c.title}
-                  subtitle={c.subtitle}
-                  avatarInitials={c.avatarInitials}
-                  isActive={c.id === selectedId}
-                  onSelect={onSelect ? () => onSelect(c.id) : undefined}
-                />
-              )}
+              <ConversationListRow
+                title={c.title}
+                subtitle={c.subtitle}
+                avatarInitials={c.avatarInitials}
+                isActive={c.id === selectedId}
+                onSelect={onSelect ? () => onSelect(c.id) : undefined}
+              />
             </li>
           ))}
         </ul>

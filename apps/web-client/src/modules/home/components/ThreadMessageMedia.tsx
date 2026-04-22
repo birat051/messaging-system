@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
+  getMediaPublicDisplayFallbackUrl,
   isLikelyImageMediaKey,
   resolveMediaAttachmentDisplayUrl,
 } from '@/common/utils/mediaPublicUrl';
@@ -52,6 +53,7 @@ export function ThreadMessageMedia({
   const [imgError, setImgError] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [retryDone, setRetryDone] = useState(false);
+  const [altTried, setAltTried] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -59,6 +61,7 @@ export function ThreadMessageMedia({
     setLoaded(false);
     setImgError(false);
     setRetryDone(false);
+    setAltTried(false);
   }, [url]);
 
   useLayoutEffect(() => {
@@ -83,10 +86,18 @@ export function ThreadMessageMedia({
   }
 
   function handleImageError() {
+    const fallBack = url ? getMediaPublicDisplayFallbackUrl(mediaKey, url) : null;
     if (!retryDone && url && !url.includes('?')) {
       setRetryDone(true);
       setLoaded(false);
       setDisplaySrc(`${url}?_ekko_cb=${Date.now()}`);
+      return;
+    }
+    if (!altTried && fallBack && displaySrc !== fallBack) {
+      setAltTried(true);
+      setLoaded(false);
+      setImgError(false);
+      setDisplaySrc(fallBack);
       return;
     }
     setImgError(true);

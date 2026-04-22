@@ -9,7 +9,7 @@ import type { UseComposerMediaAttachmentResult } from '../types/useComposerMedia
 import { useMediaUpload } from './useMediaUpload';
 
 /**
- * Hidden file input + **`POST /media/upload`** — yields **`mediaKey`** (**`key`**) for **`SendMessageRequest`**.
+ * Hidden file input + **`useMediaUpload`** — **`POST /v1/media/presign`** + **`PUT`** to R2 — yields **`mediaKey`** (**`key`**) for **`SendMessageRequest`**.
  */
 export function useComposerMediaAttachment(): UseComposerMediaAttachmentResult {
   const {
@@ -95,6 +95,7 @@ export function useComposerMediaAttachment(): UseComposerMediaAttachmentResult {
     fileName,
     imagePreviewUrl,
     mediaPreviewUrl,
+    mediaRetrievableUrl: uploadedMediaUrl,
     openFilePicker,
     onFileInputChange,
     clearAttachment,

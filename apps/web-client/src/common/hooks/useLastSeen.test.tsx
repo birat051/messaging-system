@@ -1,7 +1,8 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { type ReactNode } from 'react';
 import { Provider } from 'react-redux';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { PRESENCE_HEARTBEAT_COMPACT_MS } from '@/common/utils/presenceCadence';
 import { createTestStore } from '@/common/test-utils';
 import { useLastSeen } from './useLastSeen';
 
@@ -17,6 +18,7 @@ vi.mock('../realtime/SocketWorkerProvider', () => ({
     sendMessage: vi.fn(),
     emitReceipt: vi.fn(),
     emitWebRtcSignaling: vi.fn(),
+    setPresenceHeartbeatMode: vi.fn(),
     setWebRtcInboundHandler: vi.fn(),
   }),
 }));
@@ -96,5 +98,33 @@ describe('useLastSeen', () => {
         message: 'Socket not connected',
       });
     });
+  });
+
+  it('liveRefresh polls getLastSeen on a compact interval', async () => {
+    vi.useFakeTimers();
+    try {
+      mockGetLastSeen.mockResolvedValue({
+        status: 'ok',
+        source: 'redis',
+        lastSeenAt: '2026-04-12T12:00:00.000Z',
+      });
+      const { Wrapper } = makeWrapper();
+      renderHook(() => useLastSeen('user-live', { liveRefresh: true }), {
+        wrapper: Wrapper,
+      });
+
+      await act(async () => {
+        await vi.runOnlyPendingTimersAsync();
+      });
+      const afterMount = mockGetLastSeen.mock.calls.length;
+      expect(afterMount).toBeGreaterThanOrEqual(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(PRESENCE_HEARTBEAT_COMPACT_MS);
+      });
+      expect(mockGetLastSeen.mock.calls.length).toBeGreaterThan(afterMount);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

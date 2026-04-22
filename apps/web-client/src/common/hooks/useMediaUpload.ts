@@ -1,17 +1,15 @@
 import { useCallback, useRef, useState } from 'react';
 import { parseApiError } from '@/modules/auth/utils/apiError';
-import { uploadMedia } from '@/common/api/mediaApi';
+import { uploadMediaViaPresignedPut } from '@/common/api/mediaApi';
 import type { MediaUploadResponse } from '@/common/types/mediaApi-types';
 import type { UseMediaUploadResult } from '@/common/types/useMediaUpload-types';
-import { buildMediaUploadFormData } from '@/common/utils/buildMediaUploadFormData';
 
 export type { UseMediaUploadResult, UseMediaUploadState } from '@/common/types/useMediaUpload-types';
 
 /**
- * Thin wrapper around **`uploadMedia`** (`**POST /media/upload**`) — **`FormData`**, **`MediaUploadResponse`**
- * (`key`, `bucket`, optional **`url`**), **`progress`** (0–100, **`null`** when idle), **`error`** (parsed API message),
- * Axios **`onUploadProgress`** (skipped in **`MODE === 'test'`** only), **`AbortController`** cancel, **`retryUpload`**.
- * **No** AWS SDK in **`package.json`** — browser talks to the API only.
+ * Chat media upload: **`POST /v1/media/presign`** then browser **`PUT`** to the returned URL (R2 / S3-compatible).
+ * Same **`MediaUploadResponse`** shape, progress, errors, cancel, retry. Max size **`getMediaUploadMaxBytes()`** (**`mediaApi`**).
+ * No AWS SDK in the browser.
  */
 export function useMediaUpload(): UseMediaUploadResult {
   const [isUploading, setIsUploading] = useState(false);
@@ -46,15 +44,16 @@ export function useMediaUpload(): UseMediaUploadResult {
       const ac = new AbortController();
       abortRef.current = ac;
       try {
-        const fd = buildMediaUploadFormData(file);
-        /** Axios **fetch** adapter (Vitest) + **`onUploadProgress`** can stall MSW multipart — omit here only in test; **`mediaApi.test.ts`** still covers percent math via mocked **`post`**. */
         const testMode = import.meta.env.MODE === 'test';
-        const data = await uploadMedia(fd, {
+        const progressCb = testMode
+          ? undefined
+          : (pct: number) => {
+              setProgress(pct);
+            };
+        const data = await uploadMediaViaPresignedPut(file, {
           signal: ac.signal,
           contentLength: file.size,
-          ...(testMode
-            ? {}
-            : { onUploadProgress: (pct: number) => setProgress(pct) }),
+          ...(progressCb ? { onUploadProgress: progressCb } : {}),
         });
         setResult(data);
         setProgress(100);

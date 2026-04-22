@@ -75,8 +75,14 @@ export async function rotateUserKeypairOnServer(
   });
 }
 
+export { revokeCurrentDeviceOnServerBeforeLogout } from './logoutDeviceRevocation';
+
 /**
  * Backup, restore, and rotate flows (**Option A** retains prior keyring entries; **`rotateUserKeypairOnServer`**).
+ *
+ * **Logout / device lifecycle:** optional **`DELETE /v1/users/me/devices/:deviceId`** is implemented in
+ * **`revokeCurrentDeviceOnServerBeforeLogout`** (wired from **`useAuth`**); enable with
+ * **`VITE_REVOKE_DEVICE_ON_LOGOUT=true`**. Private keys remain in **IndexedDB** — see **Feature 13**.
  */
 export function useKeypairMaintenance(): {
   rotateKeypair: (storagePassphrase: string) => Promise<void>;

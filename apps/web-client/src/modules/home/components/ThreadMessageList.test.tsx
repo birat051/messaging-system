@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import { renderWithProviders } from '@/common/test-utils';
 import { PEER_DECRYPT_NO_DEVICE_KEY_ENTRY } from '@/modules/home/utils/peerDecryptInline';
 import { ThreadMessageList } from './ThreadMessageList';
@@ -35,6 +35,117 @@ describe('ThreadMessageList', () => {
     expect(scroll.className).toMatch(/overflow-y-auto/);
     expect(scroll.className).toMatch(/overflow-x-hidden/);
     expect(scroll.className).toMatch(/min-w-0/);
+  });
+
+  it('scrolls to bottom when a new message is appended while pinned to bottom', () => {
+    let scrollTop = 0;
+    const m1 = { id: '1', body: 'first', isOwn: false, createdAt: T0 };
+    const m2 = { id: '2', body: 'second', isOwn: false, createdAt: T1 };
+
+    const { rerender } = renderWithProviders(
+      <ThreadMessageList messages={[m1]} conversationScrollKey={null} />,
+    );
+    const el = screen.getByTestId('thread-message-scroll');
+    const metrics = { scrollHeight: 1000, clientHeight: 200 };
+    Object.defineProperty(el, 'scrollHeight', {
+      configurable: true,
+      get: () => metrics.scrollHeight,
+    });
+    Object.defineProperty(el, 'clientHeight', {
+      configurable: true,
+      get: () => metrics.clientHeight,
+    });
+    Object.defineProperty(el, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (v: number) => {
+        scrollTop = v;
+      },
+    });
+
+    rerender(<ThreadMessageList messages={[m1]} conversationScrollKey="c1" />);
+    expect(scrollTop).toBe(800);
+
+    metrics.scrollHeight = 2000;
+    rerender(<ThreadMessageList messages={[m1, m2]} conversationScrollKey="c1" />);
+    expect(scrollTop).toBe(1800);
+  });
+
+  it('does not auto-scroll when the user scrolled away from the bottom (tail still updates)', () => {
+    let scrollTop = 0;
+    const m1 = { id: '1', body: 'first', isOwn: false, createdAt: T0 };
+    const m2 = { id: '2', body: 'second', isOwn: false, createdAt: T1 };
+
+    const { rerender } = renderWithProviders(
+      <ThreadMessageList messages={[m1]} conversationScrollKey={null} />,
+    );
+    const el = screen.getByTestId('thread-message-scroll');
+    Object.defineProperty(el, 'scrollHeight', {
+      configurable: true,
+      get: () => 1000,
+    });
+    Object.defineProperty(el, 'clientHeight', {
+      configurable: true,
+      get: () => 200,
+    });
+    Object.defineProperty(el, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (v: number) => {
+        scrollTop = v;
+      },
+    });
+
+    rerender(<ThreadMessageList messages={[m1]} conversationScrollKey="c1" />);
+    expect(scrollTop).toBe(800);
+
+    scrollTop = 0;
+    fireEvent.scroll(el);
+    rerender(<ThreadMessageList messages={[m1, m2]} conversationScrollKey="c1" />);
+    expect(scrollTop).toBe(0);
+  });
+
+  it('scrolls to bottom when conversationScrollKey changes (new active thread)', () => {
+    let scrollTop = 0;
+    const { rerender } = renderWithProviders(
+      <ThreadMessageList
+        messages={[{ id: 'a', body: 'in c1', isOwn: false, createdAt: T0 }]}
+        conversationScrollKey={null}
+      />,
+    );
+    const el = screen.getByTestId('thread-message-scroll');
+    Object.defineProperty(el, 'scrollHeight', {
+      configurable: true,
+      get: () => 500,
+    });
+    Object.defineProperty(el, 'clientHeight', {
+      configurable: true,
+      get: () => 200,
+    });
+    Object.defineProperty(el, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (v: number) => {
+        scrollTop = v;
+      },
+    });
+
+    rerender(
+      <ThreadMessageList
+        conversationScrollKey="c1"
+        messages={[{ id: 'a', body: 'in c1', isOwn: false, createdAt: T0 }]}
+      />,
+    );
+    expect(scrollTop).toBe(300);
+
+    scrollTop = 50;
+    rerender(
+      <ThreadMessageList
+        conversationScrollKey="c2"
+        messages={[{ id: 'b', body: 'in c2', isOwn: false, createdAt: T1 }]}
+      />,
+    );
+    expect(scrollTop).toBe(300);
   });
 
   it('applies wrapping classes to long message body text', () => {
@@ -174,6 +285,37 @@ describe('ThreadMessageList', () => {
       );
 
       expect(screen.getByText('Attachment')).toBeInTheDocument();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('peer image uses mock https URL as img src after decrypt when public env is unset (decrypted m.u path)', () => {
+    vi.stubEnv('VITE_S3_PUBLIC_BASE_URL', '');
+    vi.stubEnv('VITE_S3_BUCKET', '');
+    try {
+      const decryptedPublicUrl = 'https://r2-public.example/users/1/photo.png';
+      renderWithProviders(
+        <ThreadMessageList
+          messages={[
+            {
+              id: 'm-peer-hybrid-url',
+              body: 'check this',
+              mediaKey: 'users/1/photo.png',
+              mediaPreviewUrl: decryptedPublicUrl,
+              isOwn: false,
+              createdAt: T0,
+            },
+          ]}
+        />,
+      );
+
+      const log = screen.getByRole('log', { name: /conversation messages/i });
+      const img = within(log).getByRole('img', {
+        name: /image attachment from the other person/i,
+      });
+      expect(img).toHaveAttribute('src', decryptedPublicUrl);
+      expect(within(log).queryByText(/^Attachment$/)).not.toBeInTheDocument();
     } finally {
       vi.unstubAllEnvs();
     }

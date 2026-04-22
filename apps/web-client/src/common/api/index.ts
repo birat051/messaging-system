@@ -32,9 +32,18 @@ export {
   deleteMyDevice,
   getCurrentUser,
   getUserById,
+  isAllowedProfileAvatarFile,
   listUserDevicePublicKeys,
+  postMyAvatarPresign,
+  PROFILE_AVATAR_CLIENT_TYPE_ERROR,
   registerMyDevice,
   searchUsers,
   searchUsersByEmail,
   updateCurrentUserProfile,
+  updateCurrentUserProfileJson,
+  uploadProfileAvatarViaPresignedPut,
+} from './usersApi';
+export type {
+  ProfileAvatarUploadPhase,
+  UploadProfileAvatarOptions,
 } from './usersApi';

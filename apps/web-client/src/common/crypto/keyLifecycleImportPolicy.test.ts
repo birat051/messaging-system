@@ -14,6 +14,7 @@ const KEY_LIFECYCLE_SOURCES = [
   'src/common/crypto/messageHybrid.ts',
   'src/common/hooks/useKeypairStatus.ts',
   'src/common/hooks/useRegisterDevice.ts',
+  'src/common/hooks/useRestorePrivateKey.ts',
   'src/common/hooks/useSendEncryptedMessage.ts',
   'src/common/hooks/useDevEnsureMessagingKeys.ts',
 ] as const;

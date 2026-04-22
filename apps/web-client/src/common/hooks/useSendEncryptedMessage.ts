@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { useStore } from 'react-redux';
+import { serializeHybridInnerPlaintextV1 } from '../crypto/messageHybridPlaintext';
 import {
   encryptUtf8ToHybridSendPayload,
   mergeHybridDeviceRows,
@@ -16,6 +17,11 @@ import { useAppDispatch } from '@/store/hooks';
 import type { RootState } from '@/store/store';
 import { useAuth } from './useAuth';
 import { useSocketWorkerSendMessage } from './useSocketWorkerSendMessage';
+
+/** Client-only: encrypted into hybrid inner **v1** (`m.u` / derived); not part of the OpenAPI wire shape. */
+export type HybridSendMessageRequest = SendMessageRequest & {
+  mediaRetrievableUrl?: string | null;
+};
 
 export type UseSendEncryptedMessageOptions = {
   /**
@@ -42,15 +48,18 @@ function readFreshDeviceRows(
 }
 
 /**
- * **`message:send`** for **direct 1:1** text — **per-device hybrid only** (no legacy **`E2EE_JSON_V1:`** / user-level
+ * **`message:send`** for **direct 1:1** — **per-device hybrid only** (no legacy **`E2EE_JSON_V1:`** / user-level
  * **`GET /users/:id/public-key`** path).
+ *
+ * **Media locator:** when **`mediaKey`** is set, it is serialized into the AES-GCM plaintext (**`messageHybridPlaintext.ts`**
+ * v1 JSON with **`m.k`**, optional **`m.u`** / **`m.b`**) so the server stores **`mediaKey: null`** and only sees opaque **`body`** bytes.
  *
  * Loads **recipient** + **sender** device rows via **`fetchDevicePublicKeys`** → **`encryptUtf8ToHybridSendPayload`**.
  * **Receive** — **`usePeerMessageDecryption`** / **`useDecryptMessage`**. Wire shape: **`e2eeOutboundSendTrace.ts`**.
  */
 export function useSendEncryptedMessage(
   options: UseSendEncryptedMessageOptions = {},
-): { sendMessage: (payload: SendMessageRequest) => Promise<Message> } {
+): { sendMessage: (payload: HybridSendMessageRequest) => Promise<Message> } {
   const { user } = useAuth();
   const dispatch = useAppDispatch();
   const store = useStore();
@@ -58,24 +67,22 @@ export function useSendEncryptedMessage(
   const peerUserId = options.peerUserId?.trim() ?? '';
 
   const sendMessage = useCallback(
-    async (payload: SendMessageRequest): Promise<Message> => {
+    async (payload: HybridSendMessageRequest): Promise<Message> => {
       const senderId = user?.id;
       if (!senderId?.trim()) {
         throw new Error('You must be signed in to send messages.');
       }
 
       const bodyText = payload.body?.trim() ?? '';
-      const hasMedia =
-        payload.mediaKey !== undefined &&
-        payload.mediaKey !== null &&
-        String(payload.mediaKey).trim().length > 0;
+      const mediaKeyRaw = payload.mediaKey;
+      const mediaKeyTrim =
+        mediaKeyRaw !== undefined && mediaKeyRaw !== null
+          ? String(mediaKeyRaw).trim()
+          : '';
+      const hasMedia = mediaKeyTrim.length > 0;
 
-      if (bodyText.length === 0) {
-        if (!hasMedia) {
-          throw new Error('Message body or mediaKey is required.');
-        }
-        await ensureUserKeypairReadyForMessaging(senderId, dispatch);
-        return socketSend(payload);
+      if (bodyText.length === 0 && !hasMedia) {
+        throw new Error('Message body or mediaKey is required.');
       }
 
       const recipientUserId =
@@ -125,14 +132,21 @@ export function useSendEncryptedMessage(
       }
 
       const devices = mergeHybridDeviceRows(finalRecipientRows, finalSelfRows);
-      const hybrid = await encryptUtf8ToHybridSendPayload(bodyText, devices);
+      const { mediaRetrievableUrl: innerMediaUrl, ...wirePayload } = payload;
+      const innerUtf8 = serializeHybridInnerPlaintextV1({
+        text: bodyText,
+        mediaObjectKey: hasMedia ? mediaKeyTrim : null,
+        mediaRetrievableUrl: innerMediaUrl ?? null,
+      });
+      const hybrid = await encryptUtf8ToHybridSendPayload(innerUtf8, devices);
 
       return socketSend({
-        ...payload,
+        ...wirePayload,
         body: hybrid.body,
         iv: hybrid.iv,
         encryptedMessageKeys: hybrid.encryptedMessageKeys,
         algorithm: hybrid.algorithm,
+        mediaKey: null,
       });
     },
     [dispatch, peerUserId, socketSend, store, user?.id],

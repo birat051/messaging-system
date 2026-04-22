@@ -7,7 +7,8 @@ export type MessageBubbleProps = {
 
 /**
  * Rounded message bubble shell for thread rows (**checklists / UX** refer to this as **MessageBubble**).
- * Text is **`children`**; **`ThreadMessageMedia`** is rendered by **`ThreadMessageList`** when **`mediaKey`** is set.
+ * Text is **`children`**; **`ThreadMessageMedia`** (lazy **`<img>`** / attachment link) is rendered by **`ThreadMessageList`**
+ * when **`mediaKey`** is set — **`previewUrlOverride`** carries decrypted hybrid **`m.u`** (or blob) for **`src`** resolution.
  */
 export function MessageBubble({ isOwn, children }: MessageBubbleProps) {
   return (

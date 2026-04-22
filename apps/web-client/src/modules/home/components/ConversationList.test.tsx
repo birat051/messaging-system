@@ -57,4 +57,18 @@ describe('ConversationList', () => {
     await user.click(screen.getByRole('button', { name: /bob/i }));
     expect(onSelect).toHaveBeenCalledWith('c2');
   });
+
+  it('sidebar rows show title and subtitle only (no last-seen / presence line)', () => {
+    renderWithProviders(
+      <ConversationList
+        items={[{ id: 'c1', title: 'Ada', subtitle: 'Last message preview' }]}
+      />,
+    );
+
+    const row = screen.getByRole('button', { name: /ada/i });
+    expect(row).toHaveTextContent('Ada');
+    expect(row).toHaveTextContent('Last message preview');
+    expect(screen.queryByText(/online/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/last seen/i)).not.toBeInTheDocument();
+  });
 });
