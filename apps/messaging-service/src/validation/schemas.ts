@@ -376,6 +376,16 @@ export const deviceIdPathSchema = z.object({
   deviceId: registeredDeviceIdStringSchema,
 });
 
+/** Optional body for **`POST /users/me/devices/sync-notify`** — **`deviceId`** when JWT lacks **`sourceDeviceId`**. */
+export const notifyDeviceSyncRequestSchema = z.preprocess(
+  (val) => (val === undefined || val === null ? {} : val),
+  z
+    .object({
+      deviceId: sourceDeviceIdRequestFieldSchema,
+    })
+    .strict(),
+);
+
 /**
  * Query for **`GET /users/me/devices`** — no parameters. **`.strict()`** rejects unknown query keys.
  * (OpenAPI documents an empty query map for this operation.)

@@ -17,6 +17,7 @@ const AUTH_PATHS = new Set<string>([
 /**
  * Where to go after a successful login, register, or verify-email.
  * Uses **`location.state.from`** from **`ProtectedRoute`**; falls back to **`/`**.
+ * **`/settings`** is never restored after auth — users land on **`/`** so the main app opens on the home/chat shell instead of profile.
  */
 export function getPostLoginRedirectPath(state: unknown): string {
   const from = (state as AuthRedirectState | null)?.from;
@@ -25,6 +26,9 @@ export function getPostLoginRedirectPath(state: unknown): string {
     return ROUTES.home;
   }
   if (!path.startsWith('/') || path.startsWith('//')) {
+    return ROUTES.home;
+  }
+  if (path === ROUTES.settings) {
     return ROUTES.home;
   }
   return path;

@@ -436,6 +436,10 @@ Existing logic already: **(a)** avoids new **`deviceId`** when keyring exists, *
 
 ---
 
+## Related docs
+
+- **Second browser / Feature 13 sync repro** (different profile or browser, same account): **`docs/repro-second-browser-sync.md`**.
+
 ## Related checklist
 
 **`docs/TASK_CHECKLIST.md`** → **Bugfix — Sign out then relogin (same browser)**.

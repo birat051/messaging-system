@@ -5,6 +5,8 @@
  * Uses **real Web Crypto** (no crypto mocks) and **fake-indexeddb** (same as `privateKeyStorage` tests). Does not
  * mount **React** / full **Redux** — it proves the **wire + IDB contract** that must hold when **IndexedDB** survives
  * sign-out and **`getStoredDeviceId`** still matches keys in **`encryptedMessageKeys`**.
+ *
+ * Related: **`secondBrowserSync.integration.test.ts`** — Feature 13 **unwrap → wrap → merge **`encryptedMessageKeys`** for a **new** device (no IDB scenario).
  */
 
 import 'fake-indexeddb/auto';

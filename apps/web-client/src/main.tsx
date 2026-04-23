@@ -7,6 +7,7 @@ import './index.css';
 import { attachHttpAuth } from './common/api/httpClient';
 import { swrConfigValue } from './common/api/swrConfig';
 import { ToastProvider } from './common/components/toast/ToastProvider';
+import { DeviceSyncBlockingGate } from './common/components/DeviceSyncBlockingGate';
 import { ThemeProvider } from './common/theme/ThemeProvider';
 import App from './App';
 import { SocketWorkerProvider } from './common/realtime/SocketWorkerProvider';
@@ -29,7 +30,9 @@ createRoot(root).render(
             <ToastProvider>
               <SessionRestore>
                 <SocketWorkerProvider>
-                  <App />
+                  <DeviceSyncBlockingGate>
+                    <App />
+                  </DeviceSyncBlockingGate>
                 </SocketWorkerProvider>
               </SessionRestore>
             </ToastProvider>

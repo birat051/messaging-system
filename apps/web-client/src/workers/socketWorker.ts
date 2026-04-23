@@ -11,8 +11,82 @@ import {
 } from '../common/utils/presenceCadence';
 
 let socket: Socket | null = null;
+/** Incremented when replacing or tearing down the Socket.IO client so **`disconnect`** / **`connect`** from the *previous* instance cannot post stale lifecycle events to the main thread. */
+let socketConnectGeneration = 0;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let heartbeatIntervalMs = PRESENCE_HEARTBEAT_RELAXED_MS;
+
+/** If the user sends before **`connect`** completes or during reconnect, hold sends here and flush on **`connect`**. */
+const MESSAGE_SEND_QUEUE_TIMEOUT_MS = 30_000;
+
+type MessageSendWorkerMsg = Extract<MainToWorkerMessage, { type: 'message_send' }>;
+
+let pendingMessageSendQueue: Array<{
+  msg: MessageSendWorkerMsg;
+  /** Browser / web worker **`setTimeout`** handle (see **`@types/node`** vs DOM **`Timeout`** mismatch). */
+  timeoutId: number;
+}> = [];
+
+function clearPendingMessageSendQueue(message: string): void {
+  for (const item of pendingMessageSendQueue) {
+    clearTimeout(item.timeoutId);
+    post({
+      type: 'message_send_ack',
+      requestId: item.msg.requestId,
+      ack: {
+        code: 'UNAVAILABLE',
+        message,
+      },
+    });
+  }
+  pendingMessageSendQueue = [];
+}
+
+function emitMessageSend(msg: MessageSendWorkerMsg): void {
+  socket!.emit('message:send', msg.payload, (ack: unknown) => {
+    post({ type: 'message_send_ack', requestId: msg.requestId, ack });
+  });
+}
+
+function flushPendingMessageSends(): void {
+  while (socket?.connected && pendingMessageSendQueue.length > 0) {
+    const item = pendingMessageSendQueue.shift()!;
+    clearTimeout(item.timeoutId);
+    emitMessageSend(item.msg);
+  }
+}
+
+function tryMessageSendOrQueue(msg: MessageSendWorkerMsg): void {
+  if (socket?.connected) {
+    emitMessageSend(msg);
+    return;
+  }
+
+  const timeoutId = self.setTimeout(() => {
+    const idx = pendingMessageSendQueue.findIndex((q) => q.msg.requestId === msg.requestId);
+    if (idx < 0) {
+      return;
+    }
+    pendingMessageSendQueue.splice(idx, 1);
+    post({
+      type: 'message_send_ack',
+      requestId: msg.requestId,
+      ack: {
+        code: 'UNAVAILABLE',
+        message: 'Timed out waiting for chat connection',
+      },
+    });
+  }, MESSAGE_SEND_QUEUE_TIMEOUT_MS);
+
+  pendingMessageSendQueue.push({ msg, timeoutId });
+}
+
+/** Last successful **`connect`** params — used for token rotation without main-thread bridge teardown. */
+let activeConnectParams: {
+  url: string;
+  userId: string;
+  accessToken: string | null;
+} | null = null;
 
 function post(msg: WorkerToMainMessage): void {
   self.postMessage(msg);
@@ -49,8 +123,30 @@ function applyHeartbeatMode(mode: 'default' | 'active_thread'): void {
 }
 
 function connectSocket(msg: Extract<MainToWorkerMessage, { type: 'connect' }>): void {
+  socketConnectGeneration++;
+  const gen = socketConnectGeneration;
+
+  activeConnectParams = {
+    url: msg.url,
+    userId: msg.userId,
+    accessToken: msg.accessToken ?? null,
+  };
   clearHeartbeat();
-  socket?.disconnect();
+  /**
+   * When we replace the client, the **previous** instance’s real **`disconnect`** is ignored (generation
+   * guard). If that socket had **already** dropped (`connected === false`) before we entered here, we
+   * previously skipped posting **`disconnected`** and the UI could stay **`connected`** while this
+   * handshake runs — **`socket.id`** is often **`undefined`** until **`connect`**, matching
+   * **`workerSocketId: null`** on the **new** `io()` client (generation ≥ 2, pre-`connect`).
+   * Always clear the badge whenever an instance exists (replacement).
+   */
+  const previousClient = socket;
+  if (previousClient !== null) {
+    post({ type: 'disconnected', reason: 'reconnect' });
+  }
+  previousClient?.disconnect();
+  /** Signal connecting before **`io()`** dials (handshake / JWT rotation). */
+  post({ type: 'socket_connecting' });
 
   /** Same **`userId`** as Redux **`auth.user.id`** — server joins **`user:<id>`**; must match the recipient of **`message:new`**. */
   const auth: Record<string, string> = { userId: msg.userId };
@@ -58,32 +154,50 @@ function connectSocket(msg: Extract<MainToWorkerMessage, { type: 'connect' }>): 
     auth.token = msg.accessToken.trim();
   }
 
-  socket = io(msg.url, {
+  const client = io(msg.url, {
     path: '/socket.io',
     auth,
     transports: ['websocket', 'polling'],
     autoConnect: true,
   });
 
-  socket.io.on('reconnect_attempt', () => {
+  socket = client;
+
+  client.io.on('reconnect_attempt', () => {
+    if (gen !== socketConnectGeneration) {
+      return;
+    }
     post({ type: 'socket_connecting' });
   });
 
-  socket.on('connect', () => {
-    post({ type: 'connected', socketId: socket?.id });
+  client.on('connect', () => {
+    if (gen !== socketConnectGeneration) {
+      return;
+    }
+    post({ type: 'connected', socketId: client.id });
     startHeartbeat();
+    flushPendingMessageSends();
   });
 
-  socket.on('disconnect', (reason) => {
+  client.on('disconnect', (reason) => {
+    if (gen !== socketConnectGeneration) {
+      return;
+    }
     clearHeartbeat();
     post({ type: 'disconnected', reason: String(reason) });
   });
 
-  socket.on('connect_error', (err: Error) => {
+  client.on('connect_error', (err: Error) => {
+    if (gen !== socketConnectGeneration) {
+      return;
+    }
     post({ type: 'connect_error', message: err.message });
   });
 
-  socket.on('notification', (raw: unknown) => {
+  client.on('notification', (raw: unknown) => {
+    if (gen !== socketConnectGeneration) {
+      return;
+    }
     const payload = parseNotificationWorkerPayload(raw);
     if (payload === null) {
       if (import.meta.env.DEV) {
@@ -97,23 +211,38 @@ function connectSocket(msg: Extract<MainToWorkerMessage, { type: 'connect' }>): 
     post({ type: 'notification', payload });
   });
 
-  socket.on('message:new', (payload: unknown) => {
+  client.on('message:new', (payload: unknown) => {
+    if (gen !== socketConnectGeneration) {
+      return;
+    }
     post({ type: 'message_new', payload });
   });
 
-  socket.on('message:delivered', (payload: unknown) => {
+  client.on('message:delivered', (payload: unknown) => {
+    if (gen !== socketConnectGeneration) {
+      return;
+    }
     post({ type: 'message_delivered', payload });
   });
 
-  socket.on('message:read', (payload: unknown) => {
+  client.on('message:read', (payload: unknown) => {
+    if (gen !== socketConnectGeneration) {
+      return;
+    }
     post({ type: 'message_read', payload });
   });
 
-  socket.on('conversation:read', (payload: unknown) => {
+  client.on('conversation:read', (payload: unknown) => {
+    if (gen !== socketConnectGeneration) {
+      return;
+    }
     post({ type: 'conversation_read', payload });
   });
 
-  socket.on('device:sync_requested', (raw: unknown) => {
+  client.on('device:sync_requested', (raw: unknown) => {
+    if (gen !== socketConnectGeneration) {
+      return;
+    }
     if (!raw || typeof raw !== 'object') {
       return;
     }
@@ -129,7 +258,10 @@ function connectSocket(msg: Extract<MainToWorkerMessage, { type: 'connect' }>): 
     });
   });
 
-  socket.on('device:sync_complete', (raw: unknown) => {
+  client.on('device:sync_complete', (raw: unknown) => {
+    if (gen !== socketConnectGeneration) {
+      return;
+    }
     if (!raw || typeof raw !== 'object') {
       return;
     }
@@ -144,16 +276,28 @@ function connectSocket(msg: Extract<MainToWorkerMessage, { type: 'connect' }>): 
     });
   });
 
-  socket.on('webrtc:offer', (payload: unknown) => {
+  client.on('webrtc:offer', (payload: unknown) => {
+    if (gen !== socketConnectGeneration) {
+      return;
+    }
     post({ type: 'webrtc_inbound', event: 'webrtc:offer', payload });
   });
-  socket.on('webrtc:answer', (payload: unknown) => {
+  client.on('webrtc:answer', (payload: unknown) => {
+    if (gen !== socketConnectGeneration) {
+      return;
+    }
     post({ type: 'webrtc_inbound', event: 'webrtc:answer', payload });
   });
-  socket.on('webrtc:candidate', (payload: unknown) => {
+  client.on('webrtc:candidate', (payload: unknown) => {
+    if (gen !== socketConnectGeneration) {
+      return;
+    }
     post({ type: 'webrtc_inbound', event: 'webrtc:candidate', payload });
   });
-  socket.on('webrtc:hangup', (payload: unknown) => {
+  client.on('webrtc:hangup', (payload: unknown) => {
+    if (gen !== socketConnectGeneration) {
+      return;
+    }
     post({ type: 'webrtc_inbound', event: 'webrtc:hangup', payload });
   });
 }
@@ -162,11 +306,32 @@ self.onmessage = (ev: MessageEvent<MainToWorkerMessage>) => {
   const msg = ev.data;
 
   if (msg.type === 'disconnect') {
+    socketConnectGeneration++;
+    clearPendingMessageSendQueue('Socket not connected');
     clearHeartbeat();
     heartbeatIntervalMs = PRESENCE_HEARTBEAT_RELAXED_MS;
+    activeConnectParams = null;
     socket?.disconnect();
     socket = null;
     post({ type: 'disconnected', reason: 'client' });
+    return;
+  }
+
+  if (msg.type === 'update_access_token') {
+    if (!activeConnectParams) {
+      return;
+    }
+    const next = msg.accessToken ?? null;
+    if (activeConnectParams.accessToken === next) {
+      return;
+    }
+    activeConnectParams = { ...activeConnectParams, accessToken: next };
+    connectSocket({
+      type: 'connect',
+      url: activeConnectParams.url,
+      userId: activeConnectParams.userId,
+      accessToken: activeConnectParams.accessToken,
+    });
     return;
   }
 
@@ -176,20 +341,7 @@ self.onmessage = (ev: MessageEvent<MainToWorkerMessage>) => {
   }
 
   if (msg.type === 'message_send') {
-    if (!socket?.connected) {
-      post({
-        type: 'message_send_ack',
-        requestId: msg.requestId,
-        ack: {
-          code: 'UNAVAILABLE',
-          message: 'Socket not connected',
-        },
-      });
-      return;
-    }
-    socket.emit('message:send', msg.payload, (ack: unknown) => {
-      post({ type: 'message_send_ack', requestId: msg.requestId, ack });
-    });
+    tryMessageSendOrQueue(msg);
     return;
   }
 

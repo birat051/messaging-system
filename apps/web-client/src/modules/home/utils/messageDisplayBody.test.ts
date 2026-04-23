@@ -96,7 +96,7 @@ describe('resolveMessageDisplayBody', () => {
     expect(
       resolveMessageDisplayBody(m, false, {}, { m1: PEER_DECRYPT_NO_DEVICE_KEY_ENTRY }),
     ).toBe(PEER_DECRYPT_NO_DEVICE_KEY_ENTRY);
-    expect(PEER_DECRYPT_NO_DEVICE_KEY_ENTRY).toBe(PEER_DECRYPT_INLINE_UNAVAILABLE);
+    expect(PEER_DECRYPT_NO_DEVICE_KEY_ENTRY).not.toBe(PEER_DECRYPT_INLINE_UNAVAILABLE);
   });
 
   it('Feature 11 (B): peer bubble shows unavailable copy, not raw base64, when not wire-classified', () => {

@@ -89,11 +89,10 @@ export async function decryptMessageBody(
   }
   const subtle = getSubtle();
   const key = await importAes256GcmKey(messageKey, ['decrypt']);
-  const pt = await subtle.decrypt(
-    { name: 'AES-GCM', iv },
-    key,
-    ciphertext,
-  );
+  /** DOM **`BufferSource`** narrows **`ArrayBuffer`**; copied **`Uint8Array`** satisfies **`SubtleCrypto`**. */
+  const ivBs = iv as BufferSource;
+  const ctBs = ciphertext as BufferSource;
+  const pt = await subtle.decrypt({ name: 'AES-GCM', iv: ivBs }, key, ctBs);
   return new TextDecoder().decode(pt);
 }
 

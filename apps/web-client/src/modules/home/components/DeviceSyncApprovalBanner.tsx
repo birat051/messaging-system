@@ -6,7 +6,9 @@ import { useDeviceKeySync } from '@/modules/crypto/hooks/useDeviceKeySync';
 
 /**
  * Shown on a **trusted** device when Socket.IO **`device:sync_requested`** is received (**`selectPendingSync`**).
- * Approve runs **`executeApproveDeviceKeySync`** — only re-wrapped per-message keys are uploaded; the long-term private key stays local.
+ * Copy aligns with **`docs/PROJECT_PLAN.md` §7.1** (*Multi-device Sync* / *New Device Sync Flow*): approve uploads
+ * re-wrapped keys only; ciphertext on the server stays unchanged.
+ * **`executeApproveDeviceKeySync`** — only per-message wrapped keys leave this browser; the long-term private key stays local.
  */
 export function DeviceSyncApprovalBanner() {
   const user = useAppSelector(selectAuthUser);
@@ -27,7 +29,9 @@ export function DeviceSyncApprovalBanner() {
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <p className="text-foreground min-w-0 flex-1 text-xs leading-relaxed sm:text-sm">
-          A new device is requesting access to your message history. Approve to sync encrypted keys.
+          A new device joined your account and cannot read older messages until you approve. Approve to copy encrypted
+          message keys to it from this browser—the original message ciphertext stays on the server; only keys are
+          updated.
         </p>
         <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
           <button

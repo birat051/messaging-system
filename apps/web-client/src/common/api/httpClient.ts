@@ -5,6 +5,7 @@ import { getApiBaseUrl } from '../utils/apiConfig';
 import { parseApiError } from '../../modules/auth/utils/apiError';
 import type { components } from '../../generated/api-types';
 import { logout, setSession } from '../../modules/auth/stores/authSlice';
+import { logDevSessionTokenWrite } from '../../modules/auth/utils/sessionWriteDebug';
 import {
   clearRefreshToken,
   readRefreshToken,
@@ -53,7 +54,15 @@ async function performRefresh(
 
   for (let attempt = 1; attempt <= MAX_REFRESH_ATTEMPTS; attempt++) {
     try {
-      const res = await httpClient.post('/auth/refresh', { refreshToken: rt }, {
+      const deviceId = store.getState().crypto.deviceId?.trim();
+      const refreshPayload: {
+        refreshToken: string;
+        sourceDeviceId?: string;
+      } = { refreshToken: rt };
+      if (deviceId !== undefined && deviceId.length > 0) {
+        refreshPayload.sourceDeviceId = deviceId;
+      }
+      const res = await httpClient.post('/auth/refresh', refreshPayload, {
         skipAuthRefresh: true,
       });
       const data = res.data as AuthResponse;
@@ -69,6 +78,7 @@ async function performRefresh(
           accessTokenExpiresAt: data.expiresAt ?? null,
         }),
       );
+      logDevSessionTokenWrite('httpClient.performRefresh', access);
       if (data.refreshToken) {
         writeRefreshToken(data.refreshToken);
       }
@@ -112,7 +122,49 @@ function clearSessionAndLogin(store: Store<RootState>): void {
   }
 }
 
+function shouldBlockMessagingRestForRegisteredSync(store: Store<RootState>): boolean {
+  const user = store.getState().auth.user;
+  if (!user || user.guest === true) return false;
+  const sync = store.getState().crypto.syncState;
+  return sync === 'pending' || sync === 'in_progress';
+}
+
+/** **`config.url`** relative path or absolute (no **`baseURL`** yet), may include query. */
+function urlPathBlocksMessagingRest(url: string): boolean {
+  const raw = url.trim();
+  if (!raw) return false;
+  let pathOnly: string;
+  try {
+    pathOnly = raw.includes('://') ? new URL(raw).pathname : raw.split('?')[0] ?? '';
+  } catch {
+    pathOnly = raw.split('?')[0] ?? '';
+  }
+  return (
+    pathOnly === '/conversations' ||
+    pathOnly.startsWith('/conversations/') ||
+    pathOnly === '/messages' ||
+    pathOnly.startsWith('/messages/')
+  );
+}
+
 export function attachHttpAuth(store: Store<RootState>): void {
+  httpClient.interceptors.request.use((config) => {
+    if (
+      config.skipDeviceSyncMessagingGate !== true &&
+      shouldBlockMessagingRestForRegisteredSync(store) &&
+      urlPathBlocksMessagingRest(config.url ?? '')
+    ) {
+      return Promise.reject(
+        new AxiosError<{ message?: string }>(
+          'Messaging APIs are unavailable until multi-device sync completes.',
+          'DEVICE_SYNC_GATE',
+          config,
+        ),
+      );
+    }
+    return config;
+  });
+
   httpClient.interceptors.request.use((config) => {
     const isRefresh =
       (config.url ?? '').includes(API_PATHS.auth.refresh) ||

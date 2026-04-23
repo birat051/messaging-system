@@ -84,6 +84,14 @@ export type MainToWorkerMessage =
       /** HS256 access token — required when server uses **`JWT_SECRET`** (same as REST **`Authorization`**). */
       accessToken: string | null;
     }
+  /**
+   * Apply a rotated access token without tearing down the worker bridge on the main thread.
+   * Worker reconnects the Socket.IO client with fresh **`auth`** (same **`userId`** / URL).
+   */
+  | {
+      type: 'update_access_token';
+      accessToken: string | null;
+    }
   | {
       type: 'message_send';
       requestId: string;

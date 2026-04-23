@@ -700,6 +700,60 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /users/me/devices/sync-notify:
+    post:
+      operationId: notifyTrustedDeviceSyncRequest
+      summary: Re-broadcast device sync request to other sessions
+      description: |
+        Re-emits Socket.IO **`device:sync_requested`** to **`user:<userId>`** with this device’s **`deviceId`** and **`publicKey`**
+        (same payload shape as on **first insert** in **`POST /users/me/devices`**). Use when the trusted browser was offline
+        when this device registered.
+
+        Prefer an access JWT that includes **`sourceDeviceId`** (**`POST /auth/refresh`** with **`sourceDeviceId`**). If your
+        token does not yet include it, send optional JSON **`{ "deviceId": "<id>" }`** — use the same **`deviceId`** as
+        **`GET /users/me/devices`** for this browser. At least **two** devices must be in the registry. Rate-limited per user
+        (**`DEVICE_SYNC_NOTIFY_RATE_LIMIT_*`**).
+      tags:
+        - Users
+        - 'Device sync (Feature 13)'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotifyDeviceSyncRequest'
+      responses:
+        '200':
+          description: Notification emitted (best-effort in-process Socket.IO fan-out)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Guest session — not allowed (**`GUEST_ACTION_FORBIDDEN`**)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Device row not found for resolved device id (JWT claim or JSON body)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Per-user rate limit on sync-notify exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /users/me/devices/{deviceId}:
     delete:
       operationId: deleteMyDevice
@@ -1655,6 +1709,15 @@ components:
           type: string
           format: password
           minLength: 8
+
+    NotifyDeviceSyncRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        deviceId:
+          $ref: '#/components/schemas/RegisteredDeviceIdWire'
+          description: >-
+            Include when the Bearer token does not embed sourceDeviceId — use this browser’s device id from GET /users/me/devices.
 
     OkResponse:
       type: object

@@ -453,6 +453,16 @@ const envSchema = z.object({
     .max(1048576)
     .default(524288),
   /**
+   * Redis fixed-window rate limit for **`POST /users/me/devices/sync-notify`** (re-broadcast **`device:sync_requested`**)
+   * per **authenticated user id**.
+   */
+  DEVICE_SYNC_NOTIFY_RATE_LIMIT_WINDOW_SEC: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(3600),
+  DEVICE_SYNC_NOTIFY_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),
+  /**
    * Max JSON body size (bytes) for **`POST /users/me/devices`** — stricter than the global **`1mb`** parser so
    * device registration payloads cannot send large blobs.
    */

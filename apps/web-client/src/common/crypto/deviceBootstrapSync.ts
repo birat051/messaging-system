@@ -15,7 +15,7 @@ export type EvaluateDeviceSyncBootstrapOptions = {
 
 /** True when **`encryptedMessageKeys[deviceId]`** is a non-empty wrapped-key string (hybrid E2EE). */
 export function messageHasDeviceWrappedKey(
-  message: { encryptedMessageKeys?: Record<string, string> },
+  message: { encryptedMessageKeys?: Record<string, string> | null },
   deviceId: string,
 ): boolean {
   const k = deviceId.trim();

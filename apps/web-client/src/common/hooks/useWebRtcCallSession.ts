@@ -10,6 +10,7 @@ import {
   hangupCall,
   peerAnsweredOutgoing,
   setCallError,
+  type CallSessionEndReason,
 } from '@/modules/home/stores/callSlice';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 
@@ -41,6 +42,8 @@ export function useWebRtcCallSession(
   remoteVideoVisible: boolean;
   /** End this side of the call and notify the peer via **`webrtc:hangup`** when possible. */
   requestLocalEndCall: () => void;
+  /** From **`callSlice`** — why the previous session ended (toast / UX). */
+  lastSessionEndReason: CallSessionEndReason | null;
 } {
   const dispatch = useAppDispatch();
   const socket = useSocketWorker();

@@ -72,7 +72,12 @@ export async function executeApproveDeviceKeySync(params: {
     refreshToken: refreshToken.trim(),
     sourceDeviceId,
   });
-  applyAuthResponse(params.dispatch, refreshed, params.authUser);
+  applyAuthResponse(
+    params.dispatch,
+    refreshed,
+    params.authUser,
+    'crypto.deviceKeySync.approveSync',
+  );
 
   let afterMessageId: string | undefined;
   let totalPosted = 0;

@@ -39,6 +39,7 @@ import { peerPresenceTextClassName } from '@/modules/home/utils/peerPresenceDisp
 import {
   currentUserHasSeenMessage,
   hydratePeerReadDedupeFromReceipts,
+  isOptimisticClientMessageId,
 } from '@/modules/home/utils/receiptEmitGuards';
 import { CallSessionDock } from '@/modules/home/components/CallSessionDock';
 import { RemoteCallEndedToast } from '@/modules/home/components/RemoteCallEndedToast';
@@ -53,7 +54,9 @@ import {
   selectOutboundReceiptDisplay,
   type ReceiptTickContext,
 } from '@/modules/home/stores/messagingSelectors';
+import { useStore } from 'react-redux';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import type { RootState } from '@/store/store';
 import { ConversationList } from './ConversationList';
 import { E2eeMessagingIndicator } from './E2eeMessagingIndicator';
 import { NewDirectThreadComposer } from './NewDirectThreadComposer';
@@ -84,6 +87,7 @@ function formatConversationListSubtitle(iso: string): string {
  */
 export function HomeConversationShell() {
   const dispatch = useAppDispatch();
+  const reduxStore = useStore<RootState>();
   const { mutate } = useSWRConfig();
   const { user } = useAuth();
   const searchShellId = useId();
@@ -318,20 +322,36 @@ export function HomeConversationShell() {
     if (messageIdsForActive.length === 0) {
       return;
     }
-    const lastId = messageIdsForActive[messageIdsForActive.length - 1];
-    if (!lastId) {
+    const uid = user?.id?.trim() ?? '';
+    /** Receipt APIs require acting on a **peer** message — not your own (`messageReceiptOps.assertRecipientNotSender`). */
+    let lastPeerMessageId: string | null = null;
+    for (let i = messageIdsForActive.length - 1; i >= 0; i--) {
+      const mid = messageIdsForActive[i];
+      if (!mid || isOptimisticClientMessageId(mid)) {
+        continue;
+      }
+      const m = messaging.messagesById[mid];
+      if (m && uid && m.senderId !== uid) {
+        lastPeerMessageId = mid;
+        break;
+      }
+    }
+    if (!lastPeerMessageId) {
       return;
     }
-    const key = `${activeConversationId}:${lastId}`;
-    const uid = user?.id?.trim() ?? '';
-    const lastMsg = messaging.messagesById[lastId];
+    const key = `${activeConversationId}:${lastPeerMessageId}`;
+    const lastPeerMsg = messaging.messagesById[lastPeerMessageId];
     if (
-      uid &&
-      lastMsg &&
-      lastMsg.senderId !== uid &&
+      !lastPeerMsg ||
+      lastPeerMsg.senderId.trim() === uid ||
+      !uid
+    ) {
+      return;
+    }
+    if (
       currentUserHasSeenMessage(
         messaging.receiptsByMessageId,
-        lastId,
+        lastPeerMessageId,
         uid,
       )
     ) {
@@ -343,7 +363,7 @@ export function HomeConversationShell() {
     }
     conversationReadCursorKeyRef.current = key;
     void emitReceipt('conversation:read', {
-      messageId: lastId,
+      messageId: lastPeerMessageId,
       conversationId: activeConversationId,
     }).catch(() => {
       if (conversationReadCursorKeyRef.current === key) {
@@ -362,10 +382,17 @@ export function HomeConversationShell() {
 
   const onPeerMessageVisible = useCallback(
     (messageId: string) => {
+      if (isOptimisticClientMessageId(messageId)) {
+        return;
+      }
       if (!activeConversationId || !emitReceipt || !user?.id) {
         return;
       }
       const uid = user.id;
+      const row = reduxStore.getState().messaging.messagesById[messageId];
+      if (!row || row.senderId.trim() === uid.trim()) {
+        return;
+      }
       if (currentUserHasSeenMessage(messaging.receiptsByMessageId, messageId, uid)) {
         messageReadEmittedRef.current.add(messageId);
         return;
@@ -385,6 +412,7 @@ export function HomeConversationShell() {
       activeConversationId,
       emitReceipt,
       messaging.receiptsByMessageId,
+      reduxStore,
       user?.id,
     ],
   );
@@ -461,6 +489,7 @@ export function HomeConversationShell() {
 
   const composerDisabled =
     messagesLoading ||
+    !socketConnected ||
     isGroupThread ||
     (!isGroupThread &&
       (selectedPeerUserId == null || selectedPeerUserId === ''));
@@ -696,11 +725,13 @@ export function HomeConversationShell() {
                       ? 'Loading messages…'
                       : isGroupThread
                         ? 'Group chat is not available in this client yet.'
-                        : composerDisabled
-                          ? 'Cannot send until the thread is ready.'
-                          : isDirectPeerSelf(selectedPeerUserId, user?.id)
-                            ? 'Message yourself…'
-                            : undefined
+                        : !socketConnected
+                          ? 'Waiting for chat connection…'
+                          : composerDisabled
+                            ? 'Cannot send until the thread is ready.'
+                            : isDirectPeerSelf(selectedPeerUserId, user?.id)
+                              ? 'Message yourself…'
+                              : undefined
                   }
                 />
               ) : pendingDirectPeer ? (

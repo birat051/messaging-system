@@ -31,7 +31,7 @@ export function bootstrapSessionIfNeeded(dispatch: AppDispatch): Promise<void> {
         return;
       }
       const data = await refreshTokens({ refreshToken: rt });
-      applyAuthResponse(dispatch, data, null);
+      applyAuthResponse(dispatch, data, null, 'sessionBootstrap.refresh');
       try {
         const user = await getCurrentUser();
         dispatch(setUser(user));
@@ -41,8 +41,21 @@ export function bootstrapSessionIfNeeded(dispatch: AppDispatch): Promise<void> {
           if (uid.length > 0) {
             try {
               const did = await getStoredDeviceId(uid);
-              if (did) {
-                dispatch(hydrateMessagingDeviceId(did));
+              if (did?.trim()) {
+                const trimmed = did.trim();
+                dispatch(hydrateMessagingDeviceId(trimmed));
+                const rt2 = readRefreshToken();
+                if (rt2?.trim()) {
+                  try {
+                    const upgraded = await refreshTokens({
+                      refreshToken: rt2,
+                      sourceDeviceId: trimmed,
+                    });
+                    applyAuthResponse(dispatch, upgraded, user, 'sessionBootstrap.deviceBoundRefresh');
+                  } catch {
+                    /* device-bound JWT optional until next 401 refresh */
+                  }
+                }
               }
             } catch {
               /* IndexedDB unavailable — `ensureUserKeypairReadyForMessaging` retries */

@@ -167,6 +167,23 @@ export async function listMyDevices(): Promise<S['DeviceListResponse']> {
   return res.data;
 }
 
+/** `POST /users/me/devices/sync-notify` — re-emit **`device:sync_requested`** for this device (JWT **`sourceDeviceId`** or body **`deviceId`**). */
+export async function postNotifyTrustedDeviceSyncRequest(options?: {
+  signal?: AbortSignal;
+  /** Send when the access token does not yet embed **`sourceDeviceId`** (same id as this browser from **`GET /users/me/devices`**). */
+  deviceId?: string;
+}): Promise<S['OkResponse']> {
+  const did = options?.deviceId?.trim();
+  const body =
+    did !== undefined && did.length > 0 ? ({ deviceId: did } satisfies S['NotifyDeviceSyncRequest']) : {};
+  const res = await httpClient.post<S['OkResponse']>(
+    API_PATHS.users.meDevicesSyncNotify,
+    body,
+    { signal: options?.signal },
+  );
+  return res.data;
+}
+
 /**
  * `DELETE /users/me/devices/{deviceId}` — remove this device from the server registry (**204**).
  * Does not rewrite historical **`Message.encryptedMessageKeys`** (see OpenAPI **`deleteMyDevice`**).

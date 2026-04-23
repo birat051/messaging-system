@@ -199,6 +199,7 @@ describe('executeApproveDeviceKeySync', () => {
       store.dispatch,
       expect.objectContaining({ accessToken: 'access-with-sdi' }),
       defaultMockUser,
+      'crypto.deviceKeySync.approveSync',
     );
     expect(messageKeyCrypto.unwrapMessageKey).toHaveBeenCalledWith(
       'wrapped-for-src',
@@ -213,7 +214,9 @@ describe('executeApproveDeviceKeySync', () => {
     expect(store.getState().crypto.pendingSyncFromDevicePublicKey).toBeNull();
     expect(store.getState().crypto.syncCompletedForNewDeviceId).toBe('new-dev');
     expectStoreDispatchedSyncCompleted(dispatchSpy, 'new-dev');
-    expect(usersApi.listMySyncMessageKeys.mock.calls[0]?.[0]).toMatchObject({
+    expect(
+      vi.mocked(usersApi.listMySyncMessageKeys).mock.calls[0]?.[0],
+    ).toMatchObject({
       deviceId: 'src-dev',
       limit: 100,
     });
@@ -352,11 +355,15 @@ describe('executeApproveDeviceKeySync', () => {
     });
 
     expect(usersApi.listMySyncMessageKeys).toHaveBeenCalledTimes(2);
-    expect(usersApi.listMySyncMessageKeys.mock.calls[0]?.[0]).toMatchObject({
+    expect(
+      vi.mocked(usersApi.listMySyncMessageKeys).mock.calls[0]?.[0],
+    ).toMatchObject({
       deviceId: 'src-dev',
       limit: 100,
     });
-    expect(usersApi.listMySyncMessageKeys.mock.calls[1]?.[0]).toMatchObject({
+    expect(
+      vi.mocked(usersApi.listMySyncMessageKeys).mock.calls[1]?.[0],
+    ).toMatchObject({
       deviceId: 'src-dev',
       afterMessageId: 'm1',
       limit: 100,
@@ -432,7 +439,9 @@ describe('executeApproveDeviceKeySync', () => {
       syncMessageKeysPageLimit: 37,
     });
 
-    expect(usersApi.listMySyncMessageKeys.mock.calls[0]?.[0]).toMatchObject({
+    expect(
+      vi.mocked(usersApi.listMySyncMessageKeys).mock.calls[0]?.[0],
+    ).toMatchObject({
       deviceId: 'src-dev',
       limit: 37,
     });

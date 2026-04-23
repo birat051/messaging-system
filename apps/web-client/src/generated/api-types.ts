@@ -308,6 +308,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/users/me/devices/sync-notify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-broadcast device sync request to other sessions
+         * @description Re-emits Socket.IO **`device:sync_requested`** to **`user:<userId>`** with this device’s **`deviceId`** and **`publicKey`**
+         *     (same payload shape as on **first insert** in **`POST /users/me/devices`**). Use when the trusted browser was offline
+         *     when this device registered.
+         *
+         *     Prefer an access JWT that includes **`sourceDeviceId`** (**`POST /auth/refresh`** with **`sourceDeviceId`**). If your
+         *     token does not yet include it, send optional JSON **`{ "deviceId": "<id>" }`** — use the same **`deviceId`** as
+         *     **`GET /users/me/devices`** for this browser. At least **two** devices must be in the registry. Rate-limited per user
+         *     (**`DEVICE_SYNC_NOTIFY_RATE_LIMIT_*`**).
+         */
+        post: operations["notifyTrustedDeviceSyncRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/users/me/devices/{deviceId}": {
         parameters: {
             query?: never;
@@ -761,6 +788,10 @@ export interface components {
             token: string;
             /** Format: password */
             password: string;
+        };
+        NotifyDeviceSyncRequest: {
+            /** @description Include when the Bearer token does not embed sourceDeviceId — use this browser’s device id from GET /users/me/devices. */
+            deviceId?: components["schemas"]["RegisteredDeviceIdWire"];
         };
         OkResponse: {
             ok: boolean;
@@ -1792,6 +1823,59 @@ export interface operations {
                 };
             };
             /** @description Per-user rate limit on device registration / deletion exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    notifyTrustedDeviceSyncRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["NotifyDeviceSyncRequest"];
+            };
+        };
+        responses: {
+            /** @description Notification emitted (best-effort in-process Socket.IO fan-out) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description Guest session — not allowed (**`GUEST_ACTION_FORBIDDEN`**) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Device row not found for resolved device id (JWT claim or JSON body) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Per-user rate limit on sync-notify exceeded */
             429: {
                 headers: {
                     [name: string]: unknown;

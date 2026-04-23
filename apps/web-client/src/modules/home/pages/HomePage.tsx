@@ -8,7 +8,6 @@ import { ConnectionStatusIndicator } from '../components/ConnectionStatusIndicat
 import { GuestSessionBanner } from '../components/GuestSessionBanner';
 import { HomeConversationShell } from '../components/HomeConversationShell';
 import { DeviceSyncApprovalBanner } from '../components/DeviceSyncApprovalBanner';
-import { NewDeviceSyncBanner } from '../components/NewDeviceSyncBanner';
 
 export function HomePage() {
   const { user, emailVerified } = useAuth();
@@ -60,12 +59,7 @@ export function HomePage() {
             <ThemeToggle />
           </div>
         </header>
-        {user ? (
-          <>
-            <DeviceSyncApprovalBanner />
-            <NewDeviceSyncBanner />
-          </>
-        ) : null}
+        {user ? <DeviceSyncApprovalBanner /> : null}
         <main className="border-border bg-surface shadow-card flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-card border p-4 sm:p-6">
           {user ? <HomeConversationShell /> : null}
         </main>

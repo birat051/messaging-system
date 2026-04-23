@@ -27,6 +27,7 @@ import { toUserApiShape, toUserPublicShape } from '../data/users/publicUser.js';
 import {
   deleteDeviceForUser,
   findDevicePublicKeysByUserId,
+  findUserDeviceRow,
   registerOrUpdateDevice,
   resolvePublicKeyFetchAuthz,
   toDevicePublicKeysListResponse,
@@ -45,6 +46,7 @@ import {
   batchSyncMessageKeysRequestSchema,
   deviceIdPathSchema,
   listSyncMessageKeysQuerySchema,
+  notifyDeviceSyncRequestSchema,
   patchProfileJsonBodySchema,
   registerDeviceRequestSchema,
   searchUsersQuerySchema,
@@ -77,6 +79,42 @@ export function rateLimitPublicKeyWrites(env: Env): RequestHandler {
             'RATE_LIMIT_EXCEEDED',
             429,
             'Too many public key updates; try again later',
+          ),
+        );
+        return;
+      }
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
+export function rateLimitDeviceSyncNotify(env: Env): RequestHandler {
+  return async (
+    req: Request,
+    _res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const authUser = req.authUser;
+      if (!authUser) {
+        next(new AppError('UNAUTHORIZED', 401, 'Authentication required'));
+        return;
+      }
+      const rlKey = `ratelimit:device-sync-notify:user:${authUser.id}`;
+      if (
+        await rateLimitExceeded(
+          rlKey,
+          env.DEVICE_SYNC_NOTIFY_RATE_LIMIT_WINDOW_SEC,
+          env.DEVICE_SYNC_NOTIFY_RATE_LIMIT_MAX,
+        )
+      ) {
+        next(
+          new AppError(
+            'RATE_LIMIT_EXCEEDED',
+            429,
+            'Too many sync notifications; try again later',
           ),
         );
         return;
@@ -599,6 +637,62 @@ export function getMyDevices(): RequestHandler {
       }
       const docs = await findDevicePublicKeysByUserId(authUser.id);
       res.status(200).json(toMyDevicesListResponse(docs));
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
+/**
+ * **`POST /users/me/devices/sync-notify`** — re-emits **`device:sync_requested`** for this **`sourceDeviceId`**
+ * (trusted-device approval prompt on other sessions).
+ */
+export function postNotifyTrustedDeviceSyncRequest(): RequestHandler {
+  return async (req, res, next) => {
+    try {
+      const authUser = req.authUser;
+      if (!authUser) {
+        next(new AppError('UNAUTHORIZED', 401, 'Authentication required'));
+        return;
+      }
+      const body = req.body as z.infer<typeof notifyDeviceSyncRequestSchema>;
+      const fromJwt = req.authSourceDeviceId?.trim() ?? '';
+      const fromBody =
+        typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
+      const resolved =
+        fromJwt.length > 0 ? fromJwt : fromBody;
+      if (resolved.length === 0) {
+        next(
+          new AppError(
+            'INVALID_REQUEST',
+            400,
+            'Send JSON { "deviceId": "<your device id>" } from GET /users/me/devices, or POST /auth/refresh with sourceDeviceId so your access token includes your device',
+          ),
+        );
+        return;
+      }
+      const row = await findUserDeviceRow(authUser.id, resolved);
+      if (!row) {
+        next(new AppError('NOT_FOUND', 404, 'Device not found'));
+        return;
+      }
+      const registry = await findDevicePublicKeysByUserId(authUser.id);
+      if (registry.length < 2) {
+        next(
+          new AppError(
+            'INVALID_REQUEST',
+            400,
+            'No other registered device is available to notify',
+          ),
+        );
+        return;
+      }
+      emitDeviceSyncRequested({
+        userId: authUser.id,
+        newDeviceId: row.deviceId,
+        newDevicePublicKey: row.publicKey,
+      });
+      res.status(200).json({ ok: true });
     } catch (err) {
       next(err);
     }

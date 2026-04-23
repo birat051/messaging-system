@@ -7,6 +7,7 @@ import {
   getMyDevices,
   getSyncMessageKeys,
   postBatchSyncMessageKeys,
+  postNotifyTrustedDeviceSyncRequest,
   getSearchUsers,
   getUserById,
   getUserDevicePublicKeys,
@@ -14,6 +15,7 @@ import {
   postMyAvatarPresign,
   postRegisterDevice,
   rateLimitDeviceSyncBatch,
+  rateLimitDeviceSyncNotify,
   rateLimitPublicKeyWrites,
 } from '../controllers/users.js';
 import { requireAuthMiddleware } from '../middleware/requireAuth.js';
@@ -31,6 +33,7 @@ import {
   deviceIdPathSchema,
   listMyDevicesQuerySchema,
   listSyncMessageKeysQuerySchema,
+  notifyDeviceSyncRequestSchema,
   registerDeviceRequestSchema,
   userIdPathSchema,
 } from '../validation/schemas.js';
@@ -101,6 +104,15 @@ export function createUsersRouter(env: Env): Router {
     rateLimitPublicKeyWrites(env),
     validateBody(registerDeviceRequestSchema),
     postRegisterDevice(),
+  );
+
+  router.post(
+    '/users/me/devices/sync-notify',
+    requireAuthMiddleware(env),
+    rejectGuestUserMiddleware(),
+    rateLimitDeviceSyncNotify(env),
+    validateBody(notifyDeviceSyncRequestSchema),
+    postNotifyTrustedDeviceSyncRequest(),
   );
 
   router.delete(

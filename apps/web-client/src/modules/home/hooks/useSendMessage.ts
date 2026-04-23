@@ -33,6 +33,7 @@ export function useSendMessage(options: UseSendMessageOptions) {
   const dispatch = useAppDispatch();
   const { mutate } = useSWRConfig();
   const { user } = useAuth();
+
   const { sendMessage: sendEncrypted } = useSendEncryptedMessage({
     peerUserId: peerUserId ?? undefined,
   });

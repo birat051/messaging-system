@@ -128,7 +128,7 @@ export function RegisterPage() {
       };
       const data = await registerUser(body);
       if (data.accessToken) {
-        applyAuthResponse(dispatch, data, null);
+        applyAuthResponse(dispatch, data, null, 'auth.register');
         if (profileFile) {
           await uploadProfileAvatarViaPresignedPut(profileFile);
         }

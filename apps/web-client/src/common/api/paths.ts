@@ -20,6 +20,8 @@ export const API_PATHS = {
     me: '/users/me',
     meAvatarPresign: '/users/me/avatar/presign',
     meDevices: '/users/me/devices',
+    /** Re-broadcast **`device:sync_requested`** (blocked-device UX). */
+    meDevicesSyncNotify: '/users/me/devices/sync-notify',
     meDeviceById: (deviceId: string) =>
       `/users/me/devices/${encodeURIComponent(deviceId)}`,
     meSyncMessageKeys: '/users/me/sync/message-keys',

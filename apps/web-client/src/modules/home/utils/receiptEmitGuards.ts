@@ -1,6 +1,11 @@
 import type { components } from '@/generated/api-types';
 
 type Message = components['schemas']['Message'];
+
+/** **`useSendMessage`** optimistic ids — no Mongo row; must not be sent on receipt Socket.IO events. */
+export function isOptimisticClientMessageId(messageId: string): boolean {
+  return messageId.trim().startsWith('client:');
+}
 type MessageReceiptSummary = components['schemas']['MessageReceiptSummary'];
 
 /**

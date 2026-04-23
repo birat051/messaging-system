@@ -74,7 +74,7 @@ export function LoginPage() {
         email: email.trim(),
         password,
       });
-      applyAuthResponse(dispatch, data, null);
+      applyAuthResponse(dispatch, data, null, 'auth.login');
       const user = await getCurrentUser();
       dispatch(setUser(user));
       syncGuestReauthPreferenceFromUser(user);

@@ -120,7 +120,10 @@ export function ThreadMessageMedia({
 
   const alt = attachmentAlt(isOwn);
   const loadingId = `thread-msg-media-loading-${messageId}`;
-  const refPolicy = imgReferrerPolicy(displaySrc);
+  /** Fall back to **`url`** — **`displaySrc`** can become null after **`getMediaPublicDisplayFallbackUrl`**. */
+  const imgSrc = displaySrc ?? url;
+
+  const refPolicy = imgReferrerPolicy(imgSrc);
 
   if (imgError) {
     return (
@@ -168,7 +171,7 @@ export function ThreadMessageMedia({
               }}
             >
               <img
-                src={displaySrc}
+                src={imgSrc}
                 alt={alt}
                 loading="lazy"
                 decoding="async"
@@ -183,7 +186,7 @@ export function ThreadMessageMedia({
             </button>
           ) : (
             <img
-              src={displaySrc}
+              src={imgSrc}
               alt={alt}
               loading="lazy"
               decoding="async"
@@ -232,7 +235,7 @@ export function ThreadMessageMedia({
             </div>
             <div className="bg-muted/20 relative min-h-0 min-w-0 flex-1 overflow-auto">
               <img
-                src={displaySrc}
+                src={imgSrc}
                 alt={alt}
                 loading="lazy"
                 decoding="async"

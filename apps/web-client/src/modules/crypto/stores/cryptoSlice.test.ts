@@ -122,6 +122,7 @@ describe('cryptoReducer deviceRegistered', () => {
         deviceId: 'd1',
         keyVersion: 2,
         publicKey: 'spki',
+        createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z',
       }),
     );

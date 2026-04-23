@@ -107,6 +107,77 @@ describe('ensureUserKeypairReadyForMessaging', () => {
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(FIXED_UUID);
   });
 
+  it('new browser + account already has devices on server: registers this browser and evaluates sync bootstrap', async () => {
+    listMock.mockResolvedValue({
+      items: [
+        {
+          deviceId: 'already-on-server',
+          publicKey: 'pk-other',
+          keyVersion: 1,
+          createdAt: '2020-01-01T00:00:00.000Z',
+          updatedAt: '2020-01-01T00:00:00.000Z',
+        },
+      ],
+    });
+    const testStore = createTestStore();
+    storeHolder.getState = () => testStore.getState();
+
+    await ensureUserKeypairReadyForMessaging(userId, testStore.dispatch);
+
+    expect(registerMock).toHaveBeenCalledWith({
+      publicKey: 'mock-spki-b64',
+      deviceId: FIXED_UUID,
+    });
+    expect(evaluateDeviceSyncBootstrapState).toHaveBeenCalled();
+  });
+
+  it('IDB deviceId does not appear on server + empty keyring: registers fresh device (stale/orphan identity)', async () => {
+    getStoredDeviceId.mockResolvedValue('orphan-local-only');
+    listMock.mockResolvedValue({
+      items: [
+        {
+          deviceId: 'remote-only',
+          publicKey: 'pk-remote',
+          keyVersion: 1,
+          createdAt: '2020-01-01T00:00:00.000Z',
+          updatedAt: '2020-01-01T00:00:00.000Z',
+        },
+      ],
+    });
+    const testStore = createTestStore();
+    storeHolder.getState = () => testStore.getState();
+
+    await ensureUserKeypairReadyForMessaging(userId, testStore.dispatch);
+
+    expect(registerMock).toHaveBeenCalledWith({
+      publicKey: 'mock-spki-b64',
+      deviceId: FIXED_UUID,
+    });
+  });
+
+  it('IDB deviceId matches server row but keyring empty: backup error (lost key material)', async () => {
+    getStoredDeviceId.mockResolvedValue('lost-keys-dev');
+    listMock.mockResolvedValue({
+      items: [
+        {
+          deviceId: 'lost-keys-dev',
+          publicKey: 'pk-remote',
+          keyVersion: 1,
+          createdAt: '2020-01-01T00:00:00.000Z',
+          updatedAt: '2020-01-01T00:00:00.000Z',
+        },
+      ],
+    });
+    const testStore = createTestStore();
+    storeHolder.getState = () => testStore.getState();
+
+    await expect(
+      ensureUserKeypairReadyForMessaging(userId, testStore.dispatch),
+    ).rejects.toThrow(/no key material/i);
+
+    expect(registerMock).not.toHaveBeenCalled();
+  });
+
   it('on first device: generates P-256 pair, assigns UUID, hydrates cryptoSlice, registers with deviceId, persists', async () => {
     const testStore = createTestStore();
     storeHolder.getState = () => testStore.getState();

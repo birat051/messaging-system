@@ -6,6 +6,7 @@ type Props = {
 export function NoMessagesIcon({ className }: Props) {
   return (
     <svg
+      className={className}
       width="100%"
       viewBox="0 0 680 480"
       role="img"

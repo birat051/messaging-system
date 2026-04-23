@@ -20,6 +20,32 @@ const initialState: AuthState = {
   accessTokenExpiresAt: null,
 };
 
+/** Same logical session + JWT as current state — skip mutation so subscribers / socket token effect don’t churn (storm after user-switch). */
+function authSessionEquivalent(
+  state: AuthState,
+  payload: {
+    user: User | null;
+    accessToken: string | null;
+    accessTokenExpiresAt?: string | null;
+  },
+): boolean {
+  const nextExp =
+    payload.accessTokenExpiresAt !== undefined
+      ? payload.accessTokenExpiresAt
+      : state.accessTokenExpiresAt;
+  if (
+    state.accessToken !== payload.accessToken ||
+    state.accessTokenExpiresAt !== nextExp
+  ) {
+    return false;
+  }
+  const uid = (u: User | null) => u?.id?.trim() ?? '';
+  if (uid(state.user) !== uid(payload.user)) {
+    return false;
+  }
+  return (state.user?.guest === true) === (payload.user?.guest === true);
+}
+
 const authSlice = createSlice({
   name: 'auth',
   initialState,
@@ -32,6 +58,9 @@ const authSlice = createSlice({
         accessTokenExpiresAt?: string | null;
       }>,
     ) {
+      if (authSessionEquivalent(state, action.payload)) {
+        return;
+      }
       state.user = action.payload.user;
       state.accessToken = action.payload.accessToken;
       if (action.payload.accessTokenExpiresAt !== undefined) {

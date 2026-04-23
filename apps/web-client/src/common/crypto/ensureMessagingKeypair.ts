@@ -30,6 +30,7 @@ import {
 import { assertSecureContextForPrivateKeyOps } from './secureContext';
 import { getOrCreateDeviceScopedPassphrase } from './deviceMessagingPassphrase';
 import { evaluateDeviceSyncBootstrapState } from './deviceBootstrapSync';
+import { upgradeAccessTokenWithDeviceBinding } from '@/modules/auth/utils/upgradeAccessTokenWithDeviceBinding';
 
 /**
  * Ensures the signed-in user has a **local** keyring row aligned with **`GET /users/{id}/devices/public-keys`**
@@ -46,9 +47,14 @@ import { evaluateDeviceSyncBootstrapState } from './deviceBootstrapSync';
  * from IndexedDB first and mirrored into Redux (**`hydrateMessagingDeviceId`**) before any **`registerDevice`** call.
  * Also re-invoked on **tab visibility** so a briefly offline register can recover without user action.
  *
- * **`crypto.randomUUID()`** is **only** used when there is **no** local keyring **and** the directory is empty — never to
- * replace an existing keyring / **`deviceIdentity`**. After each successful **`registerDevice`**, **`evaluateDeviceSyncBootstrapState`**
- * may set **`syncState: 'pending'`** (**Feature 13**) when multiple devices exist and this **`deviceId`** lacks sync keys.
+ * **No local keyring (`versions.length === 0`):** If **`GET …/devices/public-keys`** is **non-empty** and the persisted
+ * **`deviceId`** is **missing** or **not** among returned **`deviceId`**s, treat as **another browser / new device** —
+ * generate a keypair, **`POST /users/me/devices`**, then **`evaluateDeviceSyncBootstrapState`** (Feature 13 sync UI when
+ * appropriate). If the persisted id **matches** a server row but there is still **no** key material, throw (restore from
+ * backup). If the directory is **empty**, greenfield registration for this browser.
+ *
+ * After each successful **`registerDevice`** in those paths, **`evaluateDeviceSyncBootstrapState`** may set
+ * **`syncState: 'pending'`** when multiple devices exist and this **`deviceId`** lacks wrapped sync keys.
  */
 export async function ensureUserKeypairReadyForMessaging(
   userId: string,
@@ -111,6 +117,7 @@ export async function ensureUserKeypairReadyForMessaging(
       await evaluateDeviceSyncBootstrapState(dispatch, result.deviceId, {
         getState: () => store.getState().crypto,
       });
+      await upgradeAccessTokenWithDeviceBinding(dispatch, result.deviceId);
       return;
     }
 
@@ -133,10 +140,18 @@ export async function ensureUserKeypairReadyForMessaging(
     await evaluateDeviceSyncBootstrapState(dispatch, storedDeviceId!, {
       getState: () => store.getState().crypto,
     });
+    await upgradeAccessTokenWithDeviceBinding(dispatch, storedDeviceId!);
     return;
   }
 
-  if (deviceList.items.length > 0) {
+  const persistedTrim = persistedDeviceId?.trim() ?? '';
+  const serverDeviceIds = new Set(
+    deviceList.items.map((i) => i.deviceId.trim()),
+  );
+  const localDeviceMatchesServer =
+    persistedTrim.length > 0 && serverDeviceIds.has(persistedTrim);
+
+  if (deviceList.items.length > 0 && localDeviceMatchesServer) {
     throw new Error(
       'An encryption key is registered for this account, but this browser has no key material. Restore from a backup.',
     );
@@ -159,4 +174,5 @@ export async function ensureUserKeypairReadyForMessaging(
   await evaluateDeviceSyncBootstrapState(dispatch, result.deviceId, {
     getState: () => store.getState().crypto,
   });
+  await upgradeAccessTokenWithDeviceBinding(dispatch, result.deviceId);
 }

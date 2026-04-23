@@ -141,7 +141,8 @@ describe('HomeConversationShell (E2EE thread UX)', () => {
     ).toHaveTextContent(/end-to-end encrypted/i);
 
     const alert = await within(shell).findByRole('alert');
-    expect(alert).toHaveTextContent(/can't decrypt on this device/i);
+    expect(alert).toHaveTextContent(/can't decrypt older messages/i);
+    expect(alert).toHaveTextContent(/multi-device sync/i);
     expect(alert.className).toMatch(/text-destructive/);
   });
 });

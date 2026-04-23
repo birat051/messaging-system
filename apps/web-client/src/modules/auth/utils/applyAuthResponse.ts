@@ -3,6 +3,7 @@ import type { AppDispatch } from '../../../store/store';
 import { setSession } from '../stores/authSlice';
 import { writeRefreshToken } from './authStorage';
 import { syncGuestReauthPreferenceFromUser } from './guestSessionPreference';
+import { logDevSessionTokenWrite } from './sessionWriteDebug';
 
 type AuthResponse = components['schemas']['AuthResponse'];
 type User = components['schemas']['User'];
@@ -14,6 +15,7 @@ export function applyAuthResponse(
   dispatch: AppDispatch,
   data: AuthResponse,
   user: User | null,
+  sessionWriteSource = 'applyAuthResponse',
 ): void {
   dispatch(
     setSession({
@@ -25,6 +27,7 @@ export function applyAuthResponse(
   if (data.refreshToken) {
     writeRefreshToken(data.refreshToken);
   }
+  logDevSessionTokenWrite(sessionWriteSource, data.accessToken ?? null);
 }
 
 /** After **`POST /auth/guest`** — same **`auth`** slice shape as **`applyAuthResponse`** (`user`, tokens). */
@@ -42,6 +45,7 @@ export function applyGuestAuthResponse(
   if (data.refreshToken) {
     writeRefreshToken(data.refreshToken);
   }
+  logDevSessionTokenWrite('auth.applyGuestAuthResponse', data.accessToken);
   syncGuestReauthPreferenceFromUser(data.user);
 }
 
@@ -60,5 +64,6 @@ export function applyVerifyEmailResponse(
   if (data.refreshToken) {
     writeRefreshToken(data.refreshToken);
   }
+  logDevSessionTokenWrite('auth.applyVerifyEmailResponse', data.accessToken);
   syncGuestReauthPreferenceFromUser(data.user);
 }

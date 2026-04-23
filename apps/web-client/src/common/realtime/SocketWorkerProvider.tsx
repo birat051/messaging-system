@@ -47,6 +47,7 @@ import type {
   SendMessageRequest,
 } from './socketWorkerProtocol';
 import { bumpConversationInListCache } from '@/modules/home/utils/conversationListCache';
+import type { AppDispatch, RootState } from '@/store/store';
 
 export type SocketWorkerContextValue = {
   status: PresenceConnectionStatus;
@@ -82,8 +83,11 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
   const { user, accessToken } = useAuth();
   const userId = user?.id ?? null;
   const dispatch = useAppDispatch();
-  const reduxStore = useStore();
+  const reduxStore = useStore<RootState>();
   const { mutate } = useSWRConfig();
+  /** Stable ref so the socket bootstrap effect does not re-run when SWR’s **`mutate`** identity changes. */
+  const mutateRef = useRef(mutate);
+  mutateRef.current = mutate;
   const [status, setStatus] = useState<PresenceConnectionStatus>({ kind: 'idle' });
   const bridgeRef = useRef<ReturnType<typeof createSocketWorkerBridge> | null>(null);
   const webRtcInboundHandlerRef = useRef<
@@ -91,34 +95,49 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
   >(null);
   /** Dedupe **`message:delivered`** emits per **`messageId`** (inbound peer **`message:new`**). */
   const deliveredAckSentRef = useRef(new Set<string>());
+  /** Coalesce JWT churn: refresh during **`message:send`** encrypt/fetch otherwise forces **`update_access_token`** → **`connectSocket`** mid-flight (see logs: **`generation: 2`** between send start and **`post to worker`**). */
+  const accessTokenWorkerApplyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  /** Last access JWT **string** handed to **`connect`** / **`updateAccessToken`** — skips redundant **`postMessage`** when Redux repeats the same token (worker also dedupes). */
+  const lastWorkerAccessTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!userId?.trim()) {
+      lastWorkerAccessTokenRef.current = null;
       clearInboundToastDedupe();
       dispatch(resetNotifications());
       deliveredAckSentRef.current.clear();
       bridgeRef.current?.disconnect();
       bridgeRef.current?.terminate();
       bridgeRef.current = null;
-      setStatus({ kind: 'idle' });
+      const idle: PresenceConnectionStatus = { kind: 'idle' };
+      setStatus(idle);
+      dispatch(setPresenceStatus(idle));
       return;
     }
 
     const uid = userId.trim();
+    /** Keep **`connection.presenceStatus`** (badge) aligned with Context **`status`** — no deferred **`useEffect`** lag. */
+    const applyPresenceStatus = (next: PresenceConnectionStatus) => {
+      setStatus(next);
+      dispatch(setPresenceStatus(next));
+    };
+
     const bridge = createSocketWorkerBridge(
       (msg) => {
       switch (msg.type) {
         case 'socket_connecting':
-          setStatus({ kind: 'connecting' });
+          applyPresenceStatus({ kind: 'connecting' });
           break;
         case 'connected':
-          setStatus({ kind: 'connected', socketId: msg.socketId });
+          applyPresenceStatus({ kind: 'connected', socketId: msg.socketId });
           break;
         case 'disconnected':
-          setStatus({ kind: 'disconnected', reason: msg.reason });
+          applyPresenceStatus({ kind: 'disconnected', reason: msg.reason });
           break;
         case 'connect_error':
-          setStatus({ kind: 'error', message: msg.message });
+          applyPresenceStatus({ kind: 'error', message: msg.message });
           break;
         case 'notification': {
           dispatch(appendInboundNotification(msg.payload));
@@ -135,11 +154,21 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
             }
             break;
           }
-          dispatch(appendIncomingMessageIfNew({ message, currentUserId: uid }));
-          void mutate(['conversation-messages', message.conversationId, uid]);
+          /** Use **current** session from the store — not the effect closure — so reconnect / token races don’t compare the wrong user and emit **`message:delivered`** on your own message (**`FORBIDDEN`**). */
+          const viewerId =
+            reduxStore.getState().auth.user?.id?.trim() ?? '';
+          if (!viewerId) {
+            break;
+          }
+          dispatch(appendIncomingMessageIfNew({ message, currentUserId: viewerId }));
+          void mutateRef.current([
+            'conversation-messages',
+            message.conversationId,
+            viewerId,
+          ]);
           bumpConversationInListCache(
-            mutate,
-            uid,
+            mutateRef.current,
+            viewerId,
             message.conversationId,
             message.createdAt,
           );
@@ -149,7 +178,7 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
             if (
               activeId.length > 0 &&
               message.conversationId === activeId &&
-              message.senderId !== uid
+              message.senderId !== viewerId
             ) {
               dispatch(
                 presenceClearedForUser({ userId: message.senderId }),
@@ -165,10 +194,13 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
               did.length > 0 &&
               messageHasDeviceWrappedKey(message, did)
             ) {
-              void evaluateDeviceSyncBootstrapState(reduxStore.dispatch, did);
+              void evaluateDeviceSyncBootstrapState(
+                reduxStore.dispatch as AppDispatch,
+                did,
+              );
             }
           }
-          if (message.senderId !== uid) {
+          if (message.senderId !== viewerId) {
             if (!deliveredAckSentRef.current.has(message.id)) {
               deliveredAckSentRef.current.add(message.id);
               void bridge
@@ -233,11 +265,18 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
           if (sync !== 'pending' && sync !== 'in_progress') {
             break;
           }
-          void evaluateDeviceSyncBootstrapState(reduxStore.dispatch, myDeviceId, {
-            getState: () => reduxStore.getState().crypto,
-            onHistoryMayDecryptNow: () =>
-              revalidateConversationMessagesForUser(mutate, uid),
-          });
+          void evaluateDeviceSyncBootstrapState(
+            reduxStore.dispatch as AppDispatch,
+            myDeviceId,
+            {
+              getState: () => reduxStore.getState().crypto,
+              onHistoryMayDecryptNow: () =>
+                revalidateConversationMessagesForUser(
+                  mutateRef.current,
+                  reduxStore.getState().auth.user?.id?.trim() ?? '',
+                ),
+            },
+          );
           break;
         }
         default:
@@ -290,15 +329,65 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
     },
     );
     bridgeRef.current = bridge;
-    setStatus({ kind: 'connecting' });
-    bridge.connect(getSocketUrl(), uid, accessToken ?? null);
+    applyPresenceStatus({ kind: 'connecting' });
+    const initialToken =
+      reduxStore.getState().auth.accessToken ?? null;
+    bridge.connect(getSocketUrl(), uid, initialToken);
+    lastWorkerAccessTokenRef.current = initialToken;
 
     return () => {
+      lastWorkerAccessTokenRef.current = null;
       bridge.disconnect();
       bridge.terminate();
       bridgeRef.current = null;
     };
-  }, [userId, accessToken, dispatch, mutate, reduxStore]);
+  }, [userId, dispatch, reduxStore]);
+
+  /**
+   * JWT refresh updates **`accessToken`** in Redux. Reconnecting inside the **worker** preserves the bridge
+   * (**`pending`** send ack maps, worker instance). Putting **`accessToken`** on the bootstrap effect used to
+   * **`terminate()`** the worker on every refresh → send hit “Socket not connected” and the UI flickered to disconnected.
+   *
+   * Debounce **`updateAccessToken`** so interceptor refresh during **`useSendEncryptedMessage`** (parallel REST)
+   * doesn’t replace the Socket.IO client in the narrow window between “connected” UI and **`message_send`** post.
+   * **`lastWorkerAccessTokenRef`** skips **`postMessage`** when the JWT string did not change since **`connect`** / last update.
+   */
+  useEffect(() => {
+    if (!userId?.trim()) {
+      if (accessTokenWorkerApplyTimerRef.current !== null) {
+        clearTimeout(accessTokenWorkerApplyTimerRef.current);
+        accessTokenWorkerApplyTimerRef.current = null;
+      }
+      return;
+    }
+
+    const token = accessToken ?? null;
+    /** Slightly wider than parallel REST bursts + coalesced Redux writes (TASK_CHECKLIST — reconnect storm). */
+    const DEBOUNCE_MS = 350;
+
+    if (accessTokenWorkerApplyTimerRef.current !== null) {
+      clearTimeout(accessTokenWorkerApplyTimerRef.current);
+    }
+    accessTokenWorkerApplyTimerRef.current = setTimeout(() => {
+      accessTokenWorkerApplyTimerRef.current = null;
+      if (lastWorkerAccessTokenRef.current === token) {
+        return;
+      }
+      const b = bridgeRef.current;
+      if (!b) {
+        return;
+      }
+      b.updateAccessToken(token);
+      lastWorkerAccessTokenRef.current = token;
+    }, DEBOUNCE_MS);
+
+    return () => {
+      if (accessTokenWorkerApplyTimerRef.current !== null) {
+        clearTimeout(accessTokenWorkerApplyTimerRef.current);
+        accessTokenWorkerApplyTimerRef.current = null;
+      }
+    };
+  }, [userId, accessToken]);
 
   const setWebRtcInboundHandler = useCallback(
     (handler: ((msg: WebRtcInboundMessage) => void) | null) => {
@@ -358,10 +447,6 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
-
-  useEffect(() => {
-    dispatch(setPresenceStatus(status));
-  }, [dispatch, status]);
 
   const value = useMemo(
     () => ({

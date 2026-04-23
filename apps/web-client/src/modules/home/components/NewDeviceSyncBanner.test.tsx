@@ -22,6 +22,113 @@ describe('NewDeviceSyncBanner', () => {
     vi.restoreAllMocks();
   });
 
+  it('home-inline uses region and legacy non-blocking copy', async () => {
+    vi.spyOn(usersApi, 'listMySyncMessageKeys').mockResolvedValue({
+      items: [],
+      hasMore: false,
+      nextAfterMessageId: null,
+    });
+    vi.spyOn(usersApi, 'listMyDevices').mockResolvedValue({
+      items: [
+        {
+          deviceId: 'my-dev',
+          deviceLabel: null,
+          createdAt: '2026-04-01T10:00:00.000Z',
+          lastSeenAt: '2026-04-01T12:00:00.000Z',
+          publicKey: 'pk',
+        },
+      ],
+    });
+
+    renderWithProviders(<NewDeviceSyncBanner presentation="home-inline" />, {
+      preloadedState: {
+        auth: {
+          user: { ...defaultMockUser, emailVerified: true },
+          accessToken: 't',
+        },
+        crypto: {
+          registeredOnServer: true,
+          keyVersion: 1,
+          deviceId: 'my-dev',
+          registeredPublicKeySpki: 'pk',
+          lastUpdatedAt: '2026-04-01T12:00:00.000Z',
+          status: 'succeeded',
+          error: null,
+          syncState: 'pending',
+          pendingSyncFromDeviceId: null,
+          pendingSyncFromDevicePublicKey: null,
+          syncCompletedForNewDeviceId: null,
+        },
+      },
+    });
+
+    const banner = screen.getByRole('region', { name: /new device sync/i });
+    expect(banner).toHaveTextContent(/send and receive new messages/i);
+    await waitFor(() => {
+      expect(usersApi.listMyDevices).toHaveBeenCalled();
+    });
+  });
+
+  it('blocking modal: notify other device again calls sync-notify', async () => {
+    const u = userEvent.setup();
+    vi.spyOn(usersApi, 'listMySyncMessageKeys').mockResolvedValue({
+      items: [],
+      hasMore: false,
+      nextAfterMessageId: null,
+    });
+    vi.spyOn(usersApi, 'listMyDevices').mockResolvedValue({
+      items: [
+        {
+          deviceId: 'my-dev',
+          deviceLabel: 'This browser',
+          createdAt: '2026-04-01T10:00:00.000Z',
+          lastSeenAt: '2026-04-01T12:00:00.000Z',
+          publicKey: 'pk-my-dev',
+        },
+        {
+          deviceId: 'trusted-phone',
+          deviceLabel: 'Pixel — Messages',
+          createdAt: '2026-03-01T08:00:00.000Z',
+          lastSeenAt: '2026-04-01T11:00:00.000Z',
+          publicKey: 'pk-phone',
+        },
+      ],
+    });
+    const notifySpy = vi
+      .spyOn(usersApi, 'postNotifyTrustedDeviceSyncRequest')
+      .mockResolvedValue({ ok: true });
+
+    renderWithProviders(<NewDeviceSyncBanner />, {
+      preloadedState: {
+        auth: {
+          user: { ...defaultMockUser, emailVerified: true },
+          accessToken: 't',
+        },
+        crypto: {
+          registeredOnServer: true,
+          keyVersion: 1,
+          deviceId: 'my-dev',
+          registeredPublicKeySpki: 'pk',
+          lastUpdatedAt: '2026-04-01T12:00:00.000Z',
+          status: 'succeeded',
+          error: null,
+          syncState: 'pending',
+          pendingSyncFromDeviceId: null,
+          pendingSyncFromDevicePublicKey: null,
+          syncCompletedForNewDeviceId: null,
+        },
+      },
+    });
+
+    const btn = await screen.findByTestId('device-sync-retry-notify');
+    await u.click(btn);
+
+    await waitFor(() => {
+      expect(notifySpy).toHaveBeenCalledTimes(1);
+    });
+    expect(notifySpy).toHaveBeenCalledWith({ deviceId: 'my-dev' });
+  });
+
   it('renders nothing when syncState is idle', () => {
     renderWithProviders(<NewDeviceSyncBanner />, {
       preloadedState: {
@@ -38,6 +145,9 @@ describe('NewDeviceSyncBanner', () => {
           status: 'succeeded',
           error: null,
           syncState: 'idle',
+          pendingSyncFromDeviceId: null,
+          pendingSyncFromDevicePublicKey: null,
+          syncCompletedForNewDeviceId: null,
         },
       },
     });
@@ -87,19 +197,22 @@ describe('NewDeviceSyncBanner', () => {
           status: 'succeeded',
           error: null,
           syncState: 'pending',
+          pendingSyncFromDeviceId: null,
+          pendingSyncFromDevicePublicKey: null,
+          syncCompletedForNewDeviceId: null,
         },
       },
     });
 
     expect(store.getState().crypto.syncState).toBe('pending');
 
-    const banner = screen.getByRole('region', { name: /new device sync/i });
+    const banner = screen.getByTestId('new-device-sync-banner');
     expect(banner).toBeInTheDocument();
-    expect(banner).toHaveAttribute('data-testid', 'new-device-sync-banner');
     expect(banner).toHaveTextContent(
-      /this is a new device\. open the app on another device you trust to sync your message history\./i,
+      /this device cannot read older encrypted messages by default/i,
     );
-    expect(banner).toHaveTextContent(/send and receive new messages/i);
+    expect(banner).toHaveTextContent(/approve multi-device sync/i);
+    expect(banner).toHaveTextContent(/messaging is unavailable on this device/i);
     expect(screen.queryByTestId('new-device-sync-spinner')).not.toBeInTheDocument();
 
     await waitFor(() => {
@@ -147,6 +260,9 @@ describe('NewDeviceSyncBanner', () => {
           status: 'succeeded',
           error: null,
           syncState: 'pending',
+          pendingSyncFromDeviceId: null,
+          pendingSyncFromDevicePublicKey: null,
+          syncCompletedForNewDeviceId: null,
         },
       },
     });
@@ -203,6 +319,9 @@ describe('NewDeviceSyncBanner', () => {
           status: 'succeeded',
           error: null,
           syncState: 'pending',
+          pendingSyncFromDeviceId: null,
+          pendingSyncFromDevicePublicKey: null,
+          syncCompletedForNewDeviceId: null,
         },
       },
     });
@@ -255,6 +374,9 @@ describe('NewDeviceSyncBanner', () => {
           status: 'succeeded',
           error: null,
           syncState: 'in_progress',
+          pendingSyncFromDeviceId: null,
+          pendingSyncFromDevicePublicKey: null,
+          syncCompletedForNewDeviceId: null,
         },
       },
     });
@@ -322,8 +444,7 @@ describe('DeviceSyncApprovalBanner (trusted device)', () => {
     expect(screen.getByTestId('device-sync-approval-banner')).toBeInTheDocument();
     expect(
       screen.getByText(
-        'A new device is requesting access to your message history. Approve to sync encrypted keys.',
-        { exact: false },
+        /A new device joined your account and cannot read older messages until you approve/i,
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Approve' })).toBeInTheDocument();
