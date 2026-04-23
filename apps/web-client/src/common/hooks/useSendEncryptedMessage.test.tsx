@@ -166,6 +166,70 @@ describe('useSendEncryptedMessage', () => {
     );
   });
 
+  it('encrypts hybrid payload for every cached sender directory device (not filtered to crypto.deviceId)', async () => {
+    encryptUtf8ToHybridSendPayload.mockResolvedValue({
+      algorithm: MESSAGE_HYBRID_ALGORITHM,
+      body: 'cipher-b64-mock',
+      iv: 'iv-b64-mock',
+      encryptedMessageKeys: {
+        'peer-dev': '{}',
+        'sender-a': '{}',
+        'sender-b': '{}',
+      },
+    });
+
+    const store = createTestStore({
+      auth: {
+        user: { ...defaultMockUser, emailVerified: true },
+        accessToken: 'test-token',
+      },
+      crypto: {
+        registeredOnServer: true,
+        keyVersion: 1,
+        deviceId: 'sender-a',
+        registeredPublicKeySpki: 'spki-a',
+        lastUpdatedAt: '2026-01-01T00:00:00.000Z',
+        status: 'succeeded',
+        error: null,
+        syncState: 'idle',
+        pendingSyncFromDeviceId: null,
+        pendingSyncFromDevicePublicKey: null,
+        syncCompletedForNewDeviceId: null,
+      },
+      devicePublicKeys: {
+        byUserId: {
+          'peer-1': freshDeviceKeysEntry([
+            { deviceId: 'peer-dev', publicKey: 'spki-peer' },
+          ]),
+          me: freshDeviceKeysEntry([
+            { deviceId: 'sender-a', publicKey: 'spki-a' },
+            { deviceId: 'sender-b', publicKey: 'spki-b' },
+          ]),
+        },
+      },
+    });
+
+    const { result } = renderHook(
+      () => useSendEncryptedMessage({ peerUserId: 'peer-1' }),
+      { wrapper: hookWrapper(store) },
+    );
+
+    await result.current.sendMessage({
+      body: 'Hello',
+      recipientUserId: 'peer-1',
+    });
+
+    expect(encryptUtf8ToHybridSendPayload).toHaveBeenCalledWith(
+      'Hello',
+      expect.arrayContaining([
+        expect.objectContaining({ deviceId: 'peer-dev', publicKey: 'spki-peer' }),
+        expect.objectContaining({ deviceId: 'sender-a', publicKey: 'spki-a' }),
+        expect.objectContaining({ deviceId: 'sender-b', publicKey: 'spki-b' }),
+      ]),
+    );
+    expect(encryptUtf8ToHybridSendPayload.mock.calls[0]?.[1]).toHaveLength(3);
+  });
+
   it('sends hybrid fields when using conversationId + peerUserId option', async () => {
     encryptUtf8ToHybridSendPayload.mockResolvedValue({
       algorithm: MESSAGE_HYBRID_ALGORITHM,

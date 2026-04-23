@@ -54,7 +54,10 @@ function readFreshDeviceRows(
  * **Media locator:** when **`mediaKey`** is set, it is serialized into the AES-GCM plaintext (**`messageHybridPlaintext.ts`**
  * v1 JSON with **`m.k`**, optional **`m.u`** / **`m.b`**) so the server stores **`mediaKey: null`** and only sees opaque **`body`** bytes.
  *
- * Loads **recipient** + **sender** device rows via **`fetchDevicePublicKeys`** → **`encryptUtf8ToHybridSendPayload`**.
+ * Loads **recipient** + **sender** device rows via **`fetchDevicePublicKeys`** → **`mergeHybridDeviceRows`** →
+ * **`encryptUtf8ToHybridSendPayload`** (one wrap per **`deviceId`** from the directory — not scoped to **`crypto.deviceId`**).
+ * **`'me'`** cache is dropped when another device requests sync (**`SocketWorkerProvider`**) so a stale single-device listing
+ * cannot hide other account devices before the next fetch.
  * **Receive** — **`usePeerMessageDecryption`** / **`useDecryptMessage`**. Wire shape: **`e2eeOutboundSendTrace.ts`**.
  */
 export function useSendEncryptedMessage(

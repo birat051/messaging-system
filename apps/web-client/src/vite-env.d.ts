@@ -18,6 +18,11 @@ interface ImportMetaEnv {
   readonly VITE_DEVICE_KEY_SYNC_PAGE_LIMIT: string | undefined;
   /** Set **`true`** in dev to **`console.debug`** inbound peer decrypt branches (**`usePeerMessageDecryption`**). */
   readonly VITE_DEBUG_PEER_DECRYPT: string | undefined;
+  /**
+   * Set **`true`** in dev for **`[hybrid-decrypt]`** traces: device id, **`encryptedMessageKeys`** key list,
+   * unwrap / AES-GCM steps, and a **SHA-256 fingerprint** of the derived message key (never raw keys).
+   */
+  readonly VITE_DEBUG_HYBRID_DECRYPT: string | undefined;
   /** Set **`true`** in dev to **`console.debug`** when **`resolveMessageDisplayBody`** suppresses opaque **`body`**. */
   readonly VITE_DEBUG_MESSAGE_DISPLAY: string | undefined;
   /**

@@ -212,6 +212,42 @@ The **default product** does **not** expose a **Settings** (or similar) screen f
 
 ---
 
+## Bugfix — Sender multi-device hybrid (`encryptedMessageKeys` missing on second browser)
+
+**Symptom (reported flow):** **User A** is signed in on **two browsers** (two distinct **`deviceId`** values). **A** sends a message **from browser A₁** to **User B**. On **browser A₂**, the **same outbound message** renders as **`…`** / undecryptable (**“sent”** bubble does not decrypt on the sender’s second session).
+
+**Likely themes:** Hybrid encrypt (**Feature 11**) wraps the per-message key only for **`deviceId`** rows present when **`encryptUtf8ToHybridSendPayload`** runs — if the send path merges **recipient** keys + **only the active sender `crypto.deviceId`**, messages lack **`encryptedMessageKeys[senderSecondDevice]`** until Feature 13–style sync backfills historical keys; **new sends** should include **every registered sender device** (and all recipient devices) returned by **`GET …/devices/public-keys`**. Alternatively **cache / SWR** for **`fetchDevicePublicKeys('me')`** could be stale on A₂ after A₁ registers a device, so A₂ encrypt path omits rows. Confirm whether failure is **missing keys on wire** vs **wrong device id mapping** vs **IndexedDB key only on one browser**.
+
+### (1) Reproduce & narrow
+
+- [x] **Stable repro:** **`docs/repro-second-browser-sync.md`** § **Same user, two browsers (A₁ + A₂) — hybrid send** — two profiles/browsers as **A**, distinct **`cryptoSlice.deviceId`**, **`GET …/devices` ≥ 2** rows; **B** separate account; **A₂** on thread, send from **A₁**; record **`VITE_*`**, browser matrix, optional **`encryptedMessageKeys`** key list vs **A₂ `deviceId`**.
+- [x] **Wire inspection:** **`docs/repro-second-browser-sync.md`** § **Same user… → Wire inspection** — **`GET …/conversations/…/messages`** (or socket ack) → **`Object.keys(message.encryptedMessageKeys)`** vs **A₂ `deviceId`**; interpretation table **absent** (encrypt/directory) vs **present** (decrypt path on **A₂**).
+- [x] **Directory inspection:** **`docs/repro-second-browser-sync.md`** § **Same user… → Directory inspection** — **`GET /users/me/devices/public-keys`** + **`GET /users/{userAId}/devices/public-keys`** on **A₁** (all **A** rows); **`GET /users/{userBId}/devices/public-keys`** for recipient **B**; compare to **`GET …/me/devices`** and **Wire inspection** table.
+
+### (2) Trace — web-client (encrypt path)
+
+- [x] **`useSendEncryptedMessage`** — **`mergeHybridDeviceRows`**, **`fetchDevicePublicKeys`** for **`peerUserId`** and **`'me'`**: sender rows are **all** **`GET …/me/devices/public-keys`** items (union with peer); **`encryptUtf8ToHybridSendPayload`** wraps each row — not filtered to **`crypto.deviceId`**. **`useSendEncryptedMessage.test.tsx`** covers multi-row **`me`** cache.
+- [x] **`encryptUtf8ToHybridSendPayload`** / **`messageHybrid.ts`** — wrapping loop iterates every **`HybridDeviceRow`**; **`mergeHybridDeviceRows`** dedupes only by **`deviceId`**.
+- [x] **`devicePublicKeysSlice`** cache — **`registerDevice.fulfilled`** clears **`me`**; **`SocketWorkerProvider`** **`device_sync_requested`** (another device) **`invalidateDevicePublicKeys('me')`** so the next send refetches the full directory.
+
+### (3) Trace — messaging-service (optional)
+
+- [x] **Public-keys route:** **`GET /v1/users/:userId/devices/public-keys`** — **`getUserDevicePublicKeys`** → **`findDevicePublicKeysByUserId`** (**`MongoDB`** **`find({ userId }).sort({ updatedAt: -1 }).toArray()`**, no **`limit`**); **`toDevicePublicKeysListResponse`** maps every doc. Authz only (**`resolvePublicKeyFetchAuthz`**); response is not filtered by device count. **`repo.test.ts`** regression.
+- [x] **Persistence:** **`insertMessage`** writes **`encryptedMessageKeys`** verbatim; **`sendMessageForUser`** forwards validated **`payload.encryptedMessageKeys`** (**`sendMessageRequestSchema`** **`z.record(z.string(), z.string())`** — all string keys kept). **`data/messages/repo.test.ts`** multi-key persistence; **`messagingSocket.integration.test.ts`** hybrid + **`applyBatchSyncMessageKeys`** merged map in MongoDB.
+
+### (4) Fix implementation
+
+- [x] **Include all sender devices in hybrid wrap** — directory-driven **`mergeHybridDeviceRows`** + **`invalidateDevicePublicKeys('me')`** when another device registers so **`'me'`** cache cannot stay stale; **`useSendEncryptedMessage`** test asserts three **`deviceId`** wraps (two senders + one peer).
+- [ ] **Optional UX / resilience:** If a device row appears after send, **`message:new`** / refetch path could trigger “can’t decrypt own send” recovery (out of scope if wire fix suffices).
+- [x] **Regression tests:** **`messageHybrid.test.ts`** (merge + encrypt); **`useSendEncryptedMessage.test.tsx`** — multi-sender-directory **`encryptedMessageKeys`** shape; **`SocketWorkerProvider.test.tsx`** — **`device_sync_requested`** clears **`me`** cache.
+
+### (5) Verification
+
+- [ ] **Manual QA:** Two browsers as **A**, one as **B** — send from A₁; **sent** bubble decrypts on **A₁** and **A₂**; B receives normal plaintext.
+- [x] **Cross-link:** **`docs/repro-second-browser-sync.md`** § **Same user, two browsers (A₁ + A₂) — hybrid send** (+ **Related** link at top of that doc).
+
+---
+
 ## Feature 13 — Multi-device key sync
 
 **Goal:** When a user adds a new device (or reinstalls the app on an existing device), that device can gain access to **past message history** without re-encrypting any stored ciphertext. An existing trusted device re-encrypts the stored per-message keys for the new device and uploads only those key entries. The original ciphertext is **never modified**.

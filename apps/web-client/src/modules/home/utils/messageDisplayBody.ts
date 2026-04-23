@@ -26,9 +26,9 @@ function debugMessageDisplay(
  * ciphertext, the bubble shows **Feature 11 (B)** **`PEER_DECRYPT_INLINE_UNAVAILABLE`** (peer) or **`…`**
  * (own) — never raw blobs. See **`e2eeInboundDecryptTrace.ts`**.
  *
- * **Own E2EE rows:** use **`senderPlaintextByMessageId[m.id]`**; if missing, show **`…`** (never the wire
- * envelope from MongoDB) until the send-ack path populates the map. See
- * **`docs/PROJECT_PLAN.md`** §7.1 §4.
+ * **Own E2EE rows:** **`senderPlaintextByMessageId`** from this tab’s send path; if missing (message sent from
+ * another device / session), **`decryptedBodyByMessageId`** after **`usePeerMessageDecryption`** hybrid-unwrapped the
+ * echo using **`encryptedMessageKeys[thisDeviceId]`**. Else **`…`** — never raw wire **`body`**.
  */
 export function resolveMessageDisplayBody(
   m: Message,
@@ -51,9 +51,13 @@ export function resolveMessageDisplayBody(
     return raw;
   }
   if (isOwn) {
-    const o = senderPlaintextByMessageId[m.id];
-    if (o !== undefined) {
-      return o;
+    const sender = senderPlaintextByMessageId[m.id];
+    if (sender !== undefined) {
+      return sender;
+    }
+    const echoed = decryptedBodyByMessageId[m.id];
+    if (echoed !== undefined) {
+      return echoed;
     }
     return '\u2026';
   }

@@ -48,6 +48,10 @@ export async function resolveSourceDeviceIdForAccessToken(
   return trimmed;
 }
 
+/**
+ * Full device directory for **`userId`** — **`GET /users/:userId/devices/public-keys`** uses this with **no** pagination
+ * or row cap (every **`user_device_public_keys`** document for that user).
+ */
 export async function findDevicePublicKeysByUserId(
   userId: string,
 ): Promise<UserPublicKeyDocument[]> {

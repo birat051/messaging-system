@@ -2,7 +2,7 @@
 
 This document satisfies **TASK_CHECKLIST.md → Bugfix — Second browser login (sync skipped) → (1) Stable repro**, **(2) Network audit on browser B first login**, **(3) Capture four identifiers on browser B after login**, **(4) Capture on browser A while B logs in**, **(5) Bootstrap trace on B** (§ **Bootstrap trace on browser B (root-cause — web-client)**), **(6) Socket path on A** (§ **Socket path on A (trusted device)**), **(7) Sync orchestrator** (§ **Sync orchestrator (`useDeviceKeySync`)**), **(8) New device UI** (§ **New device UI (`NewDeviceSyncBanner`)**), **(9) Decrypt path on B** (§ **Decrypt path on browser B (peer inbound)**), and **(10) messaging-service** (§ **`POST /users/me/devices` emit + sync JWT (`sourceDeviceId`)**, § **`POST /users/me/sync/message-keys` authz + Mongo + errors**, § **`DEVICE_SYNC_RATE_LIMIT_*` vs browser B**), and **(11) Expected UX policy (browser B)** (§ **Expected UX policy — Feature 13 vs ciphertext**): fixed steps, **browser A / browser B** definitions, shared **`VITE_*`** configuration, **same-origin** parity with production, an **A online vs A offline** matrix when **B** first logs in, an **ordered REST + Socket.IO** reference derived from **`apps/web-client`** source, record sheets for **B** (Redux + IDB + devices + message keys) and **A** (**`device:sync_requested`**, **`DeviceSyncApprovalBanner`**, **`POST …/sync/message-keys`** after Approve).
 
-**Related:** same-browser logout/relogin debugging — **`docs/repro-decrypt-after-relogin.md`**. Same browser **A → B → A** after B used another device + sync — Socket.IO reconnect storm on send — **`docs/repro-user-a-b-a-socket-reconnect.md`**.  
+**Related:** same-browser logout/relogin debugging — **`docs/repro-decrypt-after-relogin.md`**. Same browser **A → B → A** after B used another device + sync — Socket.IO reconnect storm on send — **`docs/repro-user-a-b-a-socket-reconnect.md`**. **Sender multi-device hybrid** (same user **A₁** + **A₂**, outbound sent row shows **`…`** on the second browser) — § **Same user, two browsers (A₁ + A₂) — hybrid send** below.  
 **Protocol:** **`docs/PROJECT_PLAN.md` §7.1** — New Device Sync Flow (Feature 13).
 
 ---
@@ -710,6 +710,136 @@ Related: **401** if unauthenticated; **413** if JSON body exceeds **`DEVICE_SYNC
 
 ---
 
+## Same user, two browsers (A₁ + A₂) — hybrid send (`…` on sender’s second session)
+
+Satisfies **TASK_CHECKLIST.md** → **Bugfix — Sender multi-device hybrid** → **(1) Stable repro** + **Wire inspection** + **Directory inspection**.
+
+### Symptom
+
+**User A** is signed in on **two isolated browser profiles** (**A₁**, **A₂**) with **different** **`deviceId`** values. **A** sends from **A₁** to **User B**. On **A₂**, the **same outbound “sent”** bubble shows **`…`** / does not decrypt, while **A₁** may show plaintext and **B** may receive normally.
+
+### Environment matrix
+
+Record which column you used when filing bugs.
+
+| Role | Variable | Variant **A** (default dev) | Variant **B** (revoke on logout) | Variant **C** (direct API) |
+|------|-----------|-----------------------------|-----------------------------------|-----------------------------|
+| REST + Socket base | **`VITE_API_BASE_URL`** | **`/v1`** (Vite proxy — **`apps/web-client/vite.config.ts`**) | Same as **A** | **`http://localhost:8080/v1`** (browser hits API host directly) |
+| Revoke device on sign-out | **`VITE_REVOKE_DEVICE_ON_LOGOUT`** | Unset / **`false`** | **`true`** | Same as **A** or **B** |
+
+**Where:** `apps/web-client/.env.development.local` (gitignored). Restart **`npm run dev`** after **`VITE_*`** changes.
+
+**Backend:** messaging-service (+ deps) per **`README.md`** so auth, **`POST …/devices`**, hybrid **`message:send`**, and **`GET …/devices/public-keys`** work.
+
+### Prerequisites
+
+1. Two **distinct browser profiles** for **A** (**A₁**, **A₂**) — e.g. Chrome profile 1 vs Chrome profile 2, or Chrome + Firefox (**no shared storage** between them).  
+2. Accounts **User A** and **User B** that can open a **direct 1:1** thread.  
+3. **Secure context** (HTTPS or **`localhost`**) so E2EE paths run.
+
+### Exact steps
+
+1. **A₁:** Register or log in as **User A**. Wait until **Home** loads and the app has registered a device (**`cryptoSlice.deviceId`** non-empty; optional Network **`POST /v1/users/me/devices`**).  
+2. **A₂:** Log in as the **same User A** (same username/password). Confirm a **second** device row exists (**Network `GET /v1/users/me/devices`** → **`items.length` ≥ 2**, or cross-check both profiles). Note **A₂’s** **`deviceId`** (Redux **`state.crypto.deviceId`** or response from **`GET …/devices`**) **≠** **A₁’s**.  
+3. **B:** In a **third** profile or browser, log in as **User B**.  
+4. **A₁:** Open **Home** → open or start a **1:1** thread with **B**. Exchange **at least one** message **from B → A** if required so the thread exists on the server.  
+5. **A₂:** Open **Home** as **User A** → open the **same** 1:1 thread with **B** (same **`conversationId`**). Leave this tab visible.  
+6. **A₁:** Type **one short line** and **Send** to **B**.  
+7. **A₂:** Without reloading, observe the **new sent** row attributed to **User A**.
+
+### Expected (reported bug)
+
+- **A₂:** newest **sent** message shows **`…`** (or “can’t decrypt” inline), **not** plaintext.  
+- **A₁:** same message may show **plaintext** on send.  
+- **B:** may still show **plaintext** (recipient path independent).
+
+### Record for every run
+
+- [ ] **Browser + exact version** for **A₁**, **A₂**, **B** (e.g. Chrome **About**).  
+- [ ] **`VITE_API_BASE_URL`** and **`VITE_REVOKE_DEVICE_ON_LOGOUT`** (exact values).  
+- [ ] **Redux `crypto.deviceId`** on **A₁** vs **A₂** (DevTools).  
+- [ ] **Wire inspection** (below): **`encryptedMessageKeys`** key list vs **A₂’s `deviceId`**.  
+- [ ] **Directory inspection** (below): **`GET …/me/devices/public-keys`** **`items`** vs **`GET …/me/devices`** for **A** on **A₁**.
+
+### Wire inspection (`encryptedMessageKeys` keys vs **A₂**)
+
+**Goal:** Decide **(a)** hybrid send omitted **A₂’s** wrapped key (**absent on wire**) vs **(b)** key is present but **A₂** still cannot decrypt (**client / key mismatch**).
+
+#### 1) Copy **A₂’s `deviceId`** (exact string)
+
+On **A₂**: Redux DevTools → **`state.crypto.deviceId`** (trimmed UUID string). Or **Network** → **`GET /v1/users/me/devices`** → find the row for this browser → **`deviceId`**. You will compare this string to **JSON object keys** on the message.
+
+#### 2) Obtain persisted **`Message`** JSON for the send from **A₁**
+
+The **`message:send`** path is **Socket.IO** (WebSocket); the **ack** payload is the **`Message`** document as JSON. Easiest captures:
+
+| Method | Steps |
+|--------|--------|
+| **REST (recommended)** | After send from **A₁**, on **any** logged-in client (**A₁**, **A₂**, or **B**) open **DevTools → Network**, filter **`messages`** or the conversation path, **`GET /v1/conversations/{conversationId}/messages`** (paginated). Find the newest row whose **`senderId`** is **User A**. Open **Response** JSON — copy the **`Message`** object. |
+| **Socket.IO ack** | **Network** → **WS** → select the **`socket.io`** connection → **Messages** (Chrome): find **`message:send`** emit and **ack** frame; parse **ack** JSON if your build surfaces it (shape matches **`Message`** per OpenAPI). Often slower than **GET …/messages**. |
+
+Copy **`id`** (server **`messageId`**) for bug reports.
+
+#### 3) List **`encryptedMessageKeys`** keys
+
+In the **`Message`** object:
+
+```js
+Object.keys(message.encryptedMessageKeys ?? {})
+```
+
+Compare to:
+
+- **A₁ `deviceId`** — usually present (sender wrapping).  
+- **A₂ `deviceId`** — the hypothesis under test.  
+- **B’s device id(s)** — recipient rows from directory.
+
+#### 4) Interpret
+
+| Observation | Likely meaning |
+|-------------|----------------|
+| **`A₂.deviceId`** **not** in **`Object.keys(encryptedMessageKeys)`** | **Encrypt/sender-directory bug** — outbound hybrid did not wrap for the second sender device (or directory fetch omitted that row at **A₁** send time). Fix in **`useSendEncryptedMessage`** / **`mergeHybridDeviceRows`** / **`fetchDevicePublicKeys('me')`**. |
+| **`A₂.deviceId`** **is** present (non-empty string value) but **A₂** UI still shows **`…`** | **Not** a missing-map omission — investigate **decrypt path on A₂** (wrong **IndexedDB** key for that **`deviceId`**, corrupt wrapped string, **algorithm**/body mismatch). Optional: **`VITE_DEBUG_PEER_DECRYPT=true`** on **A₂** if wired for sender bubble (see **`peerDecryptInline`** / **`MessageBubble`** paths). |
+
+#### 5) Quick sanity — **`public-keys`** preview
+
+See **Directory inspection** below for the full procedure. If **A₂’s** row is missing **before** send, **`encryptedMessageKeys`** cannot include **A₂** regardless of hybrid crypto.
+
+### Directory inspection (`GET …/devices/public-keys` for **User A** at **A₁** send time)
+
+**TASK_CHECKLIST** → **Bugfix — Sender multi-device hybrid** → **(1) Directory inspection**.
+
+**Goal:** Confirm the **REST device directory** used by **`listUserDevicePublicKeys`** / **`fetchDevicePublicKeys`** includes **every** registered **`deviceId`** for **User A** when the request is made **from browser A₁** at (or immediately before) send—so you can separate **API/registry** gaps from **client merge/cache** bugs.
+
+#### Requests to capture (DevTools → Network → preserve log, on **A₁**)
+
+Base URL is **`VITE_API_BASE_URL`** (e.g. **`/v1`** via Vite proxy). Paths below are **relative to that base**.
+
+| Priority | Method | Path | Session | What to verify |
+|----------|--------|------|---------|----------------|
+| **1 — Self (`me`)** | **GET** | **`/users/me/devices/public-keys`** | Logged in as **A** on **A₁** | Response **`items`** — collect every **`deviceId`** (and optionally **`publicKey`** prefix). **Both** **A₁** and **A₂** must appear **after** **A₂** has completed **`POST …/devices`** registration. |
+| **2 — Self (UUID)** | **GET** | **`/users/{userAId}/devices/public-keys`** where **`userAId`** is **User A’s** canonical user id (same as **`auth.user.id`** on **A₁**) | Same **A₁** session | Same listing as **`me`** — confirms path alias behaviour ( **`apps/web-client`** **`API_PATHS.users.devicePublicKeysByUserId`** ). |
+| **3 — Peer B** | **GET** | **`/users/{userBId}/devices/public-keys`** | Same **A₁** session (**A** sending to **B**) | Lists **B’s** devices for **recipient** wrapping — **not** where **A₂** must appear; use this to confirm **hybrid send** also receives **B**’s rows and to compare timings with **`me`** responses. |
+
+Filter tips: **`public-keys`** or **`devices/public-keys`**.
+
+#### Compare **`deviceId`** sets
+
+1. From **Redux** / **`GET /users/me/devices`**: list all **`deviceId`**s registered for **A** (**≥ 2** in the two-browser repro).  
+2. From **`GET …/me/devices/public-keys`**: **`items[].deviceId`**.  
+3. **Pass:** the **`public-keys`** set **contains** every **`deviceId`** from step 1 (same strings, trimmed).  
+4. **If A₂ is missing** from **`public-keys`** but present on **`GET …/me/devices`**: investigate **messaging-service** directory projection / filters (**`listUserDevicePublicKeys`** data layer), not only web-client encrypt.
+
+#### Interpret with **Wire inspection**
+
+| **`public-keys` for A (from A₁)** | **`encryptedMessageKeys` on sent `Message`** | Likely focus |
+|-----------------------------------|---------------------------------------------|--------------|
+| **A₂** listed | **A₂** key **absent** | **Web-client** after fetch — **`devicePublicKeysSlice`** cache, **`mergeHybridDeviceRows`**, **`useSendEncryptedMessage`**. |
+| **A₂** **not** listed | **A₂** absent | **Directory/registry** first; fix server or registration order before client-only changes. |
+| **A₂** listed | **A₂** present; **A₂** UI **`…`** | **Decrypt on A₂** (keys, **IndexedDB**, sender bubble path). |
+
+---
+
 ## Related checklist
 
-**`docs/TASK_CHECKLIST.md`** → **Bugfix — Second browser login (sync skipped)**.
+**`docs/TASK_CHECKLIST.md`** → **Bugfix — Second browser login (sync skipped)**; **Bugfix — Sender multi-device hybrid (`encryptedMessageKeys` missing on second browser)**.

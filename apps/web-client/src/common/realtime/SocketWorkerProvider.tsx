@@ -21,6 +21,7 @@ import {
 } from '@/common/crypto/deviceBootstrapSync';
 import { revalidateConversationMessagesForUser } from '@/common/realtime/revalidateConversationMessages';
 import { syncRequested } from '@/modules/crypto/stores/cryptoSlice';
+import { invalidateDevicePublicKeys } from '@/modules/crypto/stores/devicePublicKeysSlice';
 import { useAppDispatch } from '@/store/hooks';
 import { useSWRConfig } from 'swr';
 import { setPresenceStatus } from '@/modules/app/stores/connectionSlice';
@@ -252,6 +253,9 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
           ) {
             break;
           }
+          // Another device joined the account — invalidate sender directory cache so hybrid
+          // send refetches **`GET …/me/devices/public-keys`** and wraps for every device row.
+          dispatch(invalidateDevicePublicKeys('me'));
           dispatch(syncRequested(msg.payload));
           break;
         }

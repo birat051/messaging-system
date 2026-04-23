@@ -54,9 +54,16 @@ describe('resolveMessageDisplayBody', () => {
     ).toBe(plain);
   });
 
-  it('for own hybrid shows ellipsis when sender plaintext map is empty (never wire from MongoDB)', () => {
+  it('for own hybrid shows ellipsis when sender and decrypted overlays are both missing', () => {
     const m = msg({ id: 'm1', ...hybridWire });
     expect(resolveMessageDisplayBody(m, true, {}, {})).toBe('\u2026');
+  });
+
+  it('for own hybrid uses decryptedBodyByMessageId when sender plaintext missing (multi-device echo)', () => {
+    const m = msg({ id: 'm1', ...hybridWire });
+    expect(
+      resolveMessageDisplayBody(m, true, {}, { m1: 'Synced from unwrap' }),
+    ).toBe('Synced from unwrap');
   });
 
   it('uses decrypted map for peer hybrid bodies', () => {

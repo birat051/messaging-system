@@ -290,6 +290,17 @@ describe('SocketWorkerProvider — message:new receive path', () => {
             pendingSyncFromDevicePublicKey: null,
             syncCompletedForNewDeviceId: null,
           },
+          devicePublicKeys: {
+            byUserId: {
+              me: {
+                status: 'succeeded',
+                items: [{ deviceId: 'dev-trusted', publicKey: 'spki-old' }],
+                forbidden: false,
+                error: null,
+                cachedAtMs: Date.now(),
+              },
+            },
+          },
         },
       },
     );
@@ -310,6 +321,7 @@ describe('SocketWorkerProvider — message:new receive path', () => {
     expect(store.getState().crypto.pendingSyncFromDevicePublicKey).toBe(
       'peer-spki',
     );
+    expect(store.getState().devicePublicKeys.byUserId.me).toBeUndefined();
 
     unmount();
   });

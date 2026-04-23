@@ -6,7 +6,8 @@
  *   appear** if the server stored ciphertext without legacy/hybrid wire markers.
  * - **Wire E2EE, peer row**: uses **`decryptedBodyByMessageId[id]`**; while **missing**, shows **`…`**
  *   (never the wire body for classified E2EE).
- * - **Wire E2EE, own row**: uses **`senderPlaintextByMessageId`** or **`…`**.
+ * - **Wire E2EE, own row**: **`senderPlaintextByMessageId`** from this tab’s send; else **`decryptedBodyByMessageId`**
+ *   after **`usePeerMessageDecryption`** unwraps an echo (**`encryptedMessageKeys[thisDeviceId]`**); else **`…`**.
  *
  * ### Inbound decrypt — **`usePeerMessageDecryption`** (`usePeerMessageDecryption.ts`)
  * Runs in **`HomeConversationShell`** for peer messages where **`isHybridE2eeMessage(m)`** (wire E2EE). Same crypto as

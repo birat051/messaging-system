@@ -10,6 +10,9 @@ import {
 } from './messages.collection.js';
 import { MAX_LIST_LIMIT } from '../../validation/limitQuery.js';
 
+/**
+ * Persists **`encryptedMessageKeys`** exactly as provided (arbitrary **`deviceId`** keys) — no server-side filtering.
+ */
 export async function insertMessage(params: {
   conversationId: string;
   senderId: string;

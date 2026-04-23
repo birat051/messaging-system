@@ -5,6 +5,12 @@
 
 import { arrayBufferToBase64, base64ToArrayBuffer } from './encoding';
 import {
+  fingerprintRawKeyMaterial,
+  isHybridDecryptDebugEnabled,
+  logHybridDecrypt,
+  type HybridDecryptDebugMeta,
+} from './hybridDecryptDebug';
+import {
   decryptMessageBody,
   encryptMessageBody,
   generateMessageKey,
@@ -113,6 +119,8 @@ export function isHybridE2eeMessage(m: {
 /**
  * Decrypt **`body`** for this device: **`unwrapMessageKey`** → **`decryptMessageBody`** (hybrid receive steps **7–8**).
  * Inbound path: **`usePeerMessageDecryption`**. Trace: **`e2eeInboundDecryptTrace.ts`** (web-client).
+ *
+ * **Dev tracing:** **`VITE_DEBUG_HYBRID_DECRYPT=true`** → **`[hybrid-decrypt]`** **`console.debug`** (never logs raw keys).
  */
 export async function decryptHybridMessageToUtf8(
   params: {
@@ -122,13 +130,101 @@ export async function decryptHybridMessageToUtf8(
   },
   deviceId: string,
   recipientPrivateKey: CryptoKey,
+  debugMeta?: HybridDecryptDebugMeta,
 ): Promise<string> {
-  const wrapped = params.encryptedMessageKeys[deviceId];
+  const dbg = isHybridDecryptDebugEnabled();
+  const trimmedDevice = deviceId.trim();
+  const emkIds = Object.keys(params.encryptedMessageKeys ?? {}).sort();
+  const wrapped = params.encryptedMessageKeys[trimmedDevice];
+
+  if (dbg) {
+    let ivDecodedBytes = -1;
+    let bodyDecodedBytes = -1;
+    try {
+      ivDecodedBytes = new Uint8Array(base64ToArrayBuffer(params.iv)).byteLength;
+    } catch {
+      /* invalid iv base64 */
+    }
+    try {
+      bodyDecodedBytes = new Uint8Array(
+        base64ToArrayBuffer(params.body),
+      ).byteLength;
+    } catch {
+      /* invalid body base64 */
+    }
+    const algo = recipientPrivateKey.algorithm as { name?: string } | undefined;
+    logHybridDecrypt('start', {
+      ...debugMeta,
+      storedDeviceId: trimmedDevice,
+      encryptedMessageKeysDeviceIds: emkIds,
+      hasWrappedKeyForDevice: Boolean(wrapped?.trim()),
+      wrappedKeyEnvelopeChars: wrapped?.length ?? 0,
+      ivBase64Chars: params.iv?.length ?? 0,
+      bodyBase64Chars: params.body?.length ?? 0,
+      ivDecodedBytes,
+      bodyDecodedBytes,
+      privateKeyAlgorithmName: algo?.name,
+    });
+  }
+
   if (!wrapped?.trim()) {
+    if (dbg) {
+      logHybridDecrypt('abort: no wrapped key for this deviceId', {
+        ...debugMeta,
+        storedDeviceId: trimmedDevice,
+        encryptedMessageKeysDeviceIds: emkIds,
+      });
+    }
     throw new Error('No wrapped key for this device');
   }
-  const msgKeyRaw = await unwrapMessageKey(wrapped, recipientPrivateKey);
+
+  let msgKeyRaw: Uint8Array;
+  try {
+    msgKeyRaw = await unwrapMessageKey(wrapped, recipientPrivateKey);
+  } catch (err) {
+    if (dbg) {
+      logHybridDecrypt('unwrapMessageKey failed', {
+        ...debugMeta,
+        storedDeviceId: trimmedDevice,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+    throw err;
+  }
+
+  if (dbg) {
+    const fp = await fingerprintRawKeyMaterial(msgKeyRaw);
+    logHybridDecrypt('after unwrap — AES-256 message key material', {
+      ...debugMeta,
+      storedDeviceId: trimmedDevice,
+      messageKeyByteLength: msgKeyRaw.byteLength,
+      messageKeyFingerprintSha256Prefix: fp,
+    });
+  }
+
   const ivBody = new Uint8Array(base64ToArrayBuffer(params.iv));
   const ct = new Uint8Array(base64ToArrayBuffer(params.body));
-  return decryptMessageBody(msgKeyRaw, ct, ivBody);
+
+  try {
+    const plaintext = await decryptMessageBody(msgKeyRaw, ct, ivBody);
+    if (dbg) {
+      logHybridDecrypt('decryptMessageBody OK (AES-GCM)', {
+        ...debugMeta,
+        storedDeviceId: trimmedDevice,
+        utf8Length: plaintext.length,
+      });
+    }
+    return plaintext;
+  } catch (err) {
+    if (dbg) {
+      logHybridDecrypt('decryptMessageBody failed', {
+        ...debugMeta,
+        storedDeviceId: trimmedDevice,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+    throw err;
+  }
 }
+
+export type { HybridDecryptDebugMeta } from './hybridDecryptDebug';

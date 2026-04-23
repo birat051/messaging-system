@@ -1,5 +1,8 @@
 import { useCallback } from 'react';
-import { decryptHybridMessageToUtf8 } from '@/common/crypto/messageHybrid';
+import {
+  decryptHybridMessageToUtf8,
+  type HybridDecryptDebugMeta,
+} from '@/common/crypto/messageHybrid';
 import { getStoredDeviceId } from '@/common/crypto/privateKeyStorage';
 import { loadMessagingEcdhPrivateKey } from '@/common/crypto/loadMessagingEcdhPrivateKey';
 
@@ -7,6 +10,8 @@ export type HybridMessageWire = {
   body: string;
   iv: string;
   encryptedMessageKeys: Record<string, string>;
+  /** Optional — forwarded to **`decryptHybridMessageToUtf8`** when **`VITE_DEBUG_HYBRID_DECRYPT=true`**. */
+  debugMeta?: HybridDecryptDebugMeta;
 };
 
 /**
@@ -41,6 +46,7 @@ export function useDecryptMessage(): {
         },
         deviceId.trim(),
         pk,
+        message.debugMeta,
       );
     },
     [],
