@@ -8,14 +8,23 @@ import type { components } from '@/generated/api-types';
 import {
   appendIncomingMessageIfNew,
   appendMessageFromSend,
+  clearConversationScrollTarget,
   hydrateMessagesFromFetch,
   hydrateSenderPlaintextFromDisk,
   mergeReceiptFanoutFromSocket,
   messagingReducer,
   recordOwnSendPlaintext,
   replaceOptimisticMessage,
+  setActiveConversationId,
+  setConversationScrollTarget,
 } from './messagingSlice';
-import { selectOutboundReceiptTickState } from './messagingSelectors';
+import {
+  selectOutboundReceiptTickState,
+  selectScrollTargetConversationId,
+  selectScrollTargetMessageId,
+  selectScrollTargetNonce,
+  selectScrollTargetReason,
+} from './messagingSelectors';
 
 type Message = components['schemas']['Message'];
 
@@ -42,7 +51,60 @@ const base = {
   decryptedBodyByMessageId: {},
   decryptedAttachmentKeyByMessageId: {},
   decryptedAttachmentUrlByMessageId: {},
+  scrollTargetMessageId: null,
+  scrollTargetConversationId: null,
+  scrollTargetReason: null,
+  scrollTargetNonce: 0,
 };
+
+describe('setActiveConversationId (§6 open thread)', () => {
+  it('bumps scrollTargetNonce when opening the conversation that matches pending scroll target', () => {
+    const cid = 'conv-open';
+    const state = messagingReducer(
+      {
+        ...base,
+        activeConversationId: 'conv-other',
+        scrollTargetMessageId: 'm-1',
+        scrollTargetConversationId: cid,
+        scrollTargetReason: 'message_new',
+        scrollTargetNonce: 4,
+      },
+      setActiveConversationId(cid),
+    );
+    expect(state.activeConversationId).toBe(cid);
+    expect(state.scrollTargetNonce).toBe(5);
+    expect(state.scrollTargetMessageId).toBe('m-1');
+  });
+
+  it('does not bump scrollTargetNonce when opening a different conversation than scroll target', () => {
+    const state = messagingReducer(
+      {
+        ...base,
+        activeConversationId: null,
+        scrollTargetMessageId: 'm-1',
+        scrollTargetConversationId: 'conv-b',
+        scrollTargetNonce: 2,
+      },
+      setActiveConversationId('conv-a'),
+    );
+    expect(state.activeConversationId).toBe('conv-a');
+    expect(state.scrollTargetNonce).toBe(2);
+  });
+
+  it('does not bump scrollTargetNonce when pending target has no message id', () => {
+    const cid = 'conv-only';
+    const state = messagingReducer(
+      {
+        ...base,
+        scrollTargetMessageId: null,
+        scrollTargetConversationId: cid,
+        scrollTargetNonce: 7,
+      },
+      setActiveConversationId(cid),
+    );
+    expect(state.scrollTargetNonce).toBe(7);
+  });
+});
 
 describe('recordOwnSendPlaintext', () => {
   it('stores plaintext for first-DM send when there was no optimistic client id', () => {
@@ -487,5 +549,97 @@ describe('hydrateSenderPlaintextFromDisk', () => {
       }),
     );
     expect(state.messagesById[msg.id]?.body).toBe(plain);
+  });
+});
+
+describe('conversation scroll target (§6)', () => {
+  it('setConversationScrollTarget overwrites previous target and bumps nonce', () => {
+    let state = messagingReducer(
+      base,
+      setConversationScrollTarget({
+        messageId: 'm1',
+        conversationId: 'c1',
+        reason: 'message_new',
+      }),
+    );
+    expect(state.scrollTargetMessageId).toBe('m1');
+    expect(state.scrollTargetConversationId).toBe('c1');
+    expect(state.scrollTargetReason).toBe('message_new');
+    expect(state.scrollTargetNonce).toBe(1);
+
+    state = messagingReducer(
+      state,
+      setConversationScrollTarget({
+        messageId: 'm2',
+        conversationId: 'c2',
+        reason: 'send_ack',
+      }),
+    );
+    expect(state.scrollTargetMessageId).toBe('m2');
+    expect(state.scrollTargetConversationId).toBe('c2');
+    expect(state.scrollTargetReason).toBe('send_ack');
+    expect(state.scrollTargetNonce).toBe(2);
+  });
+
+  it('clearConversationScrollTarget is a no-op when already clear', () => {
+    const state = messagingReducer(base, clearConversationScrollTarget());
+    expect(state.scrollTargetMessageId).toBeNull();
+    expect(state.scrollTargetConversationId).toBeNull();
+    expect(state.scrollTargetReason).toBeNull();
+    expect(state.scrollTargetNonce).toBe(0);
+  });
+
+  it('clearConversationScrollTarget clears after set', () => {
+    let state = messagingReducer(
+      base,
+      setConversationScrollTarget({ messageId: 'm1', conversationId: 'c1' }),
+    );
+    state = messagingReducer(state, clearConversationScrollTarget());
+    expect(state.scrollTargetMessageId).toBeNull();
+    expect(state.scrollTargetConversationId).toBeNull();
+    expect(state.scrollTargetReason).toBeNull();
+    expect(state.scrollTargetNonce).toBe(1);
+  });
+
+  it('trims messageId and conversationId', () => {
+    const state = messagingReducer(
+      base,
+      setConversationScrollTarget({
+        messageId: '  mid  ',
+        conversationId: '  cid  ',
+        reason: 'open_thread',
+      }),
+    );
+    expect(state.scrollTargetMessageId).toBe('mid');
+    expect(state.scrollTargetConversationId).toBe('cid');
+    expect(state.scrollTargetReason).toBe('open_thread');
+  });
+
+  it('ignores set when messageId or conversationId is blank after trim', () => {
+    const state = messagingReducer(
+      base,
+      setConversationScrollTarget({ messageId: '', conversationId: 'c1' }),
+    );
+    expect(state.scrollTargetMessageId).toBeNull();
+    expect(state.scrollTargetNonce).toBe(0);
+  });
+});
+
+describe('selectors — scroll target', () => {
+  it('reads scroll target from RootState', async () => {
+    const { createTestStore } = await import('@/common/test-utils');
+    const store = createTestStore();
+    store.dispatch(
+      setConversationScrollTarget({
+        messageId: 'row-9',
+        conversationId: 'conv-z',
+        reason: 'message_new',
+      }),
+    );
+    const s = store.getState();
+    expect(selectScrollTargetMessageId(s)).toBe('row-9');
+    expect(selectScrollTargetConversationId(s)).toBe('conv-z');
+    expect(selectScrollTargetReason(s)).toBe('message_new');
+    expect(selectScrollTargetNonce(s)).toBe(1);
   });
 });

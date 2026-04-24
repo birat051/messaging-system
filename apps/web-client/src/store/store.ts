@@ -8,6 +8,7 @@ import { devicePublicKeysReducer } from '../modules/crypto/stores/devicePublicKe
 import { notificationsReducer } from '../modules/app/stores/notificationsSlice';
 import { callReducer } from '../modules/home/stores/callSlice';
 import { messagingReducer } from '../modules/home/stores/messagingSlice';
+import { conversationScrollOnMessageNewListener } from './conversationScrollOnMessageNewListener';
 import { senderPlaintextPersistListener } from './senderPlaintextPersistListener';
 
 export const store = configureStore({
@@ -23,7 +24,9 @@ export const store = configureStore({
     notifications: notificationsReducer,
   },
   middleware: (getDefaultMiddleware) =>
-    getDefaultMiddleware().concat(senderPlaintextPersistListener.middleware),
+    getDefaultMiddleware()
+      .concat(senderPlaintextPersistListener.middleware)
+      .concat(conversationScrollOnMessageNewListener.middleware),
 });
 
 export type RootState = ReturnType<typeof store.getState>;

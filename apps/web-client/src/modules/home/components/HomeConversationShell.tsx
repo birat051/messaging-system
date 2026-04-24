@@ -686,6 +686,10 @@ export function HomeConversationShell() {
               ) : null}
               </div>
               <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+              {/*
+                **`conversationScrollKey`** = **`activeConversationId`** drives §6.4 pin-to-bottom reset on thread
+                switch ( **`ThreadMessageList`** ); §6 **`scrollTarget*`** is read inside the list from Redux.
+              */}
               <ThreadMessageList
                 conversationScrollKey={activeConversationId}
                 messages={

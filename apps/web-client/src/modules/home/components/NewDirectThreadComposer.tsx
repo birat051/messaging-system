@@ -6,7 +6,10 @@ import { useAuth } from '@/common/hooks/useAuth';
 import { useComposerMediaAttachment } from '@/common/hooks/useComposerMediaAttachment';
 import { useSendEncryptedMessage } from '@/common/hooks/useSendEncryptedMessage';
 import { parseApiError } from '@/modules/auth/utils/apiError';
-import { recordOwnSendPlaintext } from '@/modules/home/stores/messagingSlice';
+import {
+  recordOwnSendPlaintext,
+  setConversationScrollTarget,
+} from '@/modules/home/stores/messagingSlice';
 import { registerPathFromGuest } from '@/routes/paths';
 import { useAppDispatch } from '@/store/hooks';
 import { ComposerImagePreviewStrip } from './ComposerImagePreviewStrip';
@@ -64,6 +67,13 @@ export function NewDirectThreadComposer({ recipient, onConversationIdStored }: P
           ? { mediaRetrievableUrl: attachment.mediaRetrievableUrl.trim() }
           : {}),
       });
+      dispatch(
+        setConversationScrollTarget({
+          messageId: message.id,
+          conversationId: message.conversationId,
+          reason: 'send_ack',
+        }),
+      );
       if (trimmed.length > 0) {
         dispatch(
           recordOwnSendPlaintext({

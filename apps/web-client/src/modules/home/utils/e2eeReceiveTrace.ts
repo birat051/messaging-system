@@ -5,7 +5,11 @@
  * - **REST:** **`useConversation`** / SWR **`['conversation-messages', conversationId, userId]`** hydrates
  *   **`hydrateMessagesFromFetch`** → **`messagesById`** (includes **`body`**, **`iv`**, **`algorithm`**, **`encryptedMessageKeys`**).
  * - **Socket.IO `message:new`:** **`SocketWorkerProvider`** → **`appendIncomingMessageIfNew`**, then
- *   **`mutate(['conversation-messages', …])`** so lists stay fresh.
+ *   **`mutate(['conversation-messages', …])`** so lists stay fresh. **§6:** **`conversationScrollOnMessageNewListener`**
+ *   may **`setConversationScrollTarget`** ( **`ThreadMessageList`** then **`scrollIntoView`** + clear). **§6.4:** the
+ *   same list still uses legacy **pin-to-bottom** (**`scrollLogToBottom`**, **`conversationScrollKey`**) for
+ *   thread switches and tail appends without a pending **`scrollTarget*`**; pin skips when the pending target is
+ *   already the tail id (dedupe with §6 — **`docs/TASK_CHECKLIST.md`** §6.4).
  *
  * ### Decrypt (**`usePeerMessageDecryption`** on **`HomeConversationShell`**)
  * Runs when **`conversationId`**, **`messageIds`**, peer payload signature, or **`crypto.deviceId`** change.

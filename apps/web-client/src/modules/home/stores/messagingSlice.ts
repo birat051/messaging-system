@@ -17,6 +17,14 @@ export type MessageReceiptEntry = components['schemas']['MessageReceiptEntry'];
 export type OutboundReceiptLevel = 'loading' | 'sent' | 'delivered' | 'seen';
 
 /**
+ * Why a **scroll-to-message** target was set — for tests / DevTools only (**`docs/TASK_CHECKLIST.md`** §6).
+ */
+export type ConversationScrollTargetReason =
+  | 'message_new'
+  | 'send_ack'
+  | 'open_thread';
+
+/**
  * **New DM from search** — no **`conversationId`** until the first **`message:send`** ack.
  * Drives the main thread pane (**`NewDirectThreadComposer`**) while **`activeConversationId`** is null.
  */
@@ -65,6 +73,22 @@ export type MessagingState = {
    * **`VITE_S3_*`** is unavailable on the recipient.
    */
   decryptedAttachmentUrlByMessageId: Record<string, string>;
+  /**
+   * **Thread scroll target (§6):** after send/receive, UI scrolls this **`Message.id`** row into view for
+   * **`scrollTargetConversationId`**, then **`clearConversationScrollTarget`**. **Cross-conversation:** each
+   * **`setConversationScrollTarget`** overwrites the previous target (single pending target).
+   */
+  scrollTargetMessageId: string | null;
+  scrollTargetConversationId: string | null;
+  /** Optional provenance for debugging / tests. */
+  scrollTargetReason: ConversationScrollTargetReason | null;
+  /**
+   * Increments on every **`setConversationScrollTarget`** and when **`setActiveConversationId`** opens the
+   * conversation that matches **`scrollTargetConversationId`** (pending **`messageId`**) so
+   * **`ThreadMessageList`** re-runs §6 consumers even if **`activeConversationId`** was already that id
+   * (list re-select / **`useSelector`** primitive equality).
+   */
+  scrollTargetNonce: number;
 };
 
 const initialState: MessagingState = {
@@ -81,6 +105,10 @@ const initialState: MessagingState = {
   decryptedBodyByMessageId: {},
   decryptedAttachmentKeyByMessageId: {},
   decryptedAttachmentUrlByMessageId: {},
+  scrollTargetMessageId: null,
+  scrollTargetConversationId: null,
+  scrollTargetReason: null,
+  scrollTargetNonce: 0,
 };
 
 function mergeReceiptSummary(
@@ -197,6 +225,12 @@ const messagingSlice = createSlice({
       state.activeConversationId = action.payload;
       if (action.payload) {
         state.pendingDirectPeer = null;
+      }
+      const next = action.payload?.trim() ?? '';
+      const targetC = state.scrollTargetConversationId?.trim() ?? '';
+      const targetM = state.scrollTargetMessageId?.trim() ?? '';
+      if (next && targetC && targetM && next === targetC) {
+        state.scrollTargetNonce += 1;
       }
     },
     setPendingDirectPeer(
@@ -537,6 +571,46 @@ const messagingSlice = createSlice({
         state.senderPlaintextByMessageId[messageId] = plaintext;
       }
     },
+    /**
+     * **§6 scroll target:** latest **`messageId` + `conversationId`** wins (overwrite). **`nonce`** bumps so
+     * consumers can re-run scroll logic when the same id is set again.
+     *
+     * **`reason: 'message_new'`:** same listener sets this on every successful **`appendIncomingMessageIfNew`**
+     * merge **regardless of `activeConversationId`**, so a user who opens the thread later still has a concrete
+     * **`messageId`** to scroll to (not only when the chat is already focused).
+     * **`reason: 'send_ack'`:** that listener sets this on **`replaceOptimisticMessage`** (**`useSendMessage`** ack);
+     * first-DM **`NewDirectThreadComposer`** dispatches **`setConversationScrollTarget`** after **`sendMessage`**.
+     */
+    setConversationScrollTarget(
+      state,
+      action: PayloadAction<{
+        messageId: string;
+        conversationId: string;
+        reason?: ConversationScrollTargetReason;
+      }>,
+    ) {
+      const messageId = action.payload.messageId.trim();
+      const conversationId = action.payload.conversationId.trim();
+      if (!messageId || !conversationId) {
+        return;
+      }
+      state.scrollTargetMessageId = messageId;
+      state.scrollTargetConversationId = conversationId;
+      state.scrollTargetReason = action.payload.reason ?? null;
+      state.scrollTargetNonce += 1;
+    },
+    /** Clears the pending scroll target (no-op if already clear). */
+    clearConversationScrollTarget(state) {
+      if (
+        state.scrollTargetMessageId == null &&
+        state.scrollTargetConversationId == null
+      ) {
+        return;
+      }
+      state.scrollTargetMessageId = null;
+      state.scrollTargetConversationId = null;
+      state.scrollTargetReason = null;
+    },
     resetMessaging() {
       return initialState;
     },
@@ -561,6 +635,8 @@ export const {
   mergeReceiptSummariesFromFetch,
   setSendPending,
   setSendError,
+  setConversationScrollTarget,
+  clearConversationScrollTarget,
   resetMessaging,
 } = messagingSlice.actions;
 

@@ -27,6 +27,7 @@ import {
 } from '../../modules/home/stores/messagingSlice';
 import type { AuthState } from '../../modules/auth/stores/authSlice';
 import type { RootState } from '../../store/store';
+import { conversationScrollOnMessageNewListener } from '../../store/conversationScrollOnMessageNewListener';
 import { senderPlaintextPersistListener } from '../../store/senderPlaintextPersistListener';
 import { ToastProvider } from '../components/toast/ToastProvider';
 import { ThemeProvider } from '../theme/ThemeProvider';
@@ -110,7 +111,9 @@ export function createTestStore(preloadedState?: PreloadedRootState) {
     },
     preloadedState: mergeRootState(preloadedState),
     middleware: (getDefaultMiddleware) =>
-      getDefaultMiddleware().concat(senderPlaintextPersistListener.middleware),
+      getDefaultMiddleware()
+        .concat(senderPlaintextPersistListener.middleware)
+        .concat(conversationScrollOnMessageNewListener.middleware),
   });
 }
 

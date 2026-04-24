@@ -6,7 +6,10 @@ import type { components } from '@/generated/api-types';
 import { defaultMockUser } from '@/common/mocks/handlers';
 import { server } from '@/common/mocks/server';
 import { renderWithProviders } from '@/common/test-utils';
-import { messagingInitialState } from '@/modules/home/stores/messagingSlice';
+import {
+  appendIncomingMessageIfNew,
+  messagingInitialState,
+} from '@/modules/home/stores/messagingSlice';
 import { SEARCH_DEBOUNCE_MS } from '@/modules/home/hooks/useUserSearchQuery';
 import { formatMissingPeerProfileLabel } from '@/modules/home/utils/userPublicLabel';
 import { HomeConversationShell } from './HomeConversationShell';
@@ -703,6 +706,98 @@ describe('HomeConversationShell', () => {
     expect(await within(shell).findByTestId('thread-header-presence')).toHaveTextContent(
       'Online',
     );
+  });
+
+  it('§6: message:new fan-in sets scroll target on active thread; list scrolls + clear', async () => {
+    const selfId = defaultMockUser.id;
+    const peerId = 'peer-fan-in';
+    const convId = 'conv-fan-in-scroll';
+    const existingMsgId = 'm-existing';
+
+    const proto = Element.prototype as Element & {
+      scrollIntoView?: (arg?: ScrollIntoViewOptions) => void;
+    };
+    const prevSiv = proto.scrollIntoView;
+    const scrollIntoViewSpy = vi.fn();
+    proto.scrollIntoView = scrollIntoViewSpy;
+
+    server.use(
+      http.get('*/v1/conversations', () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: convId,
+              title: null,
+              isGroup: false,
+              peerUserId: peerId,
+              updatedAt: '2026-01-01T12:00:00.000Z',
+            },
+          ],
+          nextCursor: null,
+          hasMore: false,
+        }),
+      ),
+    );
+
+    try {
+      const { store } = renderWithProviders(<HomeConversationShell />, {
+        preloadedState: {
+          auth: {
+            user: { ...defaultMockUser, id: selfId, emailVerified: true },
+            accessToken: 'test-token',
+          },
+          messaging: {
+            ...messagingInitialState,
+            activeConversationId: convId,
+            messageIdsByConversationId: { [convId]: [existingMsgId] },
+            messagesById: {
+              [existingMsgId]: {
+                id: existingMsgId,
+                conversationId: convId,
+                senderId: peerId,
+                body: 'existing line',
+                mediaKey: null,
+                createdAt: '2026-01-01T12:00:00.000Z',
+              },
+            },
+          },
+        },
+      });
+
+      const shell = await screen.findByTestId('home-conversation-shell');
+      const log = await within(shell).findByRole('log', {
+        name: /conversation messages/i,
+      });
+      expect(await within(log).findByText('existing line')).toBeInTheDocument();
+
+      const incomingId = 'm-fan-in-new';
+      store.dispatch(
+        appendIncomingMessageIfNew({
+          message: {
+            id: incomingId,
+            conversationId: convId,
+            senderId: peerId,
+            body: 'fan in line',
+            mediaKey: null,
+            createdAt: '2026-01-02T15:00:00.000Z',
+          },
+          currentUserId: selfId,
+        }),
+      );
+
+      expect(await within(log).findByText('fan in line')).toBeInTheDocument();
+
+      await waitFor(() => {
+        expect(store.getState().messaging.scrollTargetMessageId).toBeNull();
+        expect(scrollIntoViewSpy).toHaveBeenCalledWith({ block: 'nearest' });
+      });
+    } finally {
+      if (prevSiv) {
+        proto.scrollIntoView = prevSiv;
+      } else {
+        Reflect.deleteProperty(proto, 'scrollIntoView');
+      }
+    }
   });
 });
 

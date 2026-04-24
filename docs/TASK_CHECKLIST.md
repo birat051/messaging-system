@@ -423,7 +423,7 @@ Tracked work for **search layout**, **E2EE display**, **calls UX**, **theme cont
 
 ### Backlog — Conversation ordering, guest labels, R2 presign media, presence, scroll, client env
 
-Tracked work for **conversation list ordering**, **guest display in headers**, **chat media via server-issued pre-signed PUT to R2** (browser does **not** upload file bodies to **`POST /v1/media/upload`**), **last-seen freshness + placement**, **auto-scroll on realtime messages**, **profile picture uploads**, and **local env files**. Split into **(A) messaging-service / infra** and **(B) web-client** where applicable; **`*.tsx`** tests first per **`docs/PROJECT_PLAN.md` §14** where UI changes.
+Tracked work for **conversation list ordering**, **guest display in headers**, **chat media via server-issued pre-signed PUT to R2** (browser does **not** upload file bodies to **`POST /v1/media/upload`**), **last-seen freshness + placement**, **thread scroll (§6 — Redux scroll target; legacy pin-to-bottom superseded)**, **profile picture uploads**, and **local env files**. Split into **(A) messaging-service / infra** and **(B) web-client** where applicable; **`*.tsx`** tests first per **`docs/PROJECT_PLAN.md` §14** where UI changes.
 
 #### 1. Conversation list — move latest thread to top on send/receive (UI)
 
@@ -465,11 +465,42 @@ Tracked work for **conversation list ordering**, **guest display in headers**, *
 - [x] **(B) UI:** Keep **last seen** (or **typing** / **online** if product merges them) in the **active thread header** only (**`HomeConversationShell`** / **`ThreadHeader`** area). **Done:** unchanged — **`thread-header-presence`** + **`usePeerPresenceDisplay`**.
 - [x] **(B) Tests:** List row assertions — **no** last-seen text; thread header — **still** shows when data exists (**`HomeConversationShell.test.tsx`**). **Done:** **`ConversationList.test.tsx`** (no **Online** / **last seen** in sidebar); **`HomeConversationShell.test.tsx`** — **`thread-header-presence`** + **`getLastSeen`** mock.
 
-#### 6. Auto-scroll — jump to latest message on **`message:new`** when that chat is open
+#### 6. Thread auto-scroll — **Redux scroll target** (`messageId` + `conversationId`) **replaces / extends** legacy pin-to-bottom
 
-- [x] **(B) Behaviour:** When **`message:new`** applies to **`activeConversationId`**, scroll the **message list** to the **bottom** (newest message), unless the user has **scrolled up** intentionally (preserve existing **“new messages below”** / scroll-lock pattern if present). **Done:** **`ThreadMessageList`** — pin-to-bottom + **`conversationScrollKey`** from **`HomeConversationShell`**.
-- [x] **(B) Implementation:** **`ThreadMessageList`** / container **`ref`** + **`scrollTop`** / **`scrollIntoView`** on new row; debounce if many events arrive quickly. **Done:** **`scrollTop`** on **`scrollHeight`** change when pinned (no debounce — single layout pass per Redux update).
-- [x] **(B) Tests:** **`ThreadMessageList.test.tsx`** (or shell) — append message while active → **scroll** stub or **last child** visibility assertion. **Done:** **`ThreadMessageList.test.tsx`** — mocked **`scrollTop`** / **`scrollHeight`**.
+**Baseline (shipped — insufficient for all cases):** **`ThreadMessageList`** pin-to-bottom when **`scrollHeight`** grows and user is near bottom; **`conversationScrollKey`** from **`HomeConversationShell`** jumps to bottom on **active thread switch**. **Files:** **`ThreadMessageList.tsx`**, **`ThreadMessageList.test.tsx`**, **`HomeConversationShell.tsx`**. **Gap:** opening the **same** conversation (or thread already open) does not reliably correlate scroll with a **specific server `Message.id`** after **`message:new`** / send ack; bottom-only **`scrollTop = scrollHeight - clientHeight`** can race layout / dedupe / hybrid decrypt.
+
+**Goal:** On **send** or **receive** of a new message, store **`messageId`** + **`conversationId`** in Redux. When the user **opens** that conversation (or it is **already** active), **`ThreadMessageList`** scrolls the **row** for that **`messageId`** into view, then **clears** the scroll-target slice. **Replace** ad-hoc “latest message” scroll triggers with this single source of truth once stable.
+
+##### 6.1 Redux — scroll target state
+
+- [x] **Slice shape:** **`messagingSlice`** — **`scrollTargetMessageId`**, **`scrollTargetConversationId`**, **`scrollTargetReason`** (`'message_new' | 'send_ack' | 'open_thread'`), **`scrollTargetNonce`** (increments on each **`setConversationScrollTarget`**). **`ConversationScrollTargetReason`** exported.
+- [x] **Actions:** **`setConversationScrollTarget`** (`{ messageId, conversationId, reason? }`), **`clearConversationScrollTarget`** (no-op if already empty). **`messagingSelectors`**: **`selectScrollTargetMessageId`**, **`selectScrollTargetConversationId`**, **`selectScrollTargetReason`**, **`selectScrollTargetNonce`**.
+- [x] **Reducer invariants:** Single pending target — each **`set`** overwrites; documented on reducer JSDoc.
+
+##### 6.2 Writers — when to set the target
+
+- [x] **`message:new` (receive):** **`conversationScrollOnMessageNewListener`** listens for **`appendIncomingMessageIfNew`**; on a **real merge** (id absent in **`getOriginalState().messaging.messagesById`**), **`dispatch(setConversationScrollTarget({ messageId, conversationId, reason: 'message_new' }))`**. **Scope:** **always** (not gated on **`activeConversationId`**) — **`setConversationScrollTarget`** JSDoc + **`conversationScrollOnMessageNewListener.ts`**. **`SocketWorkerProvider`** still only **`appendIncomingMessageIfNew`**. **Tests:** **`conversationScrollOnMessageNewListener.test.ts`**.
+- [x] **Send / ack (outgoing):** When the **server** **`Message.id`** is known after **`message:send`** ack or optimistic replace (**`replaceOptimisticMessage`** / equivalent), set target to that **`id`** + **`conversationId`** so the composer tab scrolls to the ack row. **Done:** **`conversationScrollOnMessageNewListener`** → **`replaceOptimisticMessage`**; first-DM **`NewDirectThreadComposer`** → **`setConversationScrollTarget`** after **`sendMessage`** ack. **Tests:** **`conversationScrollOnMessageNewListener.test.ts`** (**`send_ack`**).
+- [ ] **Do not set** when the user is **intentionally scrolled up** (if retaining “sticky scroll lock”): gate **`setConversationScrollTarget`** behind the same **near-bottom** heuristic as today, **or** always set but only **auto-scroll** when near bottom — **subtask:** align UX with §6 baseline “new messages below” banner (if any).
+
+##### 6.3 Consumers — scroll row, then clear
+
+- [x] **`ThreadMessageList`:** Stable **`data-testid`** or **`data-message-id`** on each row wrapper; **`ref`** map or **`document.querySelector`** for **`[data-message-id='…']`** inside the scroll container. **Done:** each row **`article`** has **`data-message-id={m.id}`**; **`messageRowElByIdRef`** + **`registerMessageRowEl`**; **`queryThreadMessageRowInLog(scrollContainer, messageId)`** → **`article[data-message-id="…"]`**. **Tests:** **`ThreadMessageList.test.tsx`** (§6 row query).
+- [x] **Effect:** **`useLayoutEffect`** (or **`useEffect` + `requestAnimationFrame`**) when **`activeConversationId === scrollTargetConversationId`** and **`messages`** includes **`scrollTargetMessageId`**: call **`scrollIntoView({ block: 'nearest' })`** or set **`scrollTop`** so the row is visible; then **`dispatch(clearConversationScrollTarget())`**. **Done:** **`ThreadMessageList`** — second **`useLayoutEffect`** (after pin-to-bottom); row via **`messageRowElByIdRef`** / **`queryThreadMessageRowInLog`**; updates **`pinnedToBottomRef`** after scroll.
+- [x] **Race — row not in list yet:** If **`messageIds`** / **`messagesById`** does not yet contain the id (hydrate lag), **retry** on next render or subscribe to **`messageIdsByConversationId[conversationId]`** until present or timeout; **subtask:** max retries / clear-on-timeout to avoid stuck state. **Done:** **`ThreadMessageList`** — **`useEffect`** polls **`SCROLL_TARGET_RETRY_MS`**; deps include **`messageIdsForScrollTarget`** + **`scrollTargetMessageHydrated`**; **`SCROLL_TARGET_MAX_WAIT_MS`** / **`SCROLL_TARGET_MAX_RETRIES`** then **`clearConversationScrollTarget`**. **Tests:** **`ThreadMessageList.test.tsx`** (**`§6.3:`** retry + timeout).
+- [x] **Open conversation from list:** **`setActiveConversationId`** in **`HomeConversationShell`** / **`ConversationList`** — if Redux already holds a target for that **`conversationId`**, opening the thread should run the same consumer effect (already active **or** newly active). **Done:** **`setActiveConversationId`** bumps **`scrollTargetNonce`** when **`payload`** matches **`scrollTargetConversationId`** and **`scrollTargetMessageId`** is set (**`ConversationList`** / search **`onOpenConversation`** unchanged). **Tests:** **`messagingSlice.test.ts`** (**`setActiveConversationId (§6 open thread)`**).
+
+##### 6.4 Legacy pin-to-bottom — remove or narrow
+
+- [x] **Audit:** **`ThreadMessageList`** **`scrollLogToBottom`**, **`isNearBottom`**, **`conversationScrollKey`** props from **`HomeConversationShell`** — decide what remains for **(a)** first paint / empty → first message, **(b)** user at bottom + tail append **without** a Redux target (e.g. local-only optimistic id before server id). **Decision — keep all three:** **`conversationScrollKey`** (**`activeConversationId`**) resets tail tracking and **`scrollLogToBottom`** on thread change **(a)**; **`pinnedToBottomRef` + `isNearBottom` + `scrollLogToBottom`** still needed for optimistic **`client:…`** / layout tail growth **(b)** when no **`scrollTarget*`** yet. §6 row scroll is additive. **Docs:** **`ThreadMessageList.tsx`** (props + first layout effect), **`HomeConversationShell`** comment above **`ThreadMessageList`**. **Dedupe:** see §6.4 **Remove** line — skip pin when Redux target is the tail id.
+- [x] **Remove** redundant **`scrollHeight`**-driven bottom scroll that **duplicates** Redux-driven scroll for the same append (avoid double jump / jank). **Done:** **`ThreadMessageList`** pin **`useLayoutEffect`** skips **`scrollLogToBottom`** when **`scrollTargetMessageId`** matches the tail id for this **`conversationScrollKey` / `activeConversationId`**. **Tests:** **`ThreadMessageList.test.tsx`** (**`§6.4: skips pin scrollLogToBottom…`**).
+- [x] **Docs:** Update **`e2eeReceiveTrace`** / **`HomeConversationShell`** comments if scroll ownership moves. **Done:** **`e2eeReceiveTrace.ts`** (§6 vs §6.4); **`HomeConversationShell`** **`ThreadMessageList`** block comment (§6.4 audit).
+
+##### 6.5 Tests (`*.tsx` first per **`PROJECT_PLAN.md` §14**)
+
+- [x] **`ThreadMessageList.test.tsx`:** Preload Redux **`scrollTarget*`** + **`messages`** containing that id → assert **`scrollIntoView`** (mock) called on the row with that **`messageId`** → assert **clear** dispatch or empty selector after tick. **Done:** **`ThreadMessageList.test.tsx`** (**`§6: scrollIntoView(nearest)…`**).
+- [x] **`HomeConversationShell.test.tsx` (optional):** **`message:new`** fan-in sets target + active conv → list scroll + clear. **Done:** **`HomeConversationShell.test.tsx`** — **`appendIncomingMessageIfNew`** + **`waitFor`** scroll target cleared + **`scrollIntoView`** mock.
+- [ ] **Regression:** User **scrolled up** — no forced scroll if product chose gate in **6.2** (assert **`scrollIntoView`** not called).
 
 #### 7. Profile picture — pre-signed URL upload via Cloudflare (**no** message-layer encryption)
 
@@ -1214,4 +1245,78 @@ _Pick up only after core in-tab notifications and call flows are done; not part 
 
 ---
 
-_Checklist version: 8.3 — Adds **Backlog — Conversation ordering, guest labels, Cloudflare media, presence, scroll, client env** (§1–§8: list sort, guest header, R2 pre-signed + E2EE media URL, last-seen live + placement, auto-scroll, avatar upload, client env/gitignore). **document order:** unchanged (E2EE sections first, then MVP outstanding, Post-MVP, Shipped)._
+---
+
+## Messaging-service legacy cleanup
+
+> **Scope:** Remove dead/unused code in `apps/messaging-service/src/` confirmed by static analysis and repo-wide grep. Every removal must leave all routes, controllers, data access, middleware, and tests covering live paths **fully operational**. Run the Vitest suite after each subtask group.
+
+### MC-1: Delete unused barrel `index.ts` files
+
+Both barrel files are **never imported** anywhere in the service — every consumer already targets the concrete module file (e.g. `./repo.js`, `./schemas.js`, `./middleware.js`).
+
+- [ ] **MC-1.1 — `src/data/users/index.ts`:** Delete the file. No import-path change needed in any other file.
+- [ ] **MC-1.2 — `src/validation/index.ts`:** Delete the file. No import-path change needed in any other file.
+- [ ] **MC-1.3 — Test:** `npx vitest run --reporter=dot` inside `apps/messaging-service/` — all tests pass.
+
+### MC-2: Prune unused re-exports from `src/data/userPublicKeys/index.ts`
+
+The barrel is legitimately imported by `controllers/auth.ts` and `controllers/users.ts` for its runtime-used symbols; **do not delete it**. Remove only the re-exports that are never consumed via this barrel path:
+
+| Re-export to remove | Why safe |
+|---------------------|----------|
+| `LEGACY_USER_PUBLIC_KEYS_COLLECTION` | `src/index.ts` + migration code import `user_public_keys.collection.js` directly |
+| `USER_DEVICE_PUBLIC_KEYS_COLLECTION` | Same — no importer via barrel |
+| `DEFAULT_SINGLE_DEVICE_ID` | No importer via barrel found |
+| `ensureUserPublicKeyIndexes` | `src/index.ts` imports it from `user_public_keys.collection.js` directly |
+| `export type { UserPublicKeyDocument }` | No importer via barrel; tests use the collection file directly |
+| `export type { DevicePublicKeysListResponseApi, MyDevicesListResponseApi, RegisterDeviceBootstrapResponseApi, RegisterDeviceOutcome, RegisterDeviceResponseApi }` | No importer via barrel |
+| `export type { PublicKeyFetchAuthz }` | No importer via barrel |
+
+- [ ] **MC-2.1:** Remove the seven re-export groups above from `src/data/userPublicKeys/index.ts`. Keep: `deleteDeviceForUser`, `findDevicePublicKeysByUserId`, `findUserDeviceRow`, `registerOrUpdateDevice`, `resolveSourceDeviceIdForAccessToken`, `toDevicePublicKeysListResponse`, `toMyDevicesListResponse`, `toRegisterDeviceBootstrapResponse`, `toRegisterDeviceResponse`, `resolvePublicKeyFetchAuthz`.
+- [ ] **MC-2.2 — Test:** `npx vitest run --reporter=dot` — all pass.
+
+### MC-3: Remove `rankUsersByEmailRelevance` (deprecated, production-dead)
+
+`rankUsersByEmailRelevance` in `src/data/users/search.ts` is marked **`@deprecated`** (superseded by `rankUsersBySearchRelevance`). The live production path `searchUsersForCaller` calls only `rankUsersBySearchRelevance`. The deprecated function is exercised **only** by `searchRanking.test.ts`.
+
+- [ ] **MC-3.1 — `src/data/users/search.ts`:** Delete the `rankUsersByEmailRelevance` export (function body and JSDoc, lines 46–62).
+- [ ] **MC-3.2 — `src/data/users/searchRanking.test.ts`:** Remove the `describe('rankUsersByEmailRelevance', ...)` block and the now-unused `rankUsersByEmailRelevance` import. The `describe('rankUsersBySearchRelevance', ...)` block stays.
+- [ ] **MC-3.3 — Test:** `npx vitest run src/data/users/searchRanking.test.ts` — remaining tests pass.
+
+### MC-4: Remove orphaned `createGroupRequestSchema` / `CreateGroupRequest` from `schemas.ts`
+
+These are defined in `src/validation/schemas.ts` and re-exported through the (never-imported) `validation/index.ts`. No route, controller, or integration test in this service references them. No `createGroupRouter` is mounted in `app.ts`.
+
+- [ ] **MC-4.1 — `src/validation/schemas.ts`:** Delete `createGroupRequestSchema` (Zod schema object, lines 235–239) and `CreateGroupRequest` (type alias, line 595). Update the adjacent JSDoc comment if it references the schema.
+- [ ] **MC-4.2 — Test:** `npx vitest run --reporter=dot` — all pass.
+
+### MC-5: Remove unused `resolveUploadUserId` re-export from `middleware/uploadAuth.ts`
+
+`src/middleware/uploadAuth.ts` re-exports `resolveUploadUserId` from `../utils/auth/resolveBearer.js`. No file ever imports `resolveUploadUserId` from the middleware path — only `requireUploadAuth` is consumed (by `routes/media.ts`). The underlying definition in `resolveBearer.ts` is untouched.
+
+- [ ] **MC-5.1 — `src/middleware/uploadAuth.ts`:** Remove the `import { resolveUploadUserId }` line (line 3) and the `export { resolveUploadUserId };` re-export (line 6).
+- [ ] **MC-5.2 — Test:** `npx vitest run --reporter=dot` — all pass.
+
+### MC-6: Unexport `patchMeMultipart` in `controllers/users.ts`
+
+`patchMeMultipart` is exported but no route file or external module imports it — it is called exclusively from `patchMe` **within the same file**. Making it module-private prevents accidental external dependency.
+
+- [ ] **MC-6.1 — `src/controllers/users.ts`:** Change `export function patchMeMultipart(` to `function patchMeMultipart(`. All internal call sites are unchanged.
+- [ ] **MC-6.2 — Test:** `npx vitest run --reporter=dot` — all pass.
+
+### MC-7: Unexport `AuthenticatedRequestContext` type in `middleware/requireAuth.ts`
+
+`AuthenticatedRequestContext` is exported from `src/middleware/requireAuth.ts` but no other file in the service imports it — it is used only as the return type annotation of `requireAuthenticatedUser` in the same file.
+
+- [ ] **MC-7.1 — `src/middleware/requireAuth.ts`:** Change `export type AuthenticatedRequestContext = {` to `type AuthenticatedRequestContext = {`.
+- [ ] **MC-7.2 — Test:** `npx vitest run --reporter=dot` — all pass.
+
+### MC-8: Full validation run
+
+- [ ] **MC-8.1:** After completing all subtasks above, run `npx vitest run` in `apps/messaging-service/` — zero new failures.
+- [ ] **MC-8.2:** Run `npx tsc --noEmit` in `apps/messaging-service/` — zero new type errors introduced by this cleanup (pre-existing module-resolution noise in test files is tolerated if it pre-dated this work).
+
+---
+
+_Checklist version: 8.5 — added **MC (messaging-service cleanup):** seven subtask groups confirmed safe by static analysis + repo-wide grep. **§6 backlog** and all other sections unchanged._

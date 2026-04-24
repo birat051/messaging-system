@@ -1,9 +1,26 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type ReactNode,
+} from 'react';
 import {
   ReceiptTicks,
   describeOutboundReceiptStatus,
   type ReceiptTickState,
 } from './ReceiptTicks';
+import {
+  selectScrollTargetConversationId,
+  selectScrollTargetMessageId,
+  selectScrollTargetNonce,
+} from '@/modules/home/stores/messagingSelectors';
+import {
+  clearConversationScrollTarget,
+} from '@/modules/home/stores/messagingSlice';
+import type { RootState } from '@/store/store';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import { useStore } from 'react-redux';
 import { MessageBubble } from './MessageBubble';
 import { ThreadMessageMedia } from './ThreadMessageMedia';
 
@@ -36,19 +53,52 @@ export type ThreadMessageItem = {
 /** Pixels from the bottom of the log considered “still at bottom” for auto-scroll. */
 const SCROLL_BOTTOM_THRESHOLD_PX = 80;
 
+const EMPTY_MESSAGE_IDS: string[] = [];
+
+/** §6.3 — hydrate / DOM race: poll until row scrolls or cap (then **`clearConversationScrollTarget`**). */
+const SCROLL_TARGET_RETRY_MS = 50;
+const SCROLL_TARGET_MAX_WAIT_MS = 4000;
+const SCROLL_TARGET_MAX_RETRIES = Math.ceil(
+  SCROLL_TARGET_MAX_WAIT_MS / SCROLL_TARGET_RETRY_MS,
+);
+
+/** Used with **`pinnedToBottomRef`** for legacy tail-follow (§6.4) — not the Redux **`scrollTarget*`** path. */
 function isNearBottom(el: HTMLElement): boolean {
   const { scrollTop, scrollHeight, clientHeight } = el;
   return scrollHeight - scrollTop - clientHeight <= SCROLL_BOTTOM_THRESHOLD_PX;
 }
 
+/** Pin-to-bottom helper (§6.4) — **`scrollTop`** to newest row; complements §6 **`scrollIntoView`** on a specific id. */
 function scrollLogToBottom(el: HTMLElement): void {
   el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+}
+
+/**
+ * Finds the **row** **`article`** for **`messageId`** inside the thread **scroll viewport** (the node with
+ * **`data-testid="thread-message-scroll"`**). Use **`ThreadMessageList`**’s internal ref map when you already
+ * have **`messageId` → element** from the same render tree; use this when integrating from outside the list
+ * or in tests. **`messageId`** values containing **`"`** or **`\\`** are escaped for the attribute selector.
+ */
+export function queryThreadMessageRowInLog(
+  scrollContainer: HTMLElement,
+  messageId: string,
+): HTMLElement | null {
+  const id = messageId.trim();
+  if (!id) {
+    return null;
+  }
+  const esc = id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return scrollContainer.querySelector(`article[data-message-id="${esc}"]`);
 }
 
 export type ThreadMessageListProps = {
   messages: ThreadMessageItem[];
   /**
-   * When this changes (e.g. **`activeConversationId`**), the log jumps to the **newest** message — new thread context.
+   * **§6.4 — thread identity for legacy pin-to-bottom:** when this changes ( **`HomeConversationShell`** passes
+   * **`activeConversationId`** ), the log **`scrollLogToBottom`** once for the new thread and **`pinnedToBottomRef`**
+   * resets so **(a)** switching threads lands on the tail, **(b)** first paint with messages starts pinned. Redux
+   * **`activeConversationId`** is also read for **`scrollTarget*`**; keep this prop so tests and layout stay
+   * explicit without coupling pin logic to the store only.
    */
   conversationScrollKey?: string | null;
   /** Initial load: show only when there are no messages yet. */
@@ -69,11 +119,22 @@ export type ThreadMessageListProps = {
 function ThreadMessageRow({
   m,
   onPeerMessageVisible,
+  registerRowEl,
 }: {
   m: ThreadMessageItem;
   onPeerMessageVisible?: (messageId: string) => void;
+  /** §6: map **`Message.id`** → row **`article`** for programmatic scroll. */
+  registerRowEl?: (messageId: string, el: HTMLElement | null) => void;
 }) {
-  const articleRef = useRef<HTMLElement>(null);
+  const articleRef = useRef<HTMLElement | null>(null);
+
+  const assignArticleRef = useCallback(
+    (node: HTMLElement | null) => {
+      articleRef.current = node;
+      registerRowEl?.(m.id, node);
+    },
+    [m.id, registerRowEl],
+  );
 
   useEffect(() => {
     if (m.isOwn || !onPeerMessageVisible) return;
@@ -95,7 +156,8 @@ function ThreadMessageRow({
 
   return (
     <article
-      ref={articleRef}
+      ref={assignArticleRef}
+      data-message-id={m.id}
       aria-label={m.isOwn ? 'Message from you' : 'Message from peer'}
       className={
         m.isOwn
@@ -221,6 +283,15 @@ function formatMessageTimestamp(iso: string): string {
  * Thread message log — **`role="log"`** on the scroll viewport; **empty**, **loading**, and **error**
  * states for production (no placeholder demo content).
  * New rows scroll into view when the tail changes and the user is **pinned to the bottom**; scrolling up releases the pin (**`message:new`** / optimistic sends respect the same rule).
+ *
+ * **§6 Redux scroll target:** when **`activeConversationId`** matches **`scrollTargetConversationId`** and
+ * **`messages`** includes **`scrollTargetMessageId`**, **`useLayoutEffect`** scrolls that row (**`scrollIntoView`**
+ * **`{ block: 'nearest' }`**) then **`clearConversationScrollTarget`**. Runs after the pin-to-bottom layout pass.
+ * **`scrollTargetNonce`** also bumps when **`setActiveConversationId`** opens that same conversation (**`HomeConversationShell`**
+ * list / search) so re-selecting an already-active thread still re-runs this consumer.
+ * If the row is not in **`messages`** / DOM yet (**`messageIds`** / **`messagesById`** lag), a **`useEffect`**
+ * polls on **`SCROLL_TARGET_RETRY_MS`** until success or **`SCROLL_TARGET_MAX_WAIT_MS`** /
+ * **`SCROLL_TARGET_MAX_RETRIES`**, then clears the target to avoid a stuck slice.
  */
 export function ThreadMessageList({
   messages,
@@ -231,7 +302,45 @@ export function ThreadMessageList({
   emptyLabel = 'No messages yet',
   onPeerMessageVisible,
 }: ThreadMessageListProps) {
+  const dispatch = useAppDispatch();
+  const store = useStore<RootState>();
+  const activeConversationId = useAppSelector((s) => s.messaging.activeConversationId);
+  const scrollTargetMessageId = useAppSelector(selectScrollTargetMessageId);
+  const scrollTargetConversationId = useAppSelector(selectScrollTargetConversationId);
+  const scrollTargetNonce = useAppSelector(selectScrollTargetNonce);
+  const messageIdsForScrollTarget = useAppSelector((s) => {
+    const c = s.messaging.scrollTargetConversationId?.trim() ?? '';
+    if (!c) {
+      return EMPTY_MESSAGE_IDS;
+    }
+    return s.messaging.messageIdsByConversationId[c] ?? EMPTY_MESSAGE_IDS;
+  });
+  const scrollTargetMessageHydrated = useAppSelector((s) => {
+    const mid = s.messaging.scrollTargetMessageId?.trim() ?? '';
+    if (!mid) {
+      return false;
+    }
+    return Boolean(s.messaging.messagesById[mid]);
+  });
+
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+
   const scrollElRef = useRef<HTMLDivElement>(null);
+  /** §6: latest row DOM node per **`ThreadMessageItem.id`** (scroll container descendants only). */
+  const messageRowElByIdRef = useRef(new Map<string, HTMLElement>());
+  const registerMessageRowEl = useCallback((messageId: string, el: HTMLElement | null) => {
+    const map = messageRowElByIdRef.current;
+    const id = messageId.trim();
+    if (!id) {
+      return;
+    }
+    if (el) {
+      map.set(id, el);
+    } else {
+      map.delete(id);
+    }
+  }, []);
   /** **`true`** when the user is within **`SCROLL_BOTTOM_THRESHOLD_PX`** of the bottom (or we forced scroll). */
   const pinnedToBottomRef = useRef(true);
   const prevConversationKeyRef = useRef<string | null>(null);
@@ -240,6 +349,7 @@ export function ThreadMessageList({
     lastId: null,
   });
 
+  /** Updates **`pinnedToBottomRef`** from scroll position — releases tail-follow when the user scrolls up. */
   const onScrollLog = useCallback(() => {
     const el = scrollElRef.current;
     if (!el) {
@@ -248,6 +358,40 @@ export function ThreadMessageList({
     pinnedToBottomRef.current = isNearBottom(el);
   }, []);
 
+  const applyScrollTargetIfReady = useCallback((): boolean => {
+    const msging = store.getState().messaging;
+    const active = msging.activeConversationId?.trim() ?? '';
+    const cid = msging.scrollTargetConversationId?.trim() ?? '';
+    const mid = msging.scrollTargetMessageId?.trim() ?? '';
+    if (!active || !cid || !mid || active !== cid) {
+      return false;
+    }
+    const msgs = messagesRef.current;
+    if (!msgs.some((m) => m.id === mid)) {
+      return false;
+    }
+    const scrollEl = scrollElRef.current;
+    if (!scrollEl) {
+      return false;
+    }
+    const row =
+      messageRowElByIdRef.current.get(mid) ?? queryThreadMessageRowInLog(scrollEl, mid);
+    if (!row) {
+      return false;
+    }
+    row.scrollIntoView({ block: 'nearest' });
+    pinnedToBottomRef.current = isNearBottom(scrollEl);
+    dispatch(clearConversationScrollTarget());
+    return true;
+  }, [dispatch, store]);
+
+  /**
+   * **§6.4 legacy pin-to-bottom** (keep): **(a)** **`conversationScrollKey`** change → jump to tail for a new thread
+   * or first non-empty layout; **(b)** same thread, message tail **len / lastId** changes while **`pinnedToBottomRef`**
+   * is **`true`** → **`scrollLogToBottom`**. **§6.4 dedupe:** skip **`scrollLogToBottom`** when Redux **`scrollTarget*`** already
+   * points at this thread’s **tail** **`Message.id`** (same append as **`message:new` / `send_ack`** §6 row scroll) to avoid
+   * double jump. Still pin for optimistic **`client:…`**, media height, and any tail change **without** a matching target.
+   */
   useLayoutEffect(() => {
     const el = scrollElRef.current;
     const key = conversationScrollKey ?? '';
@@ -269,8 +413,19 @@ export function ThreadMessageList({
     const lastId = messages[messages.length - 1]!.id;
     const len = messages.length;
 
+    const stMid = scrollTargetMessageId?.trim() ?? '';
+    const stCid = scrollTargetConversationId?.trim() ?? '';
+    const viewCid = key.trim();
+    const activeTrim = activeConversationId?.trim() ?? '';
+    const reduxScrollOwnsTail =
+      Boolean(stMid && stCid) &&
+      (viewCid === stCid || activeTrim === stCid) &&
+      lastId === stMid;
+
     if (conversationChanged) {
-      scrollLogToBottom(el);
+      if (!reduxScrollOwnsTail) {
+        scrollLogToBottom(el);
+      }
       pinnedToBottomRef.current = true;
       prevMessageTailRef.current = { len, lastId };
       return;
@@ -286,9 +441,90 @@ export function ThreadMessageList({
     }
 
     if (pinnedToBottomRef.current) {
-      scrollLogToBottom(el);
+      if (!reduxScrollOwnsTail) {
+        scrollLogToBottom(el);
+      }
     }
-  }, [messages, conversationScrollKey]);
+  }, [
+    messages,
+    conversationScrollKey,
+    activeConversationId,
+    scrollTargetMessageId,
+    scrollTargetConversationId,
+  ]);
+
+  useLayoutEffect(() => {
+    void applyScrollTargetIfReady();
+  }, [
+    applyScrollTargetIfReady,
+    activeConversationId,
+    messages,
+    scrollTargetConversationId,
+    scrollTargetMessageId,
+    scrollTargetNonce,
+  ]);
+
+  useEffect(() => {
+    const msging = store.getState().messaging;
+    const active = msging.activeConversationId?.trim() ?? '';
+    const cid = msging.scrollTargetConversationId?.trim() ?? '';
+    const mid = msging.scrollTargetMessageId?.trim() ?? '';
+    if (!active || !cid || !mid || active !== cid) {
+      return;
+    }
+    if (applyScrollTargetIfReady()) {
+      return;
+    }
+
+    let cancelled = false;
+    let ticks = 0;
+    const t0 = Date.now();
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    const tick = () => {
+      if (cancelled) {
+        return;
+      }
+      const s = store.getState().messaging;
+      const stMid = s.scrollTargetMessageId?.trim() ?? '';
+      const stCid = s.scrollTargetConversationId?.trim() ?? '';
+      const act = s.activeConversationId?.trim() ?? '';
+      if (!stMid || !stCid || act !== stCid) {
+        return;
+      }
+      if (
+        Date.now() - t0 > SCROLL_TARGET_MAX_WAIT_MS ||
+        ticks >= SCROLL_TARGET_MAX_RETRIES
+      ) {
+        dispatch(clearConversationScrollTarget());
+        return;
+      }
+      ticks += 1;
+      if (applyScrollTargetIfReady()) {
+        return;
+      }
+      timeoutId = setTimeout(tick, SCROLL_TARGET_RETRY_MS);
+    };
+
+    timeoutId = setTimeout(tick, SCROLL_TARGET_RETRY_MS);
+    return () => {
+      cancelled = true;
+      if (timeoutId !== undefined) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [
+    applyScrollTargetIfReady,
+    activeConversationId,
+    messageIdsForScrollTarget,
+    messages,
+    scrollTargetConversationId,
+    scrollTargetMessageHydrated,
+    scrollTargetMessageId,
+    scrollTargetNonce,
+    dispatch,
+    store,
+  ]);
 
   const showInitialLoad = isLoading && messages.length === 0;
   const showEmpty =
@@ -349,6 +585,7 @@ export function ThreadMessageList({
               key={m.id}
               m={m}
               onPeerMessageVisible={onPeerMessageVisible}
+              registerRowEl={registerMessageRowEl}
             />
           ))}
         </div>

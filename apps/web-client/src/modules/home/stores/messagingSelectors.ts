@@ -4,7 +4,11 @@ import type {
   GroupReceiptProgress,
   ReceiptTickState,
 } from '@/modules/home/components/ReceiptTicks';
-import type { MessageReceiptEntry, MessagingState } from './messagingSlice';
+import type {
+  ConversationScrollTargetReason,
+  MessageReceiptEntry,
+  MessagingState,
+} from './messagingSlice';
 
 /** How to resolve **delivered** / **seen** for outbound ticks (1:1 peer vs group aggregate). */
 export type ReceiptTickContext =
@@ -151,3 +155,25 @@ export const selectOutboundReceiptTickForMessage = createSelector(
   (messaging, messageId, currentUserId, context): ReceiptTickState =>
     selectOutboundReceiptTickState(messaging, messageId, currentUserId, context),
 );
+
+/** §6 thread scroll target — **`Message.id`** to scroll into view. */
+export function selectScrollTargetMessageId(state: RootState): string | null {
+  return state.messaging.scrollTargetMessageId;
+}
+
+/** §6 thread scroll target — conversation that owns **`scrollTargetMessageId`**. */
+export function selectScrollTargetConversationId(state: RootState): string | null {
+  return state.messaging.scrollTargetConversationId;
+}
+
+/** §6 optional provenance (`message_new`, **`send_ack`**, **`open_thread`**). */
+export function selectScrollTargetReason(
+  state: RootState,
+): ConversationScrollTargetReason | null {
+  return state.messaging.scrollTargetReason;
+}
+
+/** §6 increments on **`setConversationScrollTarget`** and matching **`setActiveConversationId`** (effect dependency). */
+export function selectScrollTargetNonce(state: RootState): number {
+  return state.messaging.scrollTargetNonce;
+}
