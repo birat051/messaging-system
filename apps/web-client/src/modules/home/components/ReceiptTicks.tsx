@@ -2,69 +2,8 @@
  * Presentational **sent → delivered → seen** ticks for outbound bubbles (**Feature 12**).
  * Semantics: **`docs/PROJECT_PLAN.md` §14** — **sent** (persisted), **delivered**, **seen**.
  */
-export type ReceiptTickState =
-  | 'loading'
-  | 'unknown'
-  | 'sent'
-  | 'delivered'
-  | 'seen';
-
-export type GroupReceiptProgress = {
-  delivered: number;
-  seen: number;
-  total: number;
-};
-
-export type ReceiptTicksProps = {
-  state: ReceiptTickState;
-  className?: string;
-  /** **Group** aggregate — drives accessible name when **`total > 1`**. */
-  groupProgress?: GroupReceiptProgress | null;
-  /** Optional muted hint next to ticks (e.g. partial delivery). */
-  groupSubtitle?: string | null;
-  /**
-   * When **true**, tick marks are **decorative**; a parent **`role="status"`** (or similar) must expose
-   * the delivery state in **text** so icons are not the sole indicator (**a11y**).
-   */
-  decorative?: boolean;
-};
-
-/** Plain-language delivery state for **`aria-label`** / status regions (ticks remain supplementary visuals). */
-export function describeOutboundReceiptStatus(
-  state: ReceiptTickState,
-  groupSubtitle?: string | null,
-  groupProgress?: GroupReceiptProgress | null,
-): string {
-  if (groupProgress && groupProgress.total > 1) {
-    const aggregate = aggregateAriaLabel(state, groupProgress);
-    if (aggregate) return aggregate;
-  }
-  const core: Record<ReceiptTickState, string> = {
-    loading: 'Sending message',
-    unknown: 'Receipt status unknown',
-    sent: 'Sent',
-    delivered: 'Delivered',
-    seen: 'Seen',
-  };
-  let text = core[state];
-  if (groupSubtitle?.trim()) {
-    text = `${text}. ${groupSubtitle.trim()}`;
-  }
-  return text;
-}
-
-function aggregateAriaLabel(
-  state: ReceiptTickState,
-  g: GroupReceiptProgress,
-): string | null {
-  const { delivered, seen, total } = g;
-  if (total <= 1) return null;
-  if (state === 'seen') return `Seen by all ${total} members`;
-  if (state === 'delivered') return `Delivered to all ${total} members`;
-  if (seen > 0) return `Seen by ${seen} of ${total} members`;
-  if (delivered > 0) return `Delivered to ${delivered} of ${total} members`;
-  return 'Sent; awaiting receipt updates from members';
-}
+import { aggregateAriaLabel } from './receiptTickHelpers';
+import type { ReceiptTicksProps } from './receiptTickTypes';
 
 function IconSingleTick({ className }: { className?: string }) {
   return (

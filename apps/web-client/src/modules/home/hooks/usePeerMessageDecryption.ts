@@ -26,7 +26,6 @@ function debugPeerDecrypt(message: string, details: Record<string, unknown>): vo
   if (!DEBUG_PEER_DECRYPT) {
     return;
   }
-  // eslint-disable-next-line no-console -- gated by VITE_DEBUG_PEER_DECRYPT
   console.debug(`[peer-decrypt] ${message}`, details);
 }
 

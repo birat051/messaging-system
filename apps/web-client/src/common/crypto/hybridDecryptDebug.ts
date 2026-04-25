@@ -34,6 +34,5 @@ export function logHybridDecrypt(
   if (!isHybridDecryptDebugEnabled()) {
     return;
   }
-  // eslint-disable-next-line no-console -- gated by VITE_DEBUG_HYBRID_DECRYPT
   console.debug(`[hybrid-decrypt] ${phase}`, details);
 }

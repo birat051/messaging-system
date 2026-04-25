@@ -13,7 +13,7 @@ const baseEnv = {
 } as Env;
 
 function reqWithAuth(header: string): Request {
-  return { headers: { authorization: header } } as Request;
+  return { headers: { authorization: header } } as unknown as Request;
 }
 
 describe('verifyAccessTokenJwt', () => {
@@ -59,7 +59,7 @@ describe('resolveBearerAuth', () => {
     const r = await resolveBearerAuth(
       {
         headers: { 'x-user-id': 'dev-user-1' },
-      } as Request,
+      } as unknown as Request,
       { ...baseEnv, NODE_ENV: 'development' as const },
     );
     expect(r).toEqual({ kind: 'dev', sub: 'dev-user-1' });

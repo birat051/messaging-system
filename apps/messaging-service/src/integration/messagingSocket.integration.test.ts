@@ -1,5 +1,5 @@
 /**
- * Requires MongoDB, Redis, and RabbitMQ (e.g. `docker compose -f infra/docker-compose.yml up -d mongo redis rabbitmq`).
+ * Requires MongoDB, Redis, and RabbitMQ (e.g. `docker compose -f infra/dev/docker-compose.yml up -d mongo redis rabbitmq`).
  * Broker URL defaults to **`amqp://messaging:messaging@127.0.0.1:5672`** (same as Compose **`RABBITMQ_*`** defaults), not **`guest:guest`**, so integration is not broken by a dev **`.env`** that targets a different broker. Override with **`MESSAGING_INTEGRATION_RABBITMQ_URL`** if needed.
  *
  * Run: `MESSAGING_INTEGRATION=1 npm run test:integration`
@@ -111,7 +111,7 @@ describe.skipIf(!enabled)('integration: A→B Socket.IO + RabbitMQ', () => {
       throw new Error(
         [
           'RabbitMQ connection failed during integration setup.',
-          'Ensure the broker is running, e.g. `docker compose -f infra/docker-compose.yml up -d rabbitmq`.',
+          'Ensure the broker is running, e.g. `docker compose -f infra/dev/docker-compose.yml up -d rabbitmq`.',
           'This suite uses `amqp://messaging:messaging@127.0.0.1:5672` by default (Compose `RABBITMQ_USER` / `RABBITMQ_PASS`).',
           'Set `MESSAGING_INTEGRATION_RABBITMQ_URL` if your broker uses different credentials or host.',
         ].join(' '),

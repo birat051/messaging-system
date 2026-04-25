@@ -22,7 +22,7 @@ function isExcludedPath(pathname: string): boolean {
 /**
  * Early **`app.use('/v1', …)`** — Redis fixed-window per **`getClientIp(req)`** ( **`trust proxy`** ).
  * **Stacks** with route-specific limits (**`REGISTER_RATE_LIMIT_*`**, **`USER_SEARCH_RATE_LIMIT_*`**, …): global
- * **`INCR`** runs first; handlers use **separate** keys — see **`README.md`** (Configuration) (*Global vs per-route*).
+ * **`INCR`** runs first; handlers use **separate** keys — see `apps/messaging-service/.env.example` (*Global vs per-route*).
  */
 export function createGlobalRestRateLimitMiddleware(env: Env) {
   return async function globalRestRateLimitMiddleware(

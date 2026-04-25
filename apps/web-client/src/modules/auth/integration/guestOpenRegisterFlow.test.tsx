@@ -36,7 +36,7 @@ function GuestHomeWithBannerOnly() {
   );
 }
 
-vi.mock('@/common/realtime/SocketWorkerProvider', () => ({
+vi.mock('@/common/realtime/useSocketWorker', () => ({
   useSocketWorker: () => ({
     emitReceipt: vi.fn().mockResolvedValue(undefined),
     emitWebRtcSignaling: vi.fn().mockResolvedValue(undefined),

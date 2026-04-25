@@ -2,8 +2,8 @@ import type { Request } from 'express';
 import type { Socket } from 'socket.io';
 
 /**
- * Best-effort client IP for rate limiting — first **`X-Forwarded-For`** hop when set (nginx:
- * **`infra/nginx/nginx.conf`** → **`README.md`** (Configuration — rate limits)).
+ * Best-effort client IP for rate limiting — first **`X-Forwarded-For`** hop when set
+ * (**`infra/dev/nginx/nginx.conf`**; rate limits in **`apps/messaging-service/.env.example`**).
  */
 export function getClientIp(req: Request): string {
   const xff = req.headers['x-forwarded-for'];

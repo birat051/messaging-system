@@ -1,0 +1,86 @@
+# Data plane (Mongo, Redis, MinIO, coturn) — prod / split-stack use.
+# **Start order (split stack):** bring **this** stack up **before** `infra/prod/docker-compose.app.yml` so the app host can reach
+# **MONGODB_URI**, **REDIS_URL**, and **S3_ENDPOINT** (MinIO :9000) on the data host. Then start the app plane + set `.env` on the app host.
+# Run from repository root:
+#   docker compose -f infra/prod/docker-compose.data.yml up -d
+# TURN: always started (unlike the monolith, this file has no `profiles: [turn]` on coturn).
+# If this host also runs `infra/dev/docker-compose.yml`, change published ports to avoid conflicts.
+# Named volumes: `mongo-data` (MongoDB under /data/db), `minio-data` (S3 object store). **Redis** is in-memory
+# (no named volume) — data is not durable across `docker compose down` + volume remove.
+# Backup / restore: see `backup-restore.data.md` in this directory.
+# Networking (PC-3, shared network vs L3): `docs/prod-networking.md`.
+# Secrets: `docs/prod-secrets.md` — use `.env`, never commit real values.
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # S3 API :9000 — reachable from the app host (private IP, VPN, or firewall allowing only **ekko**’s IP).
+  # Do not expose :9000 to the open internet; use host/edge firewall, not 0.0.0.0/0 in cloud SGs.
+  # Console :9001 — loopback on the data host only (not routable from other machines).
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address "127.0.0.1:9001"
+    ports:
+      - "9000:9000"
+      - "127.0.0.1:9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      # MinIO image includes curl (if this fails, switch to /minio/health/ready or host-side checks).
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # TURN: `infra/prod/coturn/turnserver.prod.template` + entrypoint (realm, external-ip, long-lived `lt-cred` from env).
+  # For load tests, set COTURN_EXTERNAL_IP to the data host’s public IP (same idea as the `turn:` host in VITE_*).
+  coturn:
+    image: coturn/coturn:4.6
+    restart: unless-stopped
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "49152-49200:49152-49200/udp"
+    environment:
+      COTURN_REALM: ${COTURN_REALM:-ekko.biratbhattacharjee.com}
+      COTURN_EXTERNAL_IP: ${COTURN_EXTERNAL_IP:-127.0.0.1}
+      COTURN_LT_USER: ${COTURN_LT_USER:-turn}
+      COTURN_LT_PASS: ${COTURN_LT_PASS:-prod-coturn-change-me}
+    volumes:
+      - ./coturn/turnserver.prod.template:/etc/coturn/turnserver.prod.template:ro
+      - ./coturn/docker-entrypoint-coturn-prod.sh:/etc/coturn/docker-entrypoint-coturn-prod.sh:ro
+    entrypoint: ["/bin/sh", "/etc/coturn/docker-entrypoint-coturn-prod.sh"]
+
+volumes:
+  # Docker-local persistent stores (names prefixed by project when created, e.g. `<project>_mongo-data`).
+  mongo-data:
+  minio-data:

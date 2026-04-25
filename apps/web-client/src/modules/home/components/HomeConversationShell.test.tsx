@@ -26,7 +26,7 @@ const getLastSeenMock = vi.hoisted(() =>
 
 const setPresenceHeartbeatModeMock = vi.hoisted(() => vi.fn());
 
-vi.mock('@/common/realtime/SocketWorkerProvider', () => ({
+vi.mock('@/common/realtime/useSocketWorker', () => ({
   useSocketWorker: () => ({
     emitReceipt: emitReceiptMock,
     emitWebRtcSignaling: vi.fn().mockResolvedValue(undefined),

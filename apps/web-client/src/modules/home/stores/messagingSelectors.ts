@@ -3,7 +3,7 @@ import type { RootState } from '@/store/store';
 import type {
   GroupReceiptProgress,
   ReceiptTickState,
-} from '@/modules/home/components/ReceiptTicks';
+} from '@/modules/home/components/receiptTickTypes';
 import type {
   ConversationScrollTargetReason,
   MessageReceiptEntry,

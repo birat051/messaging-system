@@ -40,9 +40,6 @@ export const API_PATHS = {
   messages: {
     send: '/messages',
   },
-  groups: {
-    create: '/groups',
-  },
   media: {
     upload: '/media/upload',
     presign: '/media/presign',

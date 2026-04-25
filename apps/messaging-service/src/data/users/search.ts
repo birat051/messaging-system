@@ -43,24 +43,6 @@ function scoreSubstringField(field: string, needle: string): number {
   return 1;
 }
 
-/** @deprecated Use **`rankUsersBySearchRelevance`** */
-export function rankUsersByEmailRelevance<T extends { email: string }>(
-  rows: T[],
-  normalizedNeedle: string,
-): T[] {
-  const scored = rows.map((r) => ({
-    r,
-    score: scoreSubstringField(r.email, normalizedNeedle),
-  }));
-  scored.sort((a, b) => {
-    if (b.score !== a.score) {
-      return b.score - a.score;
-    }
-    return (a.r.email ?? '').localeCompare(b.r.email ?? '');
-  });
-  return scored.map((s) => s.r);
-}
-
 /**
  * **`GET /users/search`** — **substring** match on normalized **`email`** and **`username`**
  * (escaped regex; case-insensitive).

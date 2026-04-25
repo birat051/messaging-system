@@ -5,11 +5,9 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
-import {
-  ReceiptTicks,
-  describeOutboundReceiptStatus,
-  type ReceiptTickState,
-} from './ReceiptTicks';
+import { queryThreadMessageRowInLog } from './queryThreadMessageRowInLog';
+import { describeOutboundReceiptStatus } from './receiptTickHelpers';
+import { ReceiptTicks } from './ReceiptTicks';
 import {
   selectScrollTargetConversationId,
   selectScrollTargetMessageId,
@@ -23,32 +21,10 @@ import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { useStore } from 'react-redux';
 import { MessageBubble } from './MessageBubble';
 import { ThreadMessageMedia } from './ThreadMessageMedia';
-
-export type ThreadMessageBodyPresentation = 'default' | 'decrypt_error';
-
-export type ThreadMessageItem = {
-  id: string;
-  body: string;
-  /** When **`decrypt_error`**, the bubble is styled as an inline alert (peer decrypt failures). */
-  bodyPresentation?: ThreadMessageBodyPresentation;
-  /** S3 object key when the row has an attachment (see **`Message.mediaKey`**). */
-  mediaKey?: string | null;
-  /** Client-only optimistic preview (**`blob:`** or API **`url`**) until public URL from **`mediaKey`** is available. */
-  mediaPreviewUrl?: string | null;
-  isOwn: boolean;
-  /** ISO 8601 from the API (`Message.createdAt`). */
-  createdAt: string;
-  /** Outbound receipt tick — set for **`isOwn`** rows when **`ReceiptTicks`** is shown. */
-  outboundReceipt?: ReceiptTickState;
-  /** **Group** aggregate: counts across all recipients (for a11y + optional subtitle). */
-  groupReceiptProgress?: {
-    delivered: number;
-    seen: number;
-    total: number;
-  } | null;
-  /** **Group** only — short progress hint (e.g. `3/5 delivered`). */
-  groupReceiptSubtitle?: string | null;
-};
+import type {
+  ThreadMessageItem,
+  ThreadMessageListProps,
+} from './threadMessageListTypes';
 
 /** Pixels from the bottom of the log considered “still at bottom” for auto-scroll. */
 const SCROLL_BOTTOM_THRESHOLD_PX = 80;
@@ -72,49 +48,6 @@ function isNearBottom(el: HTMLElement): boolean {
 function scrollLogToBottom(el: HTMLElement): void {
   el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
 }
-
-/**
- * Finds the **row** **`article`** for **`messageId`** inside the thread **scroll viewport** (the node with
- * **`data-testid="thread-message-scroll"`**). Use **`ThreadMessageList`**’s internal ref map when you already
- * have **`messageId` → element** from the same render tree; use this when integrating from outside the list
- * or in tests. **`messageId`** values containing **`"`** or **`\\`** are escaped for the attribute selector.
- */
-export function queryThreadMessageRowInLog(
-  scrollContainer: HTMLElement,
-  messageId: string,
-): HTMLElement | null {
-  const id = messageId.trim();
-  if (!id) {
-    return null;
-  }
-  const esc = id.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  return scrollContainer.querySelector(`article[data-message-id="${esc}"]`);
-}
-
-export type ThreadMessageListProps = {
-  messages: ThreadMessageItem[];
-  /**
-   * **§6.4 — thread identity for legacy pin-to-bottom:** when this changes ( **`HomeConversationShell`** passes
-   * **`activeConversationId`** ), the log **`scrollLogToBottom`** once for the new thread and **`pinnedToBottomRef`**
-   * resets so **(a)** switching threads lands on the tail, **(b)** first paint with messages starts pinned. Redux
-   * **`activeConversationId`** is also read for **`scrollTarget*`**; keep this prop so tests and layout stay
-   * explicit without coupling pin logic to the store only.
-   */
-  conversationScrollKey?: string | null;
-  /** Initial load: show only when there are no messages yet. */
-  isLoading?: boolean;
-  /** Background revalidation (e.g. SWR) while messages may already be visible. */
-  isValidating?: boolean;
-  /** Replaces the message log until cleared. */
-  errorMessage?: string | null;
-  /** Shown when not loading, no error, and there are no messages. */
-  emptyLabel?: string;
-  /**
-   * **Inbound read receipts:** when a **peer** bubble intersects the viewport (50% threshold),
-   * emit **`message:read`** from the parent (deduped per **`messageId`**).
-   */
-  onPeerMessageVisible?: (messageId: string) => void;
-};
 
 function ThreadMessageRow({
   m,
@@ -379,7 +312,10 @@ export function ThreadMessageList({
     if (!row) {
       return false;
     }
-    row.scrollIntoView({ block: 'nearest' });
+    const el = row as HTMLElement;
+    if (typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ block: 'nearest' });
+    }
     pinnedToBottomRef.current = isNearBottom(scrollEl);
     dispatch(clearConversationScrollTarget());
     return true;

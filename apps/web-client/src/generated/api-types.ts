@@ -67,7 +67,7 @@ export interface paths {
         /**
          * Verify email using signed JWT from registration or resend (throttled per IP)
          * @description When **`EMAIL_VERIFICATION_REQUIRED`** is **`false`** on the server, returns **400** with **`ErrorResponse`**
-         *     **`code`** **`EMAIL_VERIFICATION_DISABLED`** — the verification flow is not used (see **`README.md`** (Configuration section)).
+         *     **`code`** **`EMAIL_VERIFICATION_DISABLED`** — the verification flow is not used (see **`apps/messaging-service/.env.example`** / **`EMAIL_VERIFICATION_REQUIRED`**).
          *     If the token resolves to a **guest** account, returns **403** **`GUEST_ACTION_FORBIDDEN`**.
          */
         post: operations["verifyEmail"];
@@ -109,7 +109,7 @@ export interface paths {
         /**
          * Create a guest session (planned — not yet implemented when enabled)
          * @description **On/off** is controlled by **`guestSessionsEnabled`** in MongoDB **`system_config`** (singleton), merged with env
-         *     **`GUEST_SESSIONS_ENABLED`** via effective runtime config (see **`README.md`** — Runtime configuration). When disabled,
+         *     **`GUEST_SESSIONS_ENABLED`** via effective runtime config (see **`docs/PROJECT_PLAN.md`**, env + MongoDB **`system_config`**). When disabled,
          *     returns **403** with **`code`** **`GUEST_SESSIONS_DISABLED`** before body validation. When enabled, creates a guest **`User`** row (no email; optional MongoDB TTL via **`guestDataExpiresAt`** when **`guestDataTtlEnabled`** is true in **`system_config`** / env).
          *
          *     **Rate limits (Redis):** per client IP (**`GUEST_AUTH_RATE_LIMIT_*`**); when **`X-Client-Fingerprint`** is sent, an additional
@@ -117,7 +117,7 @@ export interface paths {
          *
          *     Success body is **`GuestAuthResponse`**: tokens, **`user`** with **`guest: true`**, **`expiresIn`** (seconds),
          *     and **`expiresAt`** (ISO 8601 absolute access expiry). Access JWT payload includes **`guest: true`**. Guest sessions use
-         *     **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** and **`GUEST_REFRESH_TOKEN_TTL_SECONDS`** (see **`README.md`** — Configuration;
+         *     **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** and **`GUEST_REFRESH_TOKEN_TTL_SECONDS`** (see **`apps/messaging-service/.env.example`**;
          *     defaults **1800** s = **30 minutes** each); opaque refresh token Redis **`EX`** matches guest refresh TTL.
          */
         post: operations["createGuestSession"];
@@ -157,7 +157,7 @@ export interface paths {
          * Rotate refresh token and issue new access token
          * @description For **registered** users, access and refresh TTLs follow **`ACCESS_TOKEN_TTL_SECONDS`** and **`REFRESH_TOKEN_TTL_SECONDS`**.
          *     For **guest** users (`User.isGuest`), the server uses **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** and **`GUEST_REFRESH_TOKEN_TTL_SECONDS`**
-         *     (defaults **30 minutes** each; see **`README.md`**).
+         *     (defaults **30 minutes** each; see **`apps/messaging-service/.env.example`** — **GUEST_*_TTL**).
          */
         post: operations["refreshTokens"];
         delete?: never;
@@ -407,7 +407,7 @@ export interface paths {
         /**
          * List active device public keys for a user
          * @description Returns all registered devices for **`userId`**. **Authorization:** self, loose peer fetch, or direct-thread-only when
-         *     **`PUBLIC_KEY_FETCH_REQUIRE_DIRECT_THREAD`** is set (**`README.md`**).
+         *     **`PUBLIC_KEY_FETCH_REQUIRE_DIRECT_THREAD`** is set (**`apps/messaging-service/.env.example`**).
          */
         get: operations["listUserDevicePublicKeys"];
         put?: never;
@@ -510,7 +510,7 @@ export interface paths {
          * @description **Direct 1:1** threads only — **group** conversations return **403** until group messaging is implemented.
          *     The caller must be a **participant**; otherwise **403**. Messages are returned **newest first**.
          *     **`cursor`** is opaque (from **`nextCursor`**); malformed cursors return **400**.
-         *     **Rate limiting:** the **global** REST per-IP limit (`GLOBAL_RATE_LIMIT_*` in **`README.md`** (Configuration section)) applies to this route; exceeding it returns **429** with **`ErrorResponse`** (**`code`** typically **`RATE_LIMIT_EXCEEDED`**).
+         *     **Rate limiting:** the **global** REST per-IP limit (`GLOBAL_RATE_LIMIT_*` in **`apps/messaging-service/.env.example`**) applies to this route; exceeding it returns **429** with **`ErrorResponse`** (**`code`** typically **`RATE_LIMIT_EXCEEDED`**).
          */
         get: operations["listMessages"];
         put?: never;
@@ -577,7 +577,7 @@ export interface paths {
          *     guest ↔ registered pairs return **403** with **`code`** **`GUEST_MESSAGING_FORBIDDEN`** (same rule on Socket.IO **`message:send`**).
          *
          *     **Rate limiting:** this route uses the **message-send** limits (**`MESSAGE_SEND_RATE_LIMIT_*`**, per user + IP)
-         *     in addition to the **global** REST per-IP limit — see **`README.md`** (Configuration section) (*Global vs per-route*). Either
+         *     in addition to the **global** REST per-IP limit — see **`apps/messaging-service/.env.example`** (*Global vs per-route*). Either
          *     can return **429** with **`ErrorResponse`** (**`code`** **`RATE_LIMIT_EXCEEDED`**).
          */
         post: operations["sendMessage"];
@@ -821,7 +821,7 @@ export interface components {
             /** @description Unique handle (null for legacy accounts predating usernames) */
             username?: string | null;
             displayName?: string | null;
-            /** @description Present on every **`User`**. Meaning depends on deployment: when **`EMAIL_VERIFICATION_REQUIRED`** is **`true`** (messaging-service env), new users may be **`false`** until **`POST /auth/verify-email`** succeeds; when **`false`**, registration typically sets this to **`true`** immediately. See **`README.md`** (Configuration section) — email verification. */
+            /** @description Present on every **`User`**. Meaning depends on deployment: when **`EMAIL_VERIFICATION_REQUIRED`** is **`true`** (messaging-service env), new users may be **`false`** until **`POST /auth/verify-email`** succeeds; when **`false`**, registration typically sets this to **`true`** immediately. See **`apps/messaging-service/.env.example`** — **EMAIL_VERIFICATION_REQUIRED**. */
             emailVerified?: boolean;
             /**
              * Format: uri
@@ -1987,7 +1987,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Per-user Redis fixed-window cap on batch sync uploads exceeded (**`DEVICE_SYNC_RATE_LIMIT_*`** in **`README.md`** Configuration; stacks with **`GLOBAL_RATE_LIMIT_*`**). */
+            /** @description Per-user Redis fixed-window cap on batch sync uploads exceeded (**`DEVICE_SYNC_RATE_LIMIT_*`** in **`apps/messaging-service/.env.example`**; stacks with **`GLOBAL_RATE_LIMIT_*`**). */
             429: {
                 headers: {
                     [name: string]: unknown;

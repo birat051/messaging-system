@@ -14,7 +14,7 @@ alwaysApply: true
 ## Markdown (repository)
 
 - The repository uses **exactly three** Markdown documents for project documentation:
-  1. **[`README.md`](../../README.md)** (repo root) — product overview, features, architecture summary, diagrams, deployment and configuration.
+  1. **[`README.md`](../../README.md)** (repo root) — product overview, features, architecture summary, diagrams, deployment. Env templates: `apps/*/.env.example`, `infra/dev/.env.example`.
   2. **[`docs/PROJECT_PLAN.md`](../../docs/PROJECT_PLAN.md)** — algorithms, procedures, stack, layout, and **engineering standards** (§14).
   3. **[`docs/TASK_CHECKLIST.md`](../../docs/TASK_CHECKLIST.md)** — delivery backlog and checkboxes.
 - **Do not** create additional **`*.md`** files anywhere in the repo (including `docs/`, `apps/*/`, `src/**/`, ADRs, or nested READMEs). **Do not** add Markdown “design notes” beside code; fold content into **`PROJECT_PLAN.md`** or **`README.md`** when documentation is required.

@@ -13,7 +13,6 @@ export {
   listMessageReceipts,
   listMessages,
 } from './conversationsApi';
-export { createGroup } from './groupsApi';
 export { attachHttpAuth, httpClient } from './httpClient';
 export {
   httpDelete,
@@ -38,7 +37,6 @@ export {
   PROFILE_AVATAR_CLIENT_TYPE_ERROR,
   registerMyDevice,
   searchUsers,
-  searchUsersByEmail,
   updateCurrentUserProfile,
   updateCurrentUserProfileJson,
   uploadProfileAvatarViaPresignedPut,

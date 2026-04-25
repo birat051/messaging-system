@@ -4,7 +4,7 @@ import { streamHasRenderableVideo } from '@/common/webrtc/mediaStreamVideo';
 import { getWebRtcIceServers } from '@/common/utils/webrtcIceServers';
 import { serializeIceCandidateForSignaling } from '@/common/webrtc/webrtcIceCandidateSerialize';
 import type { WebRtcInboundMessage } from '@/common/realtime/socketBridge';
-import { useSocketWorker } from '@/common/realtime/SocketWorkerProvider';
+import { useSocketWorker } from '@/common/realtime/useSocketWorker';
 import type { WebRtcMediaRefs } from '@/common/hooks/webRtcMediaRefs';
 import {
   hangupCall,
@@ -76,38 +76,41 @@ export function useWebRtcCallSession(
 
   const { remoteAudioRef, remoteVideoRef, localVideoRef } = mediaRefs;
 
-  function attachRemoteStream(ms: MediaStream): void {
-    remoteStreamRef.current = ms;
-    const rv = remoteVideoRef.current;
-    const ra = remoteAudioRef.current;
-    const hasVid = streamHasRenderableVideo(ms);
-    if (hasVid && rv) {
-      rv.srcObject = ms;
-      rv.muted = false;
-      void rv.play().catch(() => {});
-      if (ra) {
-        ra.srcObject = null;
+  const attachRemoteStream = useCallback(
+    (ms: MediaStream): void => {
+      remoteStreamRef.current = ms;
+      const rv = remoteVideoRef.current;
+      const ra = remoteAudioRef.current;
+      const hasVid = streamHasRenderableVideo(ms);
+      if (hasVid && rv) {
+        rv.srcObject = ms;
+        rv.muted = false;
+        void rv.play().catch(() => {});
+        if (ra) {
+          ra.srcObject = null;
+        }
+      } else {
+        if (rv) {
+          rv.srcObject = null;
+        }
+        if (ra) {
+          ra.srcObject = ms;
+        }
       }
-    } else {
-      if (rv) {
-        rv.srcObject = null;
+      setRemoteVideoVisible(hasVid);
+      for (const t of ms.getVideoTracks()) {
+        const sync = (): void => {
+          setRemoteVideoVisible(streamHasRenderableVideo(ms));
+        };
+        t.addEventListener('ended', sync);
+        t.addEventListener('mute', sync);
+        t.addEventListener('unmute', sync);
       }
-      if (ra) {
-        ra.srcObject = ms;
-      }
-    }
-    setRemoteVideoVisible(hasVid);
-    for (const t of ms.getVideoTracks()) {
-      const sync = (): void => {
-        setRemoteVideoVisible(streamHasRenderableVideo(ms));
-      };
-      t.addEventListener('ended', sync);
-      t.addEventListener('mute', sync);
-      t.addEventListener('unmute', sync);
-    }
-  }
+    },
+    [remoteAudioRef, remoteVideoRef],
+  );
 
-  function attachLocalStream(stream: MediaStream): void {
+  const attachLocalStream = useCallback((stream: MediaStream): void => {
     localStreamRef.current = stream;
     const lv = localVideoRef.current;
     if (lv) {
@@ -116,7 +119,7 @@ export function useWebRtcCallSession(
       void lv.play().catch(() => {});
     }
     setLocalVideoVisible(streamHasRenderableVideo(stream));
-  }
+  }, [localVideoRef]);
 
   const signalingConv = (): { conversationId: string } | Record<string, never> => {
     const c = conversationIdRef.current;
@@ -383,7 +386,15 @@ export function useWebRtcCallSession(
     return () => {
       cancelled = true;
     };
-  }, [phase, callId, peerUserId, socket, dispatch, remoteAudioRef, remoteVideoRef, localVideoRef]);
+  }, [
+    phase,
+    callId,
+    peerUserId,
+    socket,
+    dispatch,
+    attachLocalStream,
+    attachRemoteStream,
+  ]);
 
   useEffect(() => {
     if (phase !== 'active' || !pendingRemoteSdp || !callId || !peerUserId) {
@@ -504,9 +515,8 @@ export function useWebRtcCallSession(
     peerUserId,
     socket,
     dispatch,
-    remoteAudioRef,
-    remoteVideoRef,
-    localVideoRef,
+    attachLocalStream,
+    attachRemoteStream,
   ]);
 
   const requestLocalEndCall = useCallback(() => {

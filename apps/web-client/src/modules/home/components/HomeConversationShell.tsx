@@ -15,7 +15,7 @@ import { useDocumentVisibilityVisible } from '@/common/hooks/useDocumentVisibili
 import { usePrefetchDevicePublicKeys } from '@/common/hooks/usePrefetchDevicePublicKeys';
 import { usePeerPublicProfiles } from '@/modules/home/hooks/usePeerPublicProfiles';
 import { usePeerPresenceDisplay } from '@/modules/home/hooks/usePeerPresenceDisplay';
-import { useSocketWorker } from '@/common/realtime/SocketWorkerProvider';
+import { useSocketWorker } from '@/common/realtime/useSocketWorker';
 import { parseApiError } from '@/modules/auth/utils/apiError';
 import { useConversation } from '@/modules/home/hooks/useConversation';
 import { useUserSearchQuery } from '@/modules/home/hooks/useUserSearchQuery';
@@ -61,7 +61,8 @@ import { ConversationList } from './ConversationList';
 import { E2eeMessagingIndicator } from './E2eeMessagingIndicator';
 import { NewDirectThreadComposer } from './NewDirectThreadComposer';
 import { ThreadComposer } from './ThreadComposer';
-import { ThreadMessageList, type ThreadMessageItem } from './ThreadMessageList';
+import { ThreadMessageList } from './ThreadMessageList';
+import type { ThreadMessageItem } from './threadMessageListTypes';
 import { UserSearchBar } from './UserSearchBar';
 import { UserSearchResultsPane } from './UserSearchResultsPane';
 

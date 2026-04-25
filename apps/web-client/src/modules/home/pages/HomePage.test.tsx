@@ -13,6 +13,21 @@ import { HomePage } from './HomePage';
 
 const sendMessageSpy = vi.hoisted(() => vi.fn());
 
+/** Stable ref — `HomeConversationShell` effect deps include `socketWorker`; a new object each render loops. */
+const homePageMockSocketWorker = vi.hoisted(() => ({
+  emitReceipt: vi.fn().mockResolvedValue(undefined),
+  emitWebRtcSignaling: vi.fn().mockResolvedValue(undefined),
+  getLastSeen: vi.fn().mockResolvedValue({ status: 'not_available' as const }),
+  setPresenceHeartbeatMode: vi.fn(),
+  setWebRtcInboundHandler: vi.fn(),
+  status: { kind: 'connected' as const, socketId: 'sk-homepage-test' },
+  sendMessage: vi.fn(),
+}));
+
+vi.mock('@/common/realtime/useSocketWorker', () => ({
+  useSocketWorker: () => homePageMockSocketWorker,
+}));
+
 vi.mock('@/common/hooks/useSendEncryptedMessage', async () => {
   const { mockSendMessageSocketLike } =
     await import('@/common/test-utils/mockSendMessageForVitest');

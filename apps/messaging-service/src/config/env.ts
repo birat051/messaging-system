@@ -1,5 +1,5 @@
 /**
- * Env schema — document every variable in `README.md` (Configuration section) (Docker Compose / local).
+ * Env schema — document every variable in `apps/messaging-service/.env.example` (Docker Compose / local).
  */
 import { hostname } from 'node:os';
 import { z } from 'zod';
@@ -543,9 +543,9 @@ const envSchema = z.object({
     .positive()
     .default(2000),
   /**
-   * Global per-client-IP cap for REST **`/v1/*`** (middleware — **`README.md`** Configuration).
+   * Global per-client-IP cap for REST **`/v1/*`** (middleware — `apps/messaging-service/.env.example`).
    * Default **500** requests per **60** seconds ≈ **500/min** average; not calendar-aligned.
-   * **Stacks** with route-specific limits (**`REGISTER_*`**, **`USER_SEARCH_*`**, **`MESSAGE_SEND_*`**, …) — **`README.md`** (Configuration).
+   * **Stacks** with route-specific limits (**`REGISTER_*`**, **`USER_SEARCH_*`**, **`MESSAGE_SEND_*`**, …).
    */
   GLOBAL_RATE_LIMIT_WINDOW_SEC: z.coerce
     .number()

@@ -14,7 +14,6 @@ function debugMessageDisplay(
   if (!DEBUG_MESSAGE_DISPLAY) {
     return;
   }
-  // eslint-disable-next-line no-console -- gated by VITE_DEBUG_MESSAGE_DISPLAY
   console.debug(`[message-display] ${message}`, details);
 }
 

@@ -11,7 +11,7 @@ import {
 
 describe('devicePublicKeysReducer', () => {
   it('logout clears cache', () => {
-    let state = devicePublicKeysReducer(
+    const state = devicePublicKeysReducer(
       {
         ...devicePublicKeysInitialState,
         byUserId: {

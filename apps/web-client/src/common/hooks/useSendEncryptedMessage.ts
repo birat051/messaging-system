@@ -101,8 +101,8 @@ export function useSendEncryptedMessage(
 
       const rid = recipientUserId.trim();
       const st0 = store.getState() as RootState;
-      let recipientRows = readFreshDeviceRows(st0, rid);
-      let selfRows = readFreshDeviceRows(st0, 'me');
+      const recipientRows = readFreshDeviceRows(st0, rid);
+      const selfRows = readFreshDeviceRows(st0, 'me');
 
       if (recipientRows === null || selfRows === null) {
         await Promise.all([

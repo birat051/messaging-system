@@ -1,4 +1,4 @@
-import { useSocketWorker } from '../realtime/SocketWorkerProvider';
+import { useSocketWorker } from '../realtime/useSocketWorker';
 
 /**
  * Low-level **`message:send`** over the socket **Web Worker** — same payload as deprecated **`POST /messages`**.

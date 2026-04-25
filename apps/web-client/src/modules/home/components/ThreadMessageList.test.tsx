@@ -3,10 +3,8 @@ import { fireEvent, screen, within } from '@testing-library/react';
 import { renderWithProviders } from '@/common/test-utils';
 import { messagingInitialState } from '@/modules/home/stores/messagingSlice';
 import { PEER_DECRYPT_NO_DEVICE_KEY_ENTRY } from '@/modules/home/utils/peerDecryptInline';
-import {
-  queryThreadMessageRowInLog,
-  ThreadMessageList,
-} from './ThreadMessageList';
+import { queryThreadMessageRowInLog } from './queryThreadMessageRowInLog';
+import { ThreadMessageList } from './ThreadMessageList';
 
 const T0 = '2026-04-12T10:00:00.000Z';
 const T1 = '2026-04-12T11:30:00.000Z';

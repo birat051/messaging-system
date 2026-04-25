@@ -1,4 +1,4 @@
-import { useSocketWorker } from '../realtime/SocketWorkerProvider';
+import { useSocketWorker } from '../realtime/useSocketWorker';
 import {
   mapPresenceToSocketLifecycle,
   type PresenceConnectionStatus,

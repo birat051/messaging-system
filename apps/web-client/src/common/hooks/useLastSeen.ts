@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { PRESENCE_HEARTBEAT_COMPACT_MS } from '../utils/presenceCadence';
-import { useSocketWorker } from '../realtime/SocketWorkerProvider';
+import { useSocketWorker } from '../realtime/useSocketWorker';
 import {
   presenceClearedForUser,
   presenceUserError,
