@@ -23,6 +23,19 @@ const envSchema = z.object({
     .enum(['development', 'production', 'test'])
     .default('development'),
   PORT: z.coerce.number().int().positive().max(65535).default(3000),
+  /**
+   * When `true`, expose **GET /metrics** (Prometheus text) with Node default + app HTTP/Socket.IO metrics.
+   * Binds in-process only — restrict by firewall or bind address; not for public internet as-is.
+   */
+  ENABLE_PROMETHEUS_METRICS: z.preprocess((val) => {
+    if (val === undefined || val === '') {
+      return false;
+    }
+    if (val === false || val === 0 || val === '0' || val === 'false') {
+      return false;
+    }
+    return val === true || val === 'true' || val === '1' || val === 1;
+  }, z.boolean()),
   LOG_LEVEL: logLevelSchema.optional(),
   /** Connection string for the MongoDB deployment (pool is configured below). */
   MONGODB_URI: z.string().min(1).default('mongodb://127.0.0.1:27017/messaging'),

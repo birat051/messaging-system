@@ -187,7 +187,7 @@ _(Connection status UI, Redux shell, and most skeleton bullets are **done** — 
 
 ### PC-4 — nginx TLS with Certbot (`ekko.biratbhattacharjee.com`) — start order: nginx → certbot → reload
 
-- [ ] **Domain (you):** create **`A`/`AAAA` for **`ekko.biratbhattacharjee.com`** to the **app** host; wait for DNS; keep **80/443** open inbound (Let’s Encrypt **HTTP-01** needs **:80**). No separate `api.` unless you split origins and add CORS.
+- [ ] **Domain (you):** create **`A`/`AAAA` for **`ekko.biratbhattacharjee.com`** to the **app** host; wait for DNS; keep **80/443** open inbound (Let’s Encrypt **HTTP-01** needs **:80\*\*). No separate `api.` unless you split origins and add CORS.
 
 - [x] **(1) Start nginx first (HTTP, ACME-ready):** [`infra/prod/nginx/nginx.acme-http.conf`](../infra/prod/nginx/nginx.acme-http.conf) — **`listen 80` only**, **`server_name` ekko + localhost**, **`^~ /.well-known/acme-challenge/`** with **`root /var/www/certbot`**; volume **`certbot-www`** in [`infra/prod/docker-compose.app.yml`](../infra/prod/docker-compose.app.yml). Proxies **/v1**, **/socket.io**, **/** SPA as **`nginx.conf`**. **No** **443** here — step (3).
 
@@ -296,7 +296,8 @@ _(Connection status UI, Redux shell, and most skeleton bullets are **done** — 
 
 ## Cross-cutting — Infrastructure and hardening
 
-- [ ] Metrics + health; structured logs; optional OpenTelemetry
+- [x] **Observability (prod data host):** Prometheus + Grafana in **`infra/prod/docker-compose.data.yml`**, scrape **`messaging-service`** via **`GET /metrics`** ( **`ENABLE_PROMETHEUS_METRICS`**, `apps/messaging-service/src/observability/prometheus.ts`, starter dashboard in **`infra/prod/monitoring/`**)
+- [ ] OpenTelemetry; structured log tuning beyond current Pino
 - [ ] Rate limits (see **Global rate limiting**), audit logs, secrets, backups, load tests, runbooks
 
 ### Web-client
@@ -306,56 +307,59 @@ _(Connection status UI, Redux shell, and most skeleton bullets are **done** — 
 
 ## Scalability testing — k6 + Socket.IO (local runner → deployed instance)
 
-**Goal:** Produce a repeatable methodology and k6 script suite that can run from a local machine against the deployed Ekko instance, measuring Socket.IO messaging behavior, delivery receipts, and supporting service bottlenecks on the CX22 host.
+**Goal:** Characterize **how far a single `messaging-service` replica** (one Node process / one container behind nginx on CX22) can scale **concurrent Socket.IO connections** and **1:1 DM throughput**, with **client-observed latency and throughput** and **`messaging-service` server metrics** (CPU, memory, open fds; optional event-loop / structured logs) as the primary evidence. **Supporting** infra (MongoDB, RabbitMQ, Redis) explains _why_ the node stopped scaling — not the headline for “one-box socket ceiling.”
+
+**1:1 wire surface:** REST — `POST /v1/auth/login`, `POST /v1/auth/refresh`, `GET /v1/health` / ready; optional `GET` users/me, conversations, messages. Socket.IO — `message:send` → ack, `message:new`; receipts optional for pure **socket ceiling** runs — see **[`docs/scalability-methodology.md`](docs/scalability-methodology.md)** §2.
 
 **Prod target (PC stack):** **`https://ekko.biratbhattacharjee.com`** (REST + SPA) and **`wss://ekko.biratbhattacharjee.com`** (Socket.IO) when using the **PC-1..PC-4** environment; **Mongo** at **`mongo.biratbhattacharjee.com`**. Same constraints as **§ Load testing — split Docker**: **not** described in the main **README**.
 
 ### ST-1 — Define scalability methodology and pass/fail criteria
 
-- [ ] **Metrics contract:** define exact metrics: Socket.IO connect latency, auth/login latency, `message:send` ack latency, end-to-end `message:new` delivery latency, receipt latency (`message:delivered`, `message:read`, `conversation:read`), throughput (messages/sec, receipts/sec, connected sockets), error rate by event, reconnect count, dropped/duplicate message count, and server resource metrics (CPU, RSS, fd count, Mongo ops, RabbitMQ depth, Redis memory/ops).
-- [ ] **Scenario matrix:** specify k6 scenarios for **ramp-up**, **sustained load**, **spike**, and **soak** using deployed Socket.IO endpoint (`/socket.io`) plus REST auth/bootstrap endpoints; include target VU / socket counts, duration, message cadence, receipt behavior, and stop conditions.
-- [ ] **Pass/fail thresholds:** set initial thresholds for a messaging system: e.g. p95 `message:send` ack, p95 `message:new` delivery, p99 delivery, receipt p95, Socket.IO connect failure rate, message loss/duplicate rate, HTTP 5xx, Socket.IO disconnect/reconnect rate, RabbitMQ queue growth, Mongo slow ops, Redis errors.
-- [ ] **Bottleneck isolation playbook:** define how to isolate app vs MongoDB vs RabbitMQ vs Redis vs nginx/network by selectively running: connect-only, auth-only, send-without-media, receipts-only, receive-only, media-presign-only, and broker-drain observation scenarios.
-- **Deliverable:** `docs/scalability-methodology.md` (or **PROJECT_PLAN**) with metric definitions, scenario table, thresholds, and bottleneck isolation matrix — keep the main **README** free of **prod deploy** details; **PC-1..PC-5** in this checklist cover that stack.
-- **Depends on:** deployed CX22 instance; Feature 1 Socket.IO send/receive; Feature 12 receipts; health/readiness endpoints.
+- [x] **Metrics contract:** **Application-level** metrics (Socket.IO connect, HTTP auth, `message:send` ack, E2E `message:new`, optional receipt E2E, throughput, error rate by event, reconnects, drops/duplicates) — **[`docs/scalability-methodology.md`](docs/scalability-methodology.md)** §1.1–§1.10. **Single-instance `messaging-service` metrics** (CPU %, RSS/heap, open fds, optional event-loop lag; optional nginx WebSocket / upstream) — **§1.11** (same doc).
+- [x] **Scenario matrix:** k6 profiles for **ramp-up**, **sustained**, **spike**, **soak** (REST + **`/socket.io`**) with default VU/socket counts, duration, message cadence, **`RECEIPT_MODE`**, and stop conditions — **[`docs/scalability-methodology.md`](docs/scalability-methodology.md)** §4.
+- [x] **Pass/fail thresholds:** initial **v1** SLOs for p95/p99 ack and E2E `message:new`, receipt p95/p99, connect-failure and **5xx** rates, loss/duplicate caps, reconnect budget, plus **data-plane** checks (RabbitMQ / Mongo / Redis) when collecting infra — **[`docs/scalability-methodology.md`](docs/scalability-methodology.md)** §5.
+- [x] **Bottleneck isolation playbook (1:1):** define how to isolate **`messaging-service`** vs MongoDB vs RabbitMQ vs Redis vs nginx/network with runs such as: **connect-only** (socket ceiling), **auth-only** (REST), **send + `message:new` only** (skip receipts), **receipts-on** (Feature 12 path). Optional later: **media-presign-only**; **omit** group/WebRTC load unless explicitly in scope — **[`docs/scalability-methodology.md`](docs/scalability-methodology.md)** §6.
+- **Deliverable:** **[`docs/scalability-methodology.md`](docs/scalability-methodology.md)** — §1 metrics (including **§1.11**), **§2** wire targets, **§4** scenarios, **§5** pass/fail, **§6** bottleneck playbook; main **README** stays free of prod deploy details; **PC-1..PC-5** here cover the stack.
+- **Depends on:** deployed CX22 instance; **single** messaging-service target; Feature 1 Socket.IO 1:1 send/receive; Feature 12 receipts (optional for ceiling runs); health/readiness endpoints.
 
-### ST-2 — Design k6 script architecture for Socket.IO messaging
+### ST-2 — Design k6 script architecture for Socket.IO messaging (1:1 primary)
 
-- [ ] **Script layout:** define `tests/k6/` (or equivalent) with `config.ts/js`, `auth.ts/js`, `socketio.ts/js`, `scenarios/*.ts/js`, and `metrics.ts/js`; parameterize via env: `BASE_URL` (e.g. `https://ekko.biratbhattacharjee.com`), `WS_URL` (e.g. `wss://ekko.biratbhattacharjee.com`), `USER_POOL_FILE`, `RUN_ID`, `MESSAGE_RATE`, `MEDIA_RATIO`, `RECEIPT_MODE`.
-- [ ] **Socket.IO lifecycle:** implement VU flow: REST login/refresh → open Socket.IO connection with JWT in `auth.token` and `auth.userId` → wait for `connect` → emit `message:send` with ack → listen for `message:new`, `notification`, receipt fan-out → emit `message:delivered` / `message:read` / `conversation:read` → disconnect cleanly.
-- [ ] **JWT handling:** choose auth model for k6: pre-generated user credentials + per-VU login, or pre-minted tokens with refresh; handle access-token expiry during soak with `POST /v1/auth/refresh` and reconnect/update-token logic aligned with `SocketWorkerProvider` / worker behavior.
-- [ ] **Realistic behavior model:** implement think time, burst patterns, mixed read/write users, active conversations vs idle sockets, sender/receiver pairing, and receipt timing (delivered immediately on receive, read after configurable dwell time).
-- [ ] **Custom metrics:** capture k6 `Trend`, `Rate`, and `Counter` for connect latency, ack latency, delivery latency by message id, receipt latency, event parse errors, ack errors, reconnects, duplicate deliveries, and missing deliveries at teardown.
-- **Deliverable:** k6 design note + script skeleton with one runnable connect/send/receive scenario.
-- **Depends on:** ST-1 metric definitions; seeded user/conversation strategy from ST-3; Socket.IO protocol names (`message:send`, `message:new`, `message:delivered`, `message:read`, `conversation:read`).
+- [x] **Script layout:** `tests/k6/` with `config.js`, `auth.js`, `socketio.js`, `metrics.js`, `tags.js`, `user-pool.js`, `iteration.js`, `scenarios/stepping.js`, `validate-k6-summary.mjs`, `users.example.json`, **`env.example`** (copy to `.env` for k6) — how to run: **[`tests/k6/README.md`](../tests/k6/README.md)**; all vars: [`tests/k6/env.example`](../tests/k6/env.example), [`tests/k6/config.js`](../tests/k6/config.js).
+- [x] **Socket.IO lifecycle (1:1):** VU flow: REST login/refresh → open Socket.IO with JWT in `auth.token` and `auth.userId` → `connect` → `message:send` with ack → `message:new` on peer; then optional receipt fan-out (`message:delivered` / `message:read` / `conversation:read` per `RECEIPT_MODE`) → clean disconnect. **Socket ceiling** runs may omit receipts — **[`tests/k6/socketio.js`](../tests/k6/socketio.js)** (`k6/websockets`, B-then-A pairing in one VU); **[`tests/k6/iteration.js`](../tests/k6/iteration.js)**.
+- [x] **JWT handling:** pre-generated users + per-VU login, or pre-minted `accessToken` / `refreshToken` in the user pool; `resolveUserAuth` in **`tests/k6/auth.js`** keeps a per-VU session cache, calls **`POST /v1/auth/refresh`** when access JWT is within **`K6_JWT_BUFFER_SEC`** of `exp`, then the next **Socket.IO** open uses the new token (reconnect = new handshake, same as app). Soak: long **`K6_SUSTAIN_DURATION`** (stepping hold) with many iterations reuses the cache across iterations in the same VU.
+- [x] **Realistic behavior model:** think time, bursts, **sender/receiver pairs**, idle **connected** sockets vs active senders; receipt timing for full runs; **MEDIA_RATIO** is secondary to text 1:1 path — **[`tests/k6/behavior.js`](../tests/k6/behavior.js)**, **[`tests/k6/config.js`](../tests/k6/config.js)** (`K6_THINK_*`, `K6_BURST_*`, `K6_ACTIVE_SEND_PROB`, `K6_IDLE_*`, `K6_RECEIPT_*`, `K6_MEDIA_SIMULATE_SEC`), [`tests/k6/iteration.js`](../tests/k6/iteration.js), [`tests/k6/README.md`](../tests/k6/README.md).
+- [x] **Custom metrics:** `Trend` / `Rate` / `Counter` for `sio_connect_ms`, `message_send_ack_ms`, `e2e_message_new_ms`, optional receipt latencies, `msg_send_acked_rps`, `connected_sockets` gauge, errors, reconnects, drops/duplicates — align with **[`docs/scalability-methodology.md`](docs/scalability-methodology.md)** §1.
+- **Deliverable:** **[`tests/k6/README.md`](../tests/k6/README.md)** + **`tests/k6/socketio.js`** / **`iteration.js`** (1:1 path); refresh/soak + full metric set still **TODO** (items below).
+- **Depends on:** ST-1; ST-3 seed pairs; 1:1 event names above.
 
-### ST-3 — Define test data and run isolation strategy
+### ST-3 — Define test data and run isolation strategy (1:1 pairs)
 
-- [ ] **User pool:** define pre-seeded users for load tests (e.g. `load-user-0001..N`) with credentials or refresh tokens; split into sender/receiver pairs and optional multi-device users for receipt/reconnect coverage.
-- [ ] **Conversation topology:** pre-create deterministic 1:1 conversations for each pair; document whether k6 creates conversations lazily via first `message:send` or a seed script creates them before the run.
-- [ ] **Payload mix:** define text vs media ratio (e.g. 95% text / 5% media-presign), message body size distribution, burst size distribution, and whether media tests use presign-only with tiny synthetic payloads or pre-uploaded object keys.
-- [ ] **Run isolation:** every run uses `RUN_ID` embedded in message body / metadata-compatible fields; cleanup strategy either deletes test users/conversations/messages by prefix or rotates a fresh test user namespace; document how to avoid polluting real user metrics and dashboards.
-- [ ] **Data validation:** post-run verifier checks sent count vs received count vs receipt count, duplicates by message id, missing ack ids, queue drained state, and sample message persistence in MongoDB.
-- **Deliverable:** seed/cleanup plan (`scripts/prod-seed*`, `scripts/prod-cleanup*` or documented manual commands) plus `users.json` / generated credentials format for k6.
-- **Depends on:** deployed auth APIs; messaging-service DB access or admin seed mechanism; ST-2 script env contract.
+- [x] **User pool:** pre-seeded users (e.g. `load-user-0001..N`) with credentials; **JSON** array (`email`, `password` per entry); **deterministic 1:1 sender/receiver pairs** — in the pair harness, **concurrent live Socket.IO sessions = 2 × (active VU count)**; with a dedicated pair per VU, **(pool size) = 2 × VUS = total open sockets** — **[`tests/k6/user-pool.js`](../tests/k6/user-pool.js)**, example **`users.example.json`**, **[`tests/k6/env.example`](../tests/k6/env.example)**;
+- [x] **Conversation topology:** one **DM** thread per pair; document lazy create vs seed-before-run.
+- [x] **Payload mix:** default **text-heavy** (body size distribution) for socket/throughput tests; **media / presign** as optional tranche so primary runs stay on the 1:1 hot path.
+- [x] **Run isolation:** `RUN_ID` in message body / metadata; cleanup by prefix or namespace; avoid polluting prod dashboards.
+- [x] **Data validation:** post-run checks — sent vs received vs optional receipts; duplicates; drops; optional Mongo sample spot-check.
+- **Deliverable:** seed/cleanup plan + `users.json` format for k6; run isolation — `RUN_ID` in [`tests/k6/env.example`](../tests/k6/env.example), [`docs/scalability-methodology.md` §2.6](scalability-methodology.md#26-run-isolation--run_id-cleanup-production-telemetry); data validation — [`docs/scalability-methodology.md` §2.7](scalability-methodology.md#27-post-run-data-validation-k6-json--optional-mongo), `validate-k6-summary.mjs`.
+- **Depends on:** deployed auth; DB/admin seed; ST-2 env contract.
 
-### ST-4 — Define CX22 infrastructure monitoring plan
+### ST-4 — CX22 / prod monitoring (messaging-service first)
 
-- [ ] **Host metrics:** capture CPU, load average, memory/RSS, swap, disk IO, network IO, open file descriptors, TCP socket states, and process counts for nginx, Node.js, MongoDB, RabbitMQ, Redis, and MinIO during each scenario.
-- [ ] **Service metrics:** capture MongoDB ops/sec and slow queries, RabbitMQ queue depth / publish rate / consumer ack rate, Redis memory / ops/sec / rejected connections, nginx request and WebSocket upgrade counts, Node.js event-loop lag if exposed, and Socket.IO connected clients / disconnect reasons if logged.
-- [ ] **Collection method:** choose local-to-server collection commands (`ssh` + `docker stats`, `docker compose logs`, `rabbitmqctl`, `redis-cli INFO`, `mongosh serverStatus`) or lightweight exporters; align timestamps with k6 start/end and `RUN_ID`.
-- [ ] **Result export:** define output files: k6 JSON summary, CSV/Prometheus-style metrics snapshot, service logs filtered by `RUN_ID`, RabbitMQ/Mongo/Redis snapshots before/after, and a short run manifest (commit SHA, deploy version, env config, k6 command).
-- **Deliverable:** `scripts/prod-monitor.sh` (or runbook) that starts/stops monitoring and writes artifacts under `artifacts/prod-k6/<RUN_ID>/`.
-- **Depends on:** SSH access to CX22; Docker Compose service names; ST-1 metric contract; ST-3 `RUN_ID`.
+- [x] **In-process metrics (source of truth for §1.11 on the Node box):** **`GET /metrics`** (Prometheus text) on **`messaging-service`** with Node **default** metrics (CPU, RSS, heap) plus **`messaging_http_request_*`**, **`messaging_socketio_active_connections`**, **`messaging_socketio_message_send_total{outcome=…}`** — `ENABLE_PROMETHEUS_METRICS`, [`apps/messaging-service/src/observability/prometheus.ts`](../apps/messaging-service/src/observability/prometheus.ts). **Grafana** panels: time series + **peaks** via **`max_over_time`** (e.g. connections, heap) for sustained/spike/runs.
+- [x] **Prometheus + Grafana (same host as data stack):** run with **[`infra/prod/docker-compose.data.yml`](../infra/prod/docker-compose.data.yml)** **prometheus** + **grafana** services; scrape target defaults to **`host.docker.internal:3000/metrics`** (see **[`infra/prod/monitoring/README.md`](../infra/prod/monitoring/README.md)**, `prometheus.yml`); set **`GRAFANA_ADMIN_*`** in prod. **Grafana** is the primary time series for k6 and prod correlation; see **[`scripts/README.md`](../scripts/README.md)**.
+- [x] **Edge / host (supplementary when nginx in path):** **nginx** — **`stub_status`** (loopback, optional ad hoc), per-location access logs (methodology **§1.11**); not a substitute for in-process /metrics or Grafana — [`infra/prod/nginx/nginx.https.conf`](../infra/prod/nginx/nginx.https.conf) — [`docs/scalability-methodology.md`](docs/scalability-methodology.md).
+- [ ] **Supporting data plane (same run, explain saturation):** MongoDB, RabbitMQ, Redis — **as needed** after the app host is read from Prom/Grafana.
+- [ ] **Collection + export:** align k6 + `RUN_ID` with Prometheus/Grafana time range; keep **artifacts** (k6 JSON, snapshot exports, short manifest) per methodology.
+- **Deliverable:** `infra/prod/monitoring/`, in-process `prometheus.ts`, k6 **RUN_ID** + **summary exports** under **`artifacts/`** (gitignored) as needed.
+- **Depends on:** `ENABLE_PROMETHEUS_METRICS` on the target; ST-1; ST-3 `RUN_ID` for correlation.
 
 ### ST-5 — Define prod results documentation structure (prefer `docs/`, not main README)
 
-- [ ] **Report template (docs):** e.g. **`docs/prod-k6-report-template.md`** (or `artifacts/…`) with: environment summary (CX22, service versions, commit SHA, **ekko** / **mongo** only as prod context), scenario table, threshold table, k6 command, dataset size, monitoring method. **Do not** add this as a **“deployment”** section in **README** — optional short **README** pointer (“see `docs/…` for k6 run reports”) is fine.
-- [ ] **Charts and tables:** include p50/p95/p99 latency charts for connect, ack, delivery, receipts; throughput over time; error/reconnect rate; connected sockets over time; CPU/memory over time; RabbitMQ queue depth; Mongo ops/slow queries; Redis memory/ops.
-- [ ] **Scaling story:** present pragmatic Swedish-engineering style conclusions: what limit was reached first, measured evidence, tradeoff chosen, cost/complexity impact, and next smallest improvement (e.g. tune Node workers, RabbitMQ consumers, Mongo indexes, Redis rate-limit hot paths, nginx/socket limits).
-- [ ] **Decision log:** each run records pass/fail against ST-1 thresholds, bottleneck hypothesis, supporting graphs, and recommended next action; avoid vanity numbers without resource context.
-- **Deliverable:** prod report template (under **`docs/`** or `artifacts/`) + first “baseline run” placeholder after ST-2..ST-4; **no** full split-stack / domain story in **README**.
-- **Depends on:** ST-1 thresholds; ST-2 metrics; ST-4 exported artifacts.
+- [ ] **Report template (docs):** e.g. **`docs/prod-k6-report-template.md`** with: **single `messaging-service` replica** called out, CX22 / versions / commit, scenario table, **§5** threshold table, k6 command, user-pair count, **how `messaging-service` was monitored** (§1.11 / ST-4). **Do not** add a **deployment** section to main **README**; optional one-line pointer only.
+- [ ] **Charts and tables (priority):** **connected sockets** and **`msg_send_acked_rps` / E2E throughput** over time; **p50/p95/p99** for connect, ack, `message:new`; error/reconnect rates; **`messaging-service` CPU and memory (and fds)** over time. Then: RabbitMQ / Mongo / Redis **as supporting** panels.
+- [ ] **Scaling story (single node):** state the observed **socket ceiling** and **throughput** at SLO, what saturated first (**messaging-service** vs broker vs DB), with graphs; then **smallest** next step (horizontal replicas, pool tuning, indexes, nginx limits) — no vanity N without **§1.11** context.
+- [ ] **Decision log:** pass/fail vs **§5**; hypothesis; **N** and resource headroom; next action.
+- **Deliverable:** report template + baseline placeholder after ST-2..ST-4.
+- **Depends on:** ST-1; ST-2 metrics; ST-4 artifacts.
 
 ## Feature 8 — Group messaging (post-MVP)
 
@@ -389,10 +393,12 @@ _(Connection status UI, Redux shell, and most skeleton bullets are **done** — 
 
 > **Done (MC-1..MC-8):** removed dead barrels; pruned `userPublicKeys` re-exports; removed `rankUsersByEmailRelevance`; dropped orphan `createGroupRequestSchema`; trimmed `uploadAuth` / `requireAuth` exports; `patchMeMultipart` module-private; full `vitest` + notes on any pre-existing `tsc` test noise in MC-8.2.
 
+- [x] **MC-9 — Observability:** `prom-client` + optional **`/metrics`**, `infra/prod/monitoring` (Prom/Grafana) — **primary** = Prometheus + Grafana (see `scripts/README.md`); no shell sampling scripts.
+
 ## Web-client legacy cleanup (WC)
 
 > **Done (WC-0..WC-7):** removed unused `store`/`generated` barrels; dead `createGroup` + `API_PATHS.groups`; removed `searchUsersByEmail` + deprecated form validation symbols + `useRegisterPublicKey` alias; ESLint `prefer-const`, dropped stale eslint-disable, **WC-6.3** fast-refresh sidecars (`useSocketWorker`, receipt/thread types); **`npm run lint`** with `--max-warnings 0`, **`tsc`**, full **`vitest`**. (Baseline noise from Apr 2026 is resolved; keep gates on future PRs.)
 
 ---
 
-_Checklist **v9.6** — **PC-1..PC-5** = **prod only**; **do not** put split compose / **ekko** / **mongo** deploy in main **README** (checklist + optional **`docs/…`**). **v9.5** PC-4; **v9.1** ST. If you need line-level archaeology, use git history for `docs/TASK_CHECKLIST.md` before this version._
+_Checklist **v9.9** — **k6** user pool: **JSON** array. **ST-4** + Prometheus + Grafana in **data** compose, **`/metrics`** in **messaging-service**; **pair harness** = **2 open sockets per VU** = **2×VUS** = **array length** when one pair per VU. **v9.6** **PC-1..PC-5** = **prod only**; **do not** put split compose / **ekko** / **mongo** deploy in main **README** (checklist + optional **`docs/…`**). If you need line-level archaeology, use git history for `docs/TASK_CHECKLIST.md` before this version._

@@ -18,6 +18,12 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+# k6 creds and local env (copy from users.example.json, env.example)
+tests/k6/users.json
+tests/k6/.env
+# k6 / local run artifacts
+artifacts/
+# Prod ops markdown (AWS two-EC2 deploy, runbook, etc.) — keep local; do not commit.
 docs/prod-*.md
 .DS_Store
 coverage/
@@ -25,3 +31,4 @@ coverage/
 .vscode/*
 !.vscode/extensions.json
 infra/loadtest/backup-restore.data.md
+docs/scalability-methodology.md
