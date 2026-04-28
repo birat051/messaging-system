@@ -1,0 +1,17 @@
+# Scrape config for **messaging-service** when the app runs on the **same host** as this stack
+# (host port published, e.g. 3000). On Linux, `host.docker.internal` requires
+# `extra_hosts: host.docker.internal:host-gateway` on the Prometheus service (see docker-compose.data.yml).
+# If the app runs on another host, replace the target with its private IP / DNS and open the port to this host only.
+#
+# **Port:** `infra/prod/docker-compose.app.yml` publishes **messaging-service** as `3001:3000` on the host, so the default
+# target is **:3001**. For a Node process on the host with **PORT=3000** (or if you republish to :3000), change the target.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: messaging-service
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - host.docker.internal:3001

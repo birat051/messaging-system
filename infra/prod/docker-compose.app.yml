@@ -1,0 +1,66 @@
+# App plane (messaging-service only) — prod / split-stack. **no** MinIO; **no** nginx here — use a load balancer
+# (e.g. ALB) + autoscaling for HTTP/WebSocket, TLS at the edge, and static web hosting elsewhere.
+#
+# **RabbitMQ** runs on the **data** host: `infra/prod/docker-compose.data.yml`. Set `RABBITMQ_HOST` (or a full
+# `RABBITMQ_URL` in env) in `.env` to the data host private IP/DNS, same pattern as `MONGODB_URI` / `REDIS_URL`.
+# Local dev: both stacks on one machine, default `RABBITMQ_HOST=host.docker.internal` (see `extra_hosts` below).
+#
+# `messaging-service` is published on **3001:3000** for health checks and (private) scrape — point your target group
+# at the container or host port the LB expects.
+#
+# Set **MONGODB_URI**, **REDIS_URL**, **S3_*** to reach the **data** host — see `infra/prod/.env.app.example` and
+# `docs/prod-s3-and-r2.md`. Cross-stack networking: `docs/prod-networking.md`. Secrets: `docs/prod-secrets.md`.
+#
+# **Health & order:** there is no **depends_on** for Mongo, Redis, MinIO, or RabbitMQ — all remote. Start the
+# **data** stack first, confirm `RABBITMQ_*` + DB + Redis + S3 from this host, then:
+#   docker compose -f infra/prod/docker-compose.app.yml up -d --build
+# **Smoke (direct, behind LB use the LB URL):** `curl -fsS "http://127.0.0.1:3001/v1/ready"` on the app instance.
+
+services:
+  messaging-service:
+    build:
+      context: ../..
+      dockerfile: apps/messaging-service/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      MONGODB_URI: ${MONGODB_URI:-mongodb://host.docker.internal:27017/messaging}
+      MONGODB_DB_NAME: ${MONGODB_DB_NAME:-messaging}
+      REDIS_URL: ${REDIS_URL:-redis://host.docker.internal:6379}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://${RABBITMQ_USER:-messaging}:${RABBITMQ_PASS:-messaging}@${RABBITMQ_HOST:-host.docker.internal}:5672}
+      OPENAPI_SPEC_PATH: /app/openapi/openapi.yaml
+      S3_BUCKET: ${S3_BUCKET:-messaging-media}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://host.docker.internal:9000}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minio}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-minioadmin}
+      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-http://localhost:9000}
+      S3_ANONYMOUS_GET_OBJECT: ${S3_ANONYMOUS_GET_OBJECT:-true}
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-for-production}
+      EMAIL_VERIFICATION_REQUIRED: ${EMAIL_VERIFICATION_REQUIRED:-false}
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      PUBLIC_APP_BASE_URL: ${PUBLIC_APP_BASE_URL:-https://ekko.biratbhattacharjee.com}
+      EMAIL_VERIFICATION_WEB_PATH: ${EMAIL_VERIFICATION_WEB_PATH:-/verify-email}
+      REFRESH_TOKEN_TTL_SECONDS: ${REFRESH_TOKEN_TTL_SECONDS:-604800}
+      PASSWORD_RESET_TOKEN_TTL_HOURS: ${PASSWORD_RESET_TOKEN_TTL_HOURS:-1}
+      PASSWORD_RESET_WEB_PATH: ${PASSWORD_RESET_WEB_PATH:-/reset-password}
+      ENABLE_PROMETHEUS_METRICS: ${ENABLE_PROMETHEUS_METRICS:-false}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

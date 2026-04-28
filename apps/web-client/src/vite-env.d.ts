@@ -16,15 +16,10 @@ interface ImportMetaEnv {
    * Omit for default **100**.
    */
   readonly VITE_DEVICE_KEY_SYNC_PAGE_LIMIT: string | undefined;
-  /** Set **`true`** in dev to **`console.debug`** inbound peer decrypt branches (**`usePeerMessageDecryption`**). */
-  readonly VITE_DEBUG_PEER_DECRYPT: string | undefined;
   /**
-   * Set **`true`** in dev for **`[hybrid-decrypt]`** traces: device id, **`encryptedMessageKeys`** key list,
-   * unwrap / AES-GCM steps, and a **SHA-256 fingerprint** of the derived message key (never raw keys).
+   * Chat/E2EE console traces (`[attachment-e2ee]`, `[hybrid-decrypt]`, `[peer-decrypt]`, `[media-preview]`, …)
+   * are gated by **`import.meta.env.DEV`** — on in **`vite dev`**, off in **`vite build`**.
    */
-  readonly VITE_DEBUG_HYBRID_DECRYPT: string | undefined;
-  /** Set **`true`** in dev to **`console.debug`** when **`resolveMessageDisplayBody`** suppresses opaque **`body`**. */
-  readonly VITE_DEBUG_MESSAGE_DISPLAY: string | undefined;
   /**
    * When **`true`**, **`useAuth`** **`logout`** calls **`DELETE /v1/users/me/devices/:deviceId`** before clearing
    * the session. **IndexedDB** private keys are **not** removed (recovery / re-register on next login).

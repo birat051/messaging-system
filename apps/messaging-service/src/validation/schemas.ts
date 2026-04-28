@@ -232,12 +232,6 @@ export const sendMessageRequestSchema = z
     }
   });
 
-/** `components/schemas/CreateGroupRequest` */
-export const createGroupRequestSchema = z.object({
-  name: z.string().min(1),
-  memberIds: z.array(z.string().min(1)).optional(),
-});
-
 /** `components/parameters/LimitQuery` + `CursorQuery` — use **`resolveListLimit`** on **`limit`**. */
 export const paginationQuerySchema = z.object({
   cursor: z.string().min(1).optional(),
@@ -592,7 +586,6 @@ export type LogoutRequest = z.infer<typeof logoutRequestSchema>;
 export type ForgotPasswordRequest = z.infer<typeof forgotPasswordRequestSchema>;
 export type ResetPasswordRequest = z.infer<typeof resetPasswordRequestSchema>;
 export type SendMessageRequest = z.infer<typeof sendMessageRequestSchema>;
-export type CreateGroupRequest = z.infer<typeof createGroupRequestSchema>;
 export type SearchUsersQuery = z.infer<typeof searchUsersQuerySchema>;
 export type PaginationQuery = z.infer<typeof paginationQuerySchema>;
 export type RegisterDeviceRequest = z.infer<typeof registerDeviceRequestSchema>;

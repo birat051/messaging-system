@@ -1,6 +1,6 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { registerDeviceRequestSchema } from './schemas';
+import { registerDeviceRequestSchema } from './schemas.js';
 
 const validSpki = (() => {
   const { publicKey } = generateKeyPairSync('ec', {

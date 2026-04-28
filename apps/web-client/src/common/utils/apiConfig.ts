@@ -8,7 +8,7 @@
  * host (prevents mixed content / wrong-port sockets).
  *
  * **Dev:** Vite proxies **`/v1`** and **`/socket.io`** to the same backend (**`vite.config.ts`**).
- * **Compose:** **`infra/nginx/nginx.conf`** serves **`dist/`** at **`/`** (SPA **`index.html`** fallback) and
+ * **Compose:** **`infra/dev/nginx/nginx.conf`** serves **`dist/`** at **`/`** (SPA **`index.html`** fallback) and
  * proxies **`/v1`**, **`/socket.io`**, **`/api-docs`** to **messaging-service** (WebSocket **Upgrade** on **`/socket.io`**).
  */
 export function getApiBaseUrl(): string {

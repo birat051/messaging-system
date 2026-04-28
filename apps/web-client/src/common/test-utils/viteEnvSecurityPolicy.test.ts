@@ -17,6 +17,8 @@ const ALLOWED_VITE_STUB_KEY_PATTERNS: ReadonlyArray<RegExp> = [
   /^VITE_WEBRTC_/,
   /^VITE_DEVICE_KEY_SYNC_PAGE_LIMIT$/,
   /^VITE_REVOKE_DEVICE_ON_LOGOUT$/,
+  /** Upload size cap for client validation tests (not identity). */
+  /^VITE_MEDIA_UPLOAD_MAX_BYTES$/,
 ];
 
 const STUB_ENV_KEY_RE = /stubEnv\s*\(\s*['"](VITE_[^'"]+)['"]/g;

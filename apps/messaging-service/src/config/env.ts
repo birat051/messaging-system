@@ -1,5 +1,5 @@
 /**
- * Env schema — document every variable in `README.md` (Configuration section) (Docker Compose / local).
+ * Env schema — document every variable in `apps/messaging-service/.env.example` (Docker Compose / local).
  */
 import { hostname } from 'node:os';
 import { z } from 'zod';
@@ -23,6 +23,19 @@ const envSchema = z.object({
     .enum(['development', 'production', 'test'])
     .default('development'),
   PORT: z.coerce.number().int().positive().max(65535).default(3000),
+  /**
+   * When `true`, expose **GET /metrics** (Prometheus text) with Node default + app HTTP/Socket.IO metrics.
+   * Binds in-process only — restrict by firewall or bind address; not for public internet as-is.
+   */
+  ENABLE_PROMETHEUS_METRICS: z.preprocess((val) => {
+    if (val === undefined || val === '') {
+      return false;
+    }
+    if (val === false || val === 0 || val === '0' || val === 'false') {
+      return false;
+    }
+    return val === true || val === 'true' || val === '1' || val === 1;
+  }, z.boolean()),
   LOG_LEVEL: logLevelSchema.optional(),
   /** Connection string for the MongoDB deployment (pool is configured below). */
   MONGODB_URI: z.string().min(1).default('mongodb://127.0.0.1:27017/messaging'),
@@ -543,9 +556,9 @@ const envSchema = z.object({
     .positive()
     .default(2000),
   /**
-   * Global per-client-IP cap for REST **`/v1/*`** (middleware — **`README.md`** Configuration).
+   * Global per-client-IP cap for REST **`/v1/*`** (middleware — `apps/messaging-service/.env.example`).
    * Default **500** requests per **60** seconds ≈ **500/min** average; not calendar-aligned.
-   * **Stacks** with route-specific limits (**`REGISTER_*`**, **`USER_SEARCH_*`**, **`MESSAGE_SEND_*`**, …) — **`README.md`** (Configuration).
+   * **Stacks** with route-specific limits (**`REGISTER_*`**, **`USER_SEARCH_*`**, **`MESSAGE_SEND_*`**, …).
    */
   GLOBAL_RATE_LIMIT_WINDOW_SEC: z.coerce
     .number()

@@ -1,7 +1,5 @@
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -35,46 +33,19 @@ import { InboundNotificationListener } from '@/common/notifications/InboundNotif
 import {
   createSocketWorkerBridge,
   type PresenceConnectionStatus,
-  type PresenceLastSeenResult,
   type WebRtcInboundMessage,
 } from './socketBridge';
 import { incomingCallRinging } from '@/modules/home/stores/callSlice';
 import { parseMessageNewPayload } from './socketMessageNew';
 import { parseReceiptSocketPayload } from './socketReceiptPayload';
 import type {
-  Message,
   ReceiptEmitPayload,
   ReceiptEmitSocketEvent,
   SendMessageRequest,
 } from './socketWorkerProtocol';
+import { SocketWorkerContext } from './socketWorkerContext';
 import { bumpConversationInListCache } from '@/modules/home/utils/conversationListCache';
 import type { AppDispatch, RootState } from '@/store/store';
-
-export type SocketWorkerContextValue = {
-  status: PresenceConnectionStatus;
-  sendMessage: (payload: SendMessageRequest) => Promise<Message>;
-  emitReceipt: (event: ReceiptEmitSocketEvent, payload: ReceiptEmitPayload) => Promise<void>;
-  emitWebRtcSignaling: (
-    event:
-      | 'webrtc:offer'
-      | 'webrtc:answer'
-      | 'webrtc:candidate'
-      | 'webrtc:hangup',
-    payload: unknown,
-  ) => Promise<void>;
-  /** Resolve last-seen for **`targetUserId`** via **`presence:getLastSeen`** ack (Feature 6). */
-  getLastSeen: (targetUserId: string) => Promise<PresenceLastSeenResult>;
-  /**
-   * **`active_thread`** uses a compact heartbeat interval (server-throttle-safe); **`default`** is the relaxed cadence.
-   */
-  setPresenceHeartbeatMode: (mode: 'default' | 'active_thread') => void;
-  /** Register handler for inbound WebRTC signaling (answer / ICE after initial offer routing). */
-  setWebRtcInboundHandler: (
-    handler: ((msg: WebRtcInboundMessage) => void) | null,
-  ) => void;
-};
-
-const SocketWorkerContext = createContext<SocketWorkerContextValue | null>(null);
 
 /**
  * Single Socket.IO **Web Worker** bridge per signed-in user — **presence**, **`message:new`**, **`message:send`** acks,
@@ -149,7 +120,7 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
           if (!message) {
             if (import.meta.env.DEV) {
               console.warn(
-                '[message:new] dropped invalid payload (expected flat Message: id, conversationId, senderId, createdAt, optional body/mediaKey)',
+                '[message:new] dropped invalid payload (expected flat Message: id, conversationId, senderId, createdAt, optional body/mediaKey/iv/algorithm/encryptedMessageKeys)',
                 msg.payload,
               );
             }
@@ -479,8 +450,4 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
       {children}
     </SocketWorkerContext.Provider>
   );
-}
-
-export function useSocketWorker(): SocketWorkerContextValue | null {
-  return useContext(SocketWorkerContext);
 }

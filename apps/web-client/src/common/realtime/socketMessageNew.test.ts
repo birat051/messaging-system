@@ -49,4 +49,32 @@ describe('parseMessageNewPayload', () => {
       expect.objectContaining({ mediaKey: key }),
     );
   });
+
+  it('preserves hybrid E2EE fields so attachment inner m.k can be decrypted (mediaKey null on wire)', () => {
+    const incoming = {
+      id: '62460ea2-035d-4d95-b685-3e9322f2720f',
+      conversationId: '91429303-3fa0-4b70-a318-5cecc83f8392',
+      senderId: '951420bd-37a3-4399-8908-06507b56c063',
+      body: 'base64ciphertext',
+      mediaKey: null,
+      iv: 'Tllc5CUo6rSRY0Lg',
+      algorithm: 'aes-256-gcm+p256-hybrid-v1',
+      encryptedMessageKeys: {
+        '435af490-5232-49e1-8c81-344acc599a1e': 'wrap1',
+        '44564c18-44dc-41f7-8c70-a777da10d408': 'wrap2',
+      },
+      createdAt: '2026-04-27T21:41:38.619Z',
+    };
+    const parsed = parseMessageNewPayload(incoming);
+    expect(parsed).toEqual(incoming);
+  });
+
+  it('rejects encryptedMessageKeys when a value is not a string', () => {
+    expect(
+      parseMessageNewPayload({
+        ...sampleMessage,
+        encryptedMessageKeys: { x: 1 as unknown as string },
+      }),
+    ).toBeNull();
+  });
 });

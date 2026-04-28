@@ -214,6 +214,73 @@ function setSenderPlaintextAfterOptimisticMerge(
   }
 }
 
+function mergeHydrateMediaKey(existing: StoredMessage, fetched: Message): string | null {
+  const serverMk = fetched.mediaKey?.trim() ?? '';
+  if (serverMk.length > 0) {
+    return fetched.mediaKey ?? null;
+  }
+  const retained = existing.mediaKey?.trim() ?? '';
+  return retained.length > 0 ? existing.mediaKey ?? null : fetched.mediaKey ?? null;
+}
+
+/**
+ * **`GET /conversations/{id}/messages`** may race **`message:new`** and temporarily produce a **`Message`** row
+ * missing **`encryptedMessageKeys` / `iv` / `algorithm`** while Redux still holds the full hybrid envelope from
+ * Socket.IO — without merging, **`isHybridE2eeMessage`** becomes false on the recipient and
+ * **`usePeerMessageDecryption`** never runs (only **`message:new parse`** logs appear).
+ *
+ * **`mediaKey`:** persisted hybrid attachment sends use **`mediaKey: null`** on the wire — the sender’s client keeps
+ * the real key via **`mergeServerMessageWithOptimisticClientFields`**. **`GET`** returns the same null; without
+ * carrying forward **`existing.mediaKey`**, **`ThreadMessageList`** has no **`mediaKey`** for **`ThreadMessageMedia`**
+ * until **`decryptedAttachmentKeyByMessageId`** fills (recipient or own multi-device echo) — briefly or permanently
+ * empty **`<img>`** host when maps lag.
+ */
+export function mergeHydrateFetchedWithExisting(
+  existing: StoredMessage | undefined,
+  fetched: Message,
+): StoredMessage {
+  if (!existing) {
+    return fetched;
+  }
+  const pv = existing.mediaPreviewUrl?.trim();
+  const pvOut = pv && pv.length > 0 ? { mediaPreviewUrl: pv } : {};
+  const mediaKeyMerged = mergeHydrateMediaKey(existing, fetched);
+
+  if (isMessageWireE2ee(existing) && !isMessageWireE2ee(fetched)) {
+    return {
+      ...fetched,
+      body: fetched.body ?? existing.body,
+      iv: existing.iv ?? fetched.iv ?? null,
+      algorithm: existing.algorithm ?? fetched.algorithm ?? null,
+      encryptedMessageKeys: existing.encryptedMessageKeys,
+      ...pvOut,
+      mediaKey: mediaKeyMerged,
+    };
+  }
+
+  const nFetched = fetched.encryptedMessageKeys
+    ? Object.keys(fetched.encryptedMessageKeys).length
+    : 0;
+  const nExisting = existing.encryptedMessageKeys
+    ? Object.keys(existing.encryptedMessageKeys).length
+    : 0;
+  if (isMessageWireE2ee(existing) && nExisting > 0 && nFetched === 0) {
+    return {
+      ...fetched,
+      body: fetched.body ?? existing.body,
+      iv: existing.iv ?? fetched.iv ?? null,
+      algorithm: existing.algorithm ?? fetched.algorithm ?? null,
+      encryptedMessageKeys: existing.encryptedMessageKeys,
+      ...pvOut,
+      mediaKey: mediaKeyMerged,
+    };
+  }
+
+  return Object.keys(pvOut).length > 0
+    ? { ...fetched, ...pvOut, mediaKey: mediaKeyMerged }
+    : { ...fetched, mediaKey: mediaKeyMerged };
+}
+
 /** Default **`messaging`** slice state — tests / **`renderWithProviders`**. */
 export const messagingInitialState = initialState;
 
@@ -273,21 +340,23 @@ const messagingSlice = createSlice({
       }
       state.messageIdsByConversationId[conversationId] = ordered.map((m) => m.id);
       for (const m of ordered) {
-        let body = m.body;
+        const prevStored = state.messagesById[m.id];
+        const merged = mergeHydrateFetchedWithExisting(prevStored, m);
+        let body = merged.body;
         if (
           selfId &&
-          m.senderId === selfId &&
+          merged.senderId === selfId &&
           body &&
-          isMessageWireE2ee(m)
+          isMessageWireE2ee(merged)
         ) {
-          const plain = state.senderPlaintextByMessageId[m.id];
+          const plain = state.senderPlaintextByMessageId[merged.id];
           if (plain) {
             body = plain;
           }
         }
-        state.messagesById[m.id] = { ...m, body: body ?? null };
-        if (selfId && m.senderId === selfId) {
-          state.outboundReceiptByMessageId[m.id] = 'sent';
+        state.messagesById[merged.id] = { ...merged, body: body ?? null };
+        if (selfId && merged.senderId === selfId) {
+          state.outboundReceiptByMessageId[merged.id] = 'sent';
         }
       }
       delete state.pendingOutgoingClientIdsByConversationId[conversationId];

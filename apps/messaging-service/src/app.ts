@@ -8,6 +8,11 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { createGlobalRestRateLimitMiddleware } from './middleware/globalRestRateLimit.js';
 import { createJsonBodyParserWithPublicKeyLimit } from './middleware/jsonBodyParserWithPublicKeyLimit.js';
 import { notFoundHandler } from './middleware/notFound.js';
+import {
+  createPrometheusHttpMiddleware,
+  initPrometheusIfEnabled,
+  registerMetricsRoute,
+} from './observability/prometheus.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createConversationsRouter } from './routes/conversations.js';
 import { createMessagesRouter } from './routes/messages.js';
@@ -20,6 +25,9 @@ export function createApp(env: Env): express.Application {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
+  initPrometheusIfEnabled(env);
+  app.use(createPrometheusHttpMiddleware(env));
+  registerMetricsRoute(app, env);
   app.use(createJsonBodyParserWithPublicKeyLimit(env));
 
   app.use(
@@ -50,6 +58,8 @@ export function createApp(env: Env): express.Application {
         ignore: (req: IncomingMessage) => {
           const url = req.url ?? '';
           return (
+            url === '/metrics' ||
+            url.startsWith('/metrics?') ||
             url.startsWith('/v1/health') ||
             url.startsWith('/v1/ready') ||
             url.startsWith('/api-docs')

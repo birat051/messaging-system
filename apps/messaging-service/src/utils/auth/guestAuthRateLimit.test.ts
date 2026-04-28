@@ -23,13 +23,15 @@ const baseEnv = {
 
 describe('getClientFingerprintHeader', () => {
   it('returns undefined when header missing', () => {
-    expect(getClientFingerprintHeader({ headers: {} } as Request)).toBeUndefined();
+    expect(
+      getClientFingerprintHeader({ headers: {} } as unknown as Request),
+    ).toBeUndefined();
   });
 
   it('returns trimmed value', () => {
     const req = {
       headers: { [CLIENT_FINGERPRINT_HEADER]: '  abc  ' },
-    } as Request;
+    } as unknown as Request;
     expect(getClientFingerprintHeader(req)).toBe('abc');
   });
 });

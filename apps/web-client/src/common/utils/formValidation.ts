@@ -16,11 +16,6 @@ const EMAIL_RE =
 export const USER_SEARCH_QUERY_MIN_LENGTH = 3;
 export const USER_SEARCH_QUERY_MAX_LENGTH = 254;
 
-/** @deprecated Use **`USER_SEARCH_QUERY_MIN_LENGTH`**. */
-export const USER_SEARCH_EMAIL_QUERY_MIN_LENGTH = USER_SEARCH_QUERY_MIN_LENGTH;
-/** @deprecated Use **`USER_SEARCH_QUERY_MAX_LENGTH`**. */
-export const USER_SEARCH_EMAIL_QUERY_MAX_LENGTH = USER_SEARCH_QUERY_MAX_LENGTH;
-
 /** Includes **`_`** for username fragments — align with **`GET /users/search`** server validation. */
 const USER_SEARCH_QUERY_RE = /^[a-z0-9@._+_-]+$/;
 
@@ -36,11 +31,6 @@ export function isValidUserSearchQuery(normalized: string): boolean {
     return false;
   }
   return USER_SEARCH_QUERY_RE.test(normalized);
-}
-
-/** @deprecated Use **`isValidUserSearchQuery`**. */
-export function isValidUserSearchEmailQuery(normalized: string): boolean {
-  return isValidUserSearchQuery(normalized);
 }
 
 export function isValidEmail(value: string): boolean {

@@ -277,7 +277,7 @@ export function getUserById(): RequestHandler {
   };
 }
 
-export function patchMeMultipart(
+function patchMeMultipart(
   upload: multer.Multer,
 ): RequestHandler {
   return (req, res, next) => {

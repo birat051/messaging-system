@@ -9,8 +9,6 @@ import { NewDirectThreadComposer } from './NewDirectThreadComposer';
 import { UserSearchBar } from './UserSearchBar';
 import { UserSearchResultsPane } from './UserSearchResultsPane';
 
-export { SEARCH_DEBOUNCE_MS, useUserSearchQuery } from '@/modules/home/hooks/useUserSearchQuery';
-
 type UserSearchResult = components['schemas']['UserSearchResult'];
 
 function threadLabelFor(user: UserSearchResult): string {

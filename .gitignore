@@ -8,9 +8,27 @@ build/
 .env.development.local
 .env.production.local
 .env.test.local
-*.log
+# Prod / split stack (PC-5): runbooks and references stay in `docs/` and `docs/TASK_CHECKLIST.md`. Do not add a
+# “two-file deploy / production split” section to the root `README.md` — that stack is out of band for
+# default project docs. Ignore only local or machine-specific prod-env scratch files (not `*.md` runbooks in git).
+.env.prod.local
+*.prod.local.md
+# Do not ignore `*.log` globally — k6 / test result logs may be committed. Ignore package-manager noise only:
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+# k6 creds and local env (copy from users.example.json, env.example)
+tests/k6/users.json
+tests/k6/.env
+# k6 / local run artifacts
+artifacts/
+# Prod ops markdown (AWS two-EC2 deploy, runbook, etc.) — keep local; do not commit.
+docs/prod-*.md
 .DS_Store
 coverage/
 .idea/
 .vscode/*
 !.vscode/extensions.json
+infra/loadtest/backup-restore.data.md
+docs/scalability-methodology.md

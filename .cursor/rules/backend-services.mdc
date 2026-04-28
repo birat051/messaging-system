@@ -18,7 +18,7 @@ alwaysApply: false
 
 - **Layers:** routes/controllers → **services** (use cases) → **repositories** (MongoDB/Redis). Thin route handlers.
 - **REST contract:** `docs/openapi/` is authoritative; validate requests with **Zod** (or equivalent) in services; keep in sync with OpenAPI in the same PR.
-- **Env:** validate at startup (e.g. Zod); fail fast. Never commit secrets; never log passwords, tokens, or full PII. Document vars in **`README.md`** (Configuration).
+- **Env:** validate at startup (e.g. Zod); fail fast. Never commit secrets; never log passwords, tokens, or full PII. Document vars in **`apps/messaging-service/.env.example`** (keep in sync with `loadEnv()`).
 
 ## Express
 

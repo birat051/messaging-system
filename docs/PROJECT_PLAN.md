@@ -119,7 +119,7 @@ Design the **exchange / queue topology** so bindings align with **§3.2.1** (sep
 
 **What Redis is still for:** last-seen presence, rate-limit counters, optional runtime-config cache, refresh-token storage—**not** Socket.IO room state.
 
-**`@socket.io/redis-adapter`:** Not part of the intended architecture for room delivery (it would duplicate routing already solved by RabbitMQ and can **double-deliver** if combined with per-instance broker consumers). Keep **`SOCKET_IO_REDIS_ADAPTER`** **off** unless a separate, explicitly justified use case appears; see **`README.md`** (configuration) and **`TASK_CHECKLIST.md`**.
+**`@socket.io/redis-adapter`:** Not part of the intended architecture for room delivery (it would duplicate routing already solved by RabbitMQ and can **double-deliver** if combined with per-instance broker consumers). Keep **`SOCKET_IO_REDIS_ADAPTER`** **off** unless a separate, explicitly justified use case appears; see **`apps/messaging-service/.env.example`** and **`TASK_CHECKLIST.md`**.
 
 ### 3.2.3 Chat message envelope and logging (E2EE)
 
@@ -183,9 +183,9 @@ _Optional later split:_ extract a dedicated **Socket.IO gateway** if traffic gro
 
 ### Guest sessions (temporary access — Feature 2a)
 
-Short-lived access **without** full Feature 2 registration (email, password, verification). Intended for demo / playground; **on/off** via **`guestSessionsEnabled`** in MongoDB **`system_config`** (see **`README.md`** — Runtime configuration).
+Short-lived access **without** full Feature 2 registration (email, password, verification). Intended for demo / playground; **on/off** via **`guestSessionsEnabled`** in MongoDB **`system_config`** (see **env** + MongoDB runtime config; **`docs/openapi/openapi.yaml`** / **`loadEnv()`**).
 
-**Session & token TTL:** Guest access JWT lifetime and opaque refresh token storage in Redis both use **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** and **`GUEST_REFRESH_TOKEN_TTL_SECONDS`** (defaults **1800** s = **30 minutes** each), separate from registered-user **`ACCESS_TOKEN_TTL_SECONDS`** / **`REFRESH_TOKEN_TTL_SECONDS`**. Configure in **`README.md`** (Configuration).
+**Session & token TTL:** Guest access JWT lifetime and opaque refresh token storage in Redis both use **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** and **`GUEST_REFRESH_TOKEN_TTL_SECONDS`** (defaults **1800** s = **30 minutes** each), separate from registered-user **`ACCESS_TOKEN_TTL_SECONDS`** / **`REFRESH_TOKEN_TTL_SECONDS`**. Configure in **`apps/messaging-service/.env.example`**.
 
 **Persistence:** Guest **identity** is stored in **`users`** with **`isGuest: true`**, **`username`**, optional **`displayName`**, and **no** **`email`** field. **`GUEST_DATA_TTL_ENABLED`** / **`system_config.guestDataTtlEnabled`** (default **on**) controls whether **`guestDataExpiresAt`** is written for MongoDB TTL on guest **`users`**, guest↔guest **`conversations`**, and **`messages`**.
 
@@ -234,9 +234,9 @@ This design ensures:
 
 - **Same browser profile, user signs out (Settings / `useAuth` logout):** Treat as **the same logical device** for E2EE continuity. The web client **does not** wipe **IndexedDB** (`deviceIdentity` / private keyring) on sign-out; **`deviceId`** and key material **remain** locally. On the next sign-in, **`ensureUserKeypairReadyForMessaging`** (**`apps/web-client`**) rehydrates **`deviceId`** from storage and **`POST /v1/users/me/devices`** **re-registers** the device with the **same client-supplied `deviceId`** when the server registry row is absent (e.g. after optional **`DELETE /v1/users/me/devices/:deviceId`** when **`VITE_REVOKE_DEVICE_ON_LOGOUT=true`**). That **re-register** path **aligns** the server registry with persisted **`deviceId`** so **`encryptedMessageKeys[deviceId]`** on stored messages remains the correct lookup for this browser — **clearing IndexedDB on logout is not required** (and not implemented). **Feature 13** (multi-device key sync) is **not** part of this nominal path — history should remain decryptable **without** a trusted-device sync round trip, provided local keys load correctly.
 - **Actual new device or wiped profile:** Another browser profile, cleared site data / lost IndexedDB, or a fresh install with **no** local keyring is treated as a **new device**: past messages lack **`encryptedMessageKeys` for that `deviceId`** until **Feature 13** runs from an existing trusted device **or** only **new** traffic after registration includes wrapped keys for the new id.
-- **Bootstrap guarantees:** **`ensureUserKeypairReadyForMessaging`** does **not** mint a new **`crypto.randomUUID()` `deviceId`** when a **keyring** already exists locally — it **reuses** **`deviceIdentity`**. After each successful **`POST /v1/users/me/devices`**, **`evaluateDeviceSyncBootstrapState`** may set **`syncState: 'pending'`** when **multiple** devices are registered and this **`deviceId`** has **no** wrapped keys on the first sync page — **Feature 13** flow. See **`docs/repro-decrypt-after-relogin.md`** (**New `deviceId` without sync**).
+- **Bootstrap guarantees:** **`ensureUserKeypairReadyForMessaging`** does **not** mint a new **`crypto.randomUUID()` `deviceId`** when a **keyring** already exists locally — it **reuses** **`deviceIdentity`**. After each successful **`POST /v1/users/me/devices`**, **`evaluateDeviceSyncBootstrapState`** may set **`syncState: 'pending'`** when **multiple** devices are registered and this **`deviceId`** has **no** wrapped keys on the first sync page — **Feature 13** flow. See also **Multi-device Sync** in this section (**New `deviceId` without sync**).
 
-See **`docs/repro-decrypt-after-relogin.md`** (bootstrap trace, logout side effects, revoke vs IndexedDB) for implementation-aligned debugging notes.
+Bootstrap ordering, logout side effects, and **IndexedDB** retention vs **revoke on logout** are covered in the bullets above in this **§7.1** subsection.
 
 #### Threat model and server trust boundaries
 
@@ -641,7 +641,11 @@ messaging-system/
         repositories/
         ...
   infra/
-    docker-compose.yml
+    dev/
+      docker-compose.yml   # local all-in-one stack
+    prod/
+      docker-compose.data.yml
+      docker-compose.app.yml
   docs/
     openapi/           # OpenAPI 3 spec (source of truth for REST + codegen)
     PROJECT_PLAN.md
@@ -678,7 +682,7 @@ messaging-system/
 
 ### Target deployment shape
 
-- **`infra/docker-compose.yml`** (or equivalent) runs **messaging-service**, **MongoDB**, **Redis**, **RabbitMQ**, S3-compatible storage (e.g. **MinIO**), **nginx** (reverse proxy for REST + **Socket.IO**, static **web-client** `dist/`, TLS termination), and optionally **coturn** for WebRTC TURN.
+- **`infra/dev/docker-compose.yml`** (or equivalent) runs **messaging-service**, **MongoDB**, **Redis**, **RabbitMQ**, S3-compatible storage (e.g. **MinIO**), **nginx** (reverse proxy for REST + **Socket.IO**, static **web-client** `dist/`, TLS termination), and optionally **coturn** for WebRTC TURN.
 - Document hostnames, ports, and env injection so the stack can be brought up with one command once implemented; align variable names with **`README.md`** (environment variables).
 - **web-client** is built to static assets consumed by nginx; backend exposes HTTP/Socket.IO as described in **§3** and **§6**.
 
@@ -719,7 +723,7 @@ If something here conflicts with a one-off prompt, **these guidelines win** unle
 - **web-client (`apps/web-client`):** follow **`PROJECT_PLAN.md` §10.1** — shared code under **`src/common/`** (`api`, `components`, `constants`, `types`, `utils`; optional **`hooks/`**), feature- or page-scoped code under **`src/modules/<module-id>/`** (each module may include `components`, `stores`, `api`, `constants`, `utils`, `types`, `pages/`). App shell pieces stay at **`src/`** root (`main.tsx`, `App.tsx`, `store/`, `routes/`, `generated/`, `workers/`). **Concrete import, testing path, one-component-per-file, `utils/`, and `types/<ComponentName>-types.ts` rules** are in **§4.0** and **§4.1.3** below.
 - **HTTP contract:** the **OpenAPI 3** document in `docs/openapi/` is the source of truth for REST. **web-client** generates TypeScript types with **`openapi-typescript`** (`npm run generate:api` in `apps/web-client`)—**no** `packages/shared` package for DTOs. **messaging-service** validates with **Zod** (or equivalent) at the boundary; keep schemas aligned with the OpenAPI spec in the same PR when routes change.
 - **Configuration**: validate all required environment variables **at startup** (e.g. with Zod or a small env schema). Fail fast with clear errors if misconfigured.
-- **Secrets**: never commit secrets or tokens. Use environment variables or a secrets manager; document required vars in **`README.md (configuration section)`** (per microservice) and keep them aligned with Docker Compose / deployment.
+- **Secrets**: never commit secrets or tokens. Use environment variables or a secrets manager; document required vars in **`apps/*/.env.example`** and keep them aligned with Docker Compose / deployment.
 
 ### 1.3 Express / HTTP services
 

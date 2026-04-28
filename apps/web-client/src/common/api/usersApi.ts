@@ -137,16 +137,6 @@ export async function searchUsers(params: {
 }
 
 /**
- * @deprecated Use **`searchUsers`** with **`query`** (preferred **`q`** on the wire). Same behaviour as legacy **`email`** param.
- */
-export async function searchUsersByEmail(params: {
-  email: string;
-  limit?: components['parameters']['LimitQuery'];
-}): Promise<S['UserSearchResult'][]> {
-  return searchUsers({ query: params.email, limit: params.limit });
-}
-
-/**
  * `POST /users/me/devices` — register or update one device row (server assigns **`deviceId`** when omitted).
  * Body may use **`publicKey`** or **`pubKey`** (SPKI); optional **`deviceLabel`**; **`bootstrap: true`** → **201** and
  * **`RegisterDeviceBootstrapResponse`** (`deviceId` only).

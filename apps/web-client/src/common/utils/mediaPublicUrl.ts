@@ -1,3 +1,27 @@
+import {
+  logMediaPreview,
+  redactUrlForLog,
+} from '@/common/utils/mediaPreviewDebug';
+
+/**
+ * **Pre-signed PUT** URLs (S3/MinIO **`x-id=PutObject`**) authenticate **one HTTP method and headers** (often
+ * **`Content-Length`**). Browsers use **GET** for **`new Image()`** / address bar — that is **not** the signed
+ * request → **`SignatureDoesNotMatch`**. Never treat the upload URL as a **read** URL; use path-style
+ * **`getMediaPublicObjectUrl(mediaKey)`** when the bucket allows anonymous read.
+ */
+export function isPresignedS3PutObjectUrl(url: string): boolean {
+  const t = url.trim();
+  if (!t.includes('PutObject') && !t.includes('X-Amz-')) {
+    return false;
+  }
+  try {
+    const u = new URL(t);
+    return u.searchParams.get('x-id') === 'PutObject';
+  } catch {
+    return false;
+  }
+}
+
 /**
  * **Attachment data path (ids + display URLs):**
  *
@@ -10,8 +34,9 @@
  *    Not **`attachments[]`** / **`mediaId`**.
  * 3. **Recipient** — **`parseMessageNewPayload`** / **`fetch`** keep **`mediaKey`** when the server stored it; hybrid rows
  *    use client-decrypted **`m.k`** for display (**`decryptedAttachmentKeyByMessageId`**).
- * 4. **Display** — **`resolveMediaAttachmentDisplayUrl(mediaKey, mediaPreviewUrl)`** prefers client **`blob:`** /
- *    decrypted hybrid **`m.u`** / upload **`url`**; otherwise **`getMediaPublicObjectUrl(mediaKey)`** or
+ * 4. **Display** — **`resolveMediaAttachmentDisplayUrl(mediaKey, previewUrlOverride)`** prefers client **`blob:`** /
+ *    decrypted **`m.u`** — **presigned PUT** URLs (**`isPresignedS3PutObjectUrl`**) are skipped in favor of
+ *    **`getMediaPublicObjectUrl(mediaKey)`**; otherwise **`getMediaPublicObjectUrl(mediaKey)`** or
  *    **`m.b` + `m.k`** via **`buildMediaUrlFromPublicBasePrefixAndKey`**.
  */
 export function resolveMediaAttachmentDisplayUrl(
@@ -25,8 +50,25 @@ export function resolveMediaAttachmentDisplayUrl(
       raw.startsWith('https:') ||
       raw.startsWith('http:')
     ) {
+      if (
+        (raw.startsWith('http:') || raw.startsWith('https:')) &&
+        isPresignedS3PutObjectUrl(raw)
+      ) {
+        const out = getMediaPublicObjectUrl(mediaKey);
+        logMediaPreview('resolve: override PUT presign → key URL', {
+          mediaKeySnippet: mediaKey.trim().slice(0, 48),
+          previewOverride: redactUrlForLog(raw),
+          resolved: redactUrlForLog(out),
+        });
+        return out;
+      }
+      /** No log for normal **blob** / **http(s)** overrides — **`resolveMediaAttachmentDisplayUrl`** runs every render. */
       return raw;
     }
+    logMediaPreview('resolve: override present but unusable → key URL only', {
+      mediaKeySnippet: mediaKey.trim().slice(0, 48),
+      previewOverrideSnippet: raw.slice(0, 72),
+    });
   }
   return getMediaPublicObjectUrl(mediaKey);
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   encryptUtf8ToHybridSendPayload,
+  isMessageWireE2ee,
   mergeHybridDeviceRows,
 } from '@/common/crypto/messageHybrid';
 import { exportPublicKeySpkiBase64, generateP256EcdhKeyPair } from '@/common/crypto/keypair';
@@ -11,6 +12,7 @@ import {
   clearConversationScrollTarget,
   hydrateMessagesFromFetch,
   hydrateSenderPlaintextFromDisk,
+  mergeHydrateFetchedWithExisting,
   mergeReceiptFanoutFromSocket,
   messagingReducer,
   recordOwnSendPlaintext,
@@ -116,6 +118,104 @@ describe('recordOwnSendPlaintext', () => {
       }),
     );
     expect(state.senderPlaintextByMessageId['msg-server-1']).toBe('Hello new thread');
+  });
+});
+
+describe('mergeHydrateFetchedWithExisting (Socket.IO vs GET race)', () => {
+  const cid = 'conv-hydr-merge';
+
+  it('hydrate preserves hybrid envelope when GET row lacks encryptedMessageKeys / iv / algorithm', async () => {
+    const viewerId = 'u-viewer';
+    const peerSender = 'u-peer';
+    const h = await hybridWireFromPlaintext('caption');
+    const full: Message = {
+      id: 'msg-merge-hybrid',
+      conversationId: cid,
+      senderId: peerSender,
+      body: h.body,
+      iv: h.iv,
+      algorithm: h.algorithm,
+      encryptedMessageKeys: h.encryptedMessageKeys,
+      mediaKey: null,
+      createdAt: '2026-04-01T12:00:00.000Z',
+    };
+
+    let state = messagingReducer(
+      base,
+      appendIncomingMessageIfNew({
+        message: full,
+        currentUserId: viewerId,
+      }),
+    );
+    expect(isMessageWireE2ee(state.messagesById['msg-merge-hybrid']!)).toBe(true);
+
+    const truncatedFetch: Message = {
+      id: full.id,
+      conversationId: cid,
+      senderId: peerSender,
+      body: full.body ?? '',
+      mediaKey: null,
+      createdAt: full.createdAt,
+    };
+
+    state = messagingReducer(
+      state,
+      hydrateMessagesFromFetch({
+        conversationId: cid,
+        messages: [truncatedFetch],
+        currentUserId: viewerId,
+      }),
+    );
+
+    const row = state.messagesById['msg-merge-hybrid'];
+    expect(row).toBeDefined();
+    expect(isMessageWireE2ee(row!)).toBe(true);
+    expect(row?.encryptedMessageKeys).toEqual(h.encryptedMessageKeys);
+  });
+
+  it('preserves existing mediaKey when GET keeps mediaKey null (hybrid E2EE attachment)', () => {
+    const objectKey = 'users/u-a/attachment.jpg';
+    const existing: Message = {
+      id: 'msg-mk-hydr',
+      conversationId: cid,
+      senderId: 'u-self',
+      body: 'x',
+      mediaKey: objectKey,
+      createdAt: '2026-04-01T12:00:00.000Z',
+    };
+    const fetched: Message = {
+      ...existing,
+      mediaKey: null,
+    };
+
+    expect(mergeHydrateFetchedWithExisting(existing, fetched).mediaKey).toBe(objectKey);
+  });
+
+  it('mergeHydrateFetchedWithExisting restores crypto when fetched row is ciphertext-only', async () => {
+    const h = await hybridWireFromPlaintext('text');
+    const existing: Message = {
+      id: 'm1',
+      conversationId: cid,
+      senderId: 's',
+      body: h.body,
+      iv: h.iv,
+      algorithm: h.algorithm,
+      encryptedMessageKeys: h.encryptedMessageKeys,
+      mediaKey: null,
+      createdAt: '2026-04-01T12:00:00.000Z',
+    };
+    const fetched: Message = {
+      id: 'm1',
+      conversationId: cid,
+      senderId: 's',
+      body: h.body ?? '',
+      mediaKey: null,
+      createdAt: '2026-04-01T12:00:00.000Z',
+    };
+
+    const merged = mergeHydrateFetchedWithExisting(existing, fetched);
+    expect(isMessageWireE2ee(merged)).toBe(true);
+    expect(merged.iv).toBe(h.iv);
   });
 });
 

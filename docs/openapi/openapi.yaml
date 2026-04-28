@@ -13,7 +13,7 @@ info:
     Peers must be allowed as direct-messaging pairs (**guest ↔ guest** or **registered ↔ registered** only).
     **STUN** / **TURN** for media connectivity are **not** configured via this REST API — use **web-client** env
     (**`VITE_WEBRTC_*`**, **`getWebRtcIceServers()`**) and **`README.md`** (WebRTC: ports and ICE); optional **coturn**
-    in **`infra/docker-compose.yml`** (**`--profile turn`**). The server emits
+    in **`infra/dev/docker-compose.yml`** (**`--profile turn`**). The server emits
     **`notification`** with a JSON body discriminated by **`kind`** (`message` \| `call_incoming`);
     see **`docs/PROJECT_PLAN.md`** §8 (and §3.3). The web-client runs
     **`socket.io-client` in a Web Worker** and forwards events to the UI; that is a client
@@ -73,7 +73,7 @@ info:
     or **`pubKey`**, SPKI Base64), optional **`deviceLabel`**, optional **`bootstrap: true`** for a **201** `{ deviceId }`
     response (Feature 13). Server assigns **`deviceId`** when omitted. **`GET /users/me/devices`** lists the caller’s own device rows (**`deviceId`**, label, activity) **and each row’s SPKI `publicKey`** so the trusted device can verify Socket.IO **`device:sync_requested`** payloads against the same listing.
     **`GET /users/{userId}/devices/public-keys`** lists active device keys when the caller
-    may fetch them (**`PUBLIC_KEY_FETCH_REQUIRE_DIRECT_THREAD`** in **`README.md`**). New device inserts also emit Socket.IO **`device:sync_requested`**
+    may fetch them (**`PUBLIC_KEY_FETCH_REQUIRE_DIRECT_THREAD`** in **`apps/messaging-service/.env.example`**). New device inserts also emit Socket.IO **`device:sync_requested`**
     on **`user:<userId>`** (see **`POST /users/me/devices`**). **`GET /users/me/sync/message-keys`** batches **`encryptedMessageKeys[deviceId]`**
     for an active registered device (trusted-device re-wrap flow). **`POST /users/me/sync/message-keys`** uploads wrapped keys for **`targetDeviceId`**
     (requires access JWT **`sourceDeviceId`** claim). **`DELETE /users/me/devices/{deviceId}`**
@@ -87,7 +87,7 @@ info:
     Whether registration leaves users unverified, whether **`POST /auth/verify-email`** and **`POST /auth/resend-verification`**
     are part of the happy path, and whether **`EMAIL_VERIFICATION_DISABLED`** is returned for those routes when verification
     is off are determined by the **messaging-service** environment variable **`EMAIL_VERIFICATION_REQUIRED`**
-    (default **`false`**). See **`README.md`** (Configuration — email verification) and **Feature 2**
+    (default **`false`**). See **`apps/messaging-service/.env.example`** (EMAIL_VERIFICATION_*) and **Feature 2**
     in **`docs/TASK_CHECKLIST.md`**. Clients must not assume a fixed mode; use **`User.emailVerified`**, **`AuthResponse`**, and
     error **`code`** values (e.g. **`EMAIL_VERIFICATION_DISABLED`**) from responses.
 
@@ -207,7 +207,7 @@ paths:
       summary: Verify email using signed JWT from registration or resend (throttled per IP)
       description: |
         When **`EMAIL_VERIFICATION_REQUIRED`** is **`false`** on the server, returns **400** with **`ErrorResponse`**
-        **`code`** **`EMAIL_VERIFICATION_DISABLED`** — the verification flow is not used (see **`README.md`** (Configuration section)).
+        **`code`** **`EMAIL_VERIFICATION_DISABLED`** — the verification flow is not used (see **`apps/messaging-service/.env.example`** / **`EMAIL_VERIFICATION_REQUIRED`**).
         If the token resolves to a **guest** account, returns **403** **`GUEST_ACTION_FORBIDDEN`**.
       tags:
         - Auth
@@ -288,7 +288,7 @@ paths:
       summary: Create a guest session (planned — not yet implemented when enabled)
       description: |
         **On/off** is controlled by **`guestSessionsEnabled`** in MongoDB **`system_config`** (singleton), merged with env
-        **`GUEST_SESSIONS_ENABLED`** via effective runtime config (see **`README.md`** — Runtime configuration). When disabled,
+        **`GUEST_SESSIONS_ENABLED`** via effective runtime config (see **`docs/PROJECT_PLAN.md`**, env + MongoDB **`system_config`**). When disabled,
         returns **403** with **`code`** **`GUEST_SESSIONS_DISABLED`** before body validation. When enabled, creates a guest **`User`** row (no email; optional MongoDB TTL via **`guestDataExpiresAt`** when **`guestDataTtlEnabled`** is true in **`system_config`** / env).
 
         **Rate limits (Redis):** per client IP (**`GUEST_AUTH_RATE_LIMIT_*`**); when **`X-Client-Fingerprint`** is sent, an additional
@@ -296,7 +296,7 @@ paths:
 
         Success body is **`GuestAuthResponse`**: tokens, **`user`** with **`guest: true`**, **`expiresIn`** (seconds),
         and **`expiresAt`** (ISO 8601 absolute access expiry). Access JWT payload includes **`guest: true`**. Guest sessions use
-        **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** and **`GUEST_REFRESH_TOKEN_TTL_SECONDS`** (see **`README.md`** — Configuration;
+        **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** and **`GUEST_REFRESH_TOKEN_TTL_SECONDS`** (see **`apps/messaging-service/.env.example`**;
         defaults **1800** s = **30 minutes** each); opaque refresh token Redis **`EX`** matches guest refresh TTL.
       tags:
         - Auth
@@ -388,7 +388,7 @@ paths:
       description: |
         For **registered** users, access and refresh TTLs follow **`ACCESS_TOKEN_TTL_SECONDS`** and **`REFRESH_TOKEN_TTL_SECONDS`**.
         For **guest** users (`User.isGuest`), the server uses **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** and **`GUEST_REFRESH_TOKEN_TTL_SECONDS`**
-        (defaults **30 minutes** each; see **`README.md`**).
+        (defaults **30 minutes** each; see **`apps/messaging-service/.env.example`** — **GUEST_*_TTL**).
       tags:
         - Auth
       requestBody:
@@ -882,8 +882,8 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
           description: >-
-            Per-user Redis fixed-window cap on batch sync uploads exceeded (**`DEVICE_SYNC_RATE_LIMIT_*`** in **`README.md`**
-            Configuration; stacks with **`GLOBAL_RATE_LIMIT_*`**).
+            Per-user Redis fixed-window cap on batch sync uploads exceeded (**`DEVICE_SYNC_RATE_LIMIT_*`** in **`apps/messaging-service/.env.example`**;
+            stacks with **`GLOBAL_RATE_LIMIT_*`**).
           content:
             application/json:
               schema:
@@ -895,7 +895,7 @@ paths:
       summary: List active device public keys for a user
       description: |
         Returns all registered devices for **`userId`**. **Authorization:** self, loose peer fetch, or direct-thread-only when
-        **`PUBLIC_KEY_FETCH_REQUIRE_DIRECT_THREAD`** is set (**`README.md`**).
+        **`PUBLIC_KEY_FETCH_REQUIRE_DIRECT_THREAD`** is set (**`apps/messaging-service/.env.example`**).
       tags:
         - Users
         - 'Device sync (Feature 13)'
@@ -1047,7 +1047,7 @@ paths:
         **Direct 1:1** threads only — **group** conversations return **403** until group messaging is implemented.
         The caller must be a **participant**; otherwise **403**. Messages are returned **newest first**.
         **`cursor`** is opaque (from **`nextCursor`**); malformed cursors return **400**.
-        **Rate limiting:** the **global** REST per-IP limit (`GLOBAL_RATE_LIMIT_*` in **`README.md`** (Configuration section)) applies to this route; exceeding it returns **429** with **`ErrorResponse`** (**`code`** typically **`RATE_LIMIT_EXCEEDED`**).
+        **Rate limiting:** the **global** REST per-IP limit (`GLOBAL_RATE_LIMIT_*` in **`apps/messaging-service/.env.example`**) applies to this route; exceeding it returns **429** with **`ErrorResponse`** (**`code`** typically **`RATE_LIMIT_EXCEEDED`**).
       tags:
         - Messages
       security:
@@ -1144,7 +1144,7 @@ paths:
         guest ↔ registered pairs return **403** with **`code`** **`GUEST_MESSAGING_FORBIDDEN`** (same rule on Socket.IO **`message:send`**).
 
         **Rate limiting:** this route uses the **message-send** limits (**`MESSAGE_SEND_RATE_LIMIT_*`**, per user + IP)
-        in addition to the **global** REST per-IP limit — see **`README.md`** (Configuration section) (*Global vs per-route*). Either
+        in addition to the **global** REST per-IP limit — see **`apps/messaging-service/.env.example`** (*Global vs per-route*). Either
         can return **429** with **`ErrorResponse`** (**`code`** **`RATE_LIMIT_EXCEEDED`**).
       tags:
         - Messages
@@ -1784,7 +1784,7 @@ components:
           description: >-
             Present on every **`User`**. Meaning depends on deployment: when **`EMAIL_VERIFICATION_REQUIRED`** is **`true`**
             (messaging-service env), new users may be **`false`** until **`POST /auth/verify-email`** succeeds; when **`false`**,
-            registration typically sets this to **`true`** immediately. See **`README.md`** (Configuration section) — email verification.
+            registration typically sets this to **`true`** immediately. See **`apps/messaging-service/.env.example`** — **EMAIL_VERIFICATION_REQUIRED**.
         profilePicture:
           type: string
           format: uri

@@ -59,7 +59,11 @@ export function bumpConversationInListCache(
     (prev: ConversationPage | undefined): ConversationPage | undefined => {
       if (prev === undefined) {
         queueMicrotask(() => {
-          void mutate(key);
+          try {
+            void Promise.resolve(mutate(key)).catch(() => {});
+          } catch {
+            /* SWR internal cache may be gone after unmount (e.g. tests). */
+          }
         });
         return prev;
       }
@@ -70,7 +74,11 @@ export function bumpConversationInListCache(
       );
       if (!found) {
         queueMicrotask(() => {
-          void mutate(key);
+          try {
+            void Promise.resolve(mutate(key)).catch(() => {});
+          } catch {
+            /* SWR internal cache may be gone after unmount (e.g. tests). */
+          }
         });
         return prev;
       }

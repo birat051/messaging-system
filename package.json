@@ -7,6 +7,10 @@
     "node": ">=20"
   },
   "scripts": {
+    "k6:smoke": "k6 run -e K6_RAMP_STEPS=1 -e K6_RAMP_UP_DURATION=5s -e K6_SUSTAIN_DURATION=20s -e K6_RAMP_DOWN_DURATION=0s -e K6_MAX_VUS=1 tests/k6/scenarios/stepping.js",
+    "k6:stepping": "k6 run -e K6_RAMP_STEPS=3 -e K6_RAMP_UP_DURATION=30s -e K6_SUSTAIN_DURATION=45s tests/k6/scenarios/stepping.js",
+    "k6:seed-users": "node tests/k6/seed-load-users.mjs",
+    "k6:validate-summary": "node tests/k6/validate-k6-summary.mjs",
     "install:all": "npm install --prefix apps/web-client && npm install --prefix apps/messaging-service",
     "lint:all": "npm run lint --prefix apps/web-client && npm run lint --prefix apps/messaging-service",
     "typecheck:all": "npm run typecheck --prefix apps/web-client && npm run typecheck --prefix apps/messaging-service",

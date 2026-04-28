@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
-import { UserSearchPanel, SEARCH_DEBOUNCE_MS } from './UserSearchPanel';
+import { SEARCH_DEBOUNCE_MS } from '@/modules/home/hooks/useUserSearchQuery';
+import { UserSearchPanel } from './UserSearchPanel';
 import {
   renderWithProviders,
   type PreloadedRootState,

@@ -17,17 +17,18 @@ import {
 import { shouldRetryPeerDecryptAfterCachedFailure } from '@/modules/home/utils/peerDecryptRetry';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import type { RootState } from '@/store/store';
+import {
+  isAttachmentE2eeDebugEnabled,
+  logAttachmentE2ee,
+} from '@/common/crypto/attachmentE2eeDebug';
 
-const DEBUG_PEER_DECRYPT =
-  import.meta.env.DEV &&
-  import.meta.env.VITE_DEBUG_PEER_DECRYPT === 'true';
+const DEBUG_PEER_DECRYPT = Boolean(import.meta.env.DEV);
 
 function debugPeerDecrypt(message: string, details: Record<string, unknown>): void {
   if (!DEBUG_PEER_DECRYPT) {
     return;
   }
-  // eslint-disable-next-line no-console -- gated by VITE_DEBUG_PEER_DECRYPT
-  console.debug(`[peer-decrypt] ${message}`, details);
+  console.log(`[peer-decrypt] ${message}`, details);
 }
 
 /**
@@ -38,8 +39,8 @@ function debugPeerDecrypt(message: string, details: Record<string, unknown>): vo
  * **Multi-device:** when **`message:new`** / REST adds **`encryptedMessageKeys[myDeviceId]`**, decrypt runs;
  * missing entry → **`PEER_DECRYPT_NO_DEVICE_KEY_ENTRY`** until sync adds a wrapped key.
  *
- * **Trace:** `e2eeInboundDecryptTrace.ts`, **`e2eeReceiveTrace.ts`**. **Dev logs:** **`VITE_DEBUG_PEER_DECRYPT=true`**
- * (hook branches); **`VITE_DEBUG_HYBRID_DECRYPT=true`** (per-message **`decryptHybridMessageToUtf8`** phases + key fingerprint).
+ * **Trace:** `e2eeInboundDecryptTrace.ts`, **`e2eeReceiveTrace.ts`**. In **`vite dev`**, **`[peer-decrypt]`** branches and
+ * **`decryptHybridMessageToUtf8`** traces (**`[hybrid-decrypt]`**) print to the console.
  */
 export function usePeerMessageDecryption(
   conversationId: string | null,
@@ -191,6 +192,12 @@ export function usePeerMessageDecryption(
               deviceId: deviceId.trim(),
             },
           );
+          logAttachmentE2ee('decrypt: start hybrid unwrap', {
+            messageId: m.id,
+            isOwnRow: m.senderId === uid,
+            wireMediaKey: m.mediaKey ?? null,
+            hasEncryptedMessageKeys: Boolean(m.encryptedMessageKeys),
+          });
           const pt = await decryptHybridMessageToUtf8(
             {
               body: m.body!,
@@ -204,7 +211,20 @@ export function usePeerMessageDecryption(
               conversationId: conversationId ?? undefined,
             },
           );
+          logAttachmentE2ee('decrypt: inner UTF-8 after AES-GCM', {
+            messageId: m.id,
+            utf8Length: pt.length,
+            startsWithJson: pt.trimStart().startsWith('{'),
+          });
           const parsed = parseDecryptedHybridUtf8(pt);
+          logAttachmentE2ee('decrypt: dispatch to Redux', {
+            messageId: m.id,
+            captionLength: parsed.text.length,
+            resolvedAttachmentKey: parsed.mediaObjectKey ?? null,
+            resolvedAttachmentUrlPresent: Boolean(
+              parsed.mediaRetrievableUrl?.trim(),
+            ),
+          });
           if (!cancelled) {
             const url = parsed.mediaRetrievableUrl?.trim() ?? '';
             dispatch(

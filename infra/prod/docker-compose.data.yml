@@ -1,0 +1,160 @@
+# Data plane (Mongo, Redis, MinIO, RabbitMQ, coturn, Prometheus, Grafana) — prod / split-stack use.
+# **Start order (split stack):** bring **this** stack up **before** `infra/prod/docker-compose.app.yml` so the app host can reach
+# **MONGODB_URI**, **REDIS_URL**, **S3_ENDPOINT** (MinIO :9000), and **RABBITMQ** on the data host. Then start the app plane + set `.env` on the app host.
+# Run from repository root:
+#   docker compose -f infra/prod/docker-compose.data.yml up -d
+# TURN: always started (unlike the monolith, this file has no `profiles: [turn]` on coturn).
+# If this host also runs `infra/dev/docker-compose.yml`, change published ports to avoid conflicts.
+# Named volumes: `mongo-data` (MongoDB under /data/db), `minio-data` (S3 object store). **Redis** is in-memory
+# (no named volume) — data is not durable across `docker compose down` + volume remove.
+# Backup / restore: see `backup-restore.data.md` in this directory.
+# Networking (PC-3, shared network vs L3): `docs/prod-networking.md`.
+# Secrets: `docs/prod-secrets.md` — use `.env`, never commit real values.
+# **Observability:** Prometheus (loopback **:9090**) + Grafana (**:3001** published — public if the host/SG allow it) scrape **GET /metrics** on the app host — see `infra/prod/monitoring/README.md` and set **`GRAFANA_ADMIN_***` in **`.env`**.
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    command: >
+      mongod
+      --wiredTigerCacheSizeGB 10
+      --bind_ip_all
+    healthcheck:
+      test:
+        ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server
+      --maxmemory 1gb
+      --maxmemory-policy allkeys-lru
+      --save ""
+      --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # S3 API :9000 — reachable from the app host (private IP, VPN, or firewall allowing only **ekko**’s IP).
+  # Do not expose :9000 to the open internet; use host/edge firewall, not 0.0.0.0/0 in cloud SGs.
+  # Console :9001 — loopback on the data host only (not routable from other machines).
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address "127.0.0.1:9001"
+    ports:
+      - "9000:9000"
+      - "127.0.0.1:9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      # MinIO image includes curl (if this fails, switch to /minio/health/ready or host-side checks).
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # AMQP — app hosts set RABBITMQ_HOST to this host’s private IP. Restrict :5672 to app SG; :15672 optional (management UI).
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-messaging}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-messaging}
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: >
+        -rabbit vm_memory_high_watermark 0.2
+        -rabbit vm_memory_high_watermark_paging_ratio 0.75
+        -rabbit disk_free_limit 5000000000
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  # TURN: `infra/prod/coturn/turnserver.prod.template` + entrypoint (realm, external-ip, long-lived `lt-cred` from env).
+  # For load tests, set COTURN_EXTERNAL_IP to the data host’s public IP (same idea as the `turn:` host in VITE_*).
+  coturn:
+    image: coturn/coturn:4.6
+    restart: unless-stopped
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "49152-49200:49152-49200/udp"
+    environment:
+      COTURN_REALM: ${COTURN_REALM:-ekko.biratbhattacharjee.com}
+      COTURN_EXTERNAL_IP: ${COTURN_EXTERNAL_IP:-127.0.0.1}
+      COTURN_LT_USER: ${COTURN_LT_USER:-turn}
+      COTURN_LT_PASS: ${COTURN_LT_PASS:-prod-coturn-change-me}
+    volumes:
+      - ./coturn/turnserver.prod.template:/etc/coturn/turnserver.prod.template:ro
+      - ./coturn/docker-entrypoint-coturn-prod.sh:/etc/coturn/docker-entrypoint-coturn-prod.sh:ro
+    entrypoint: ["/bin/sh", "/etc/coturn/docker-entrypoint-coturn-prod.sh"]
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+
+  # Publishes **:3001** on all interfaces. Open the host firewall / EC2 **security group** :3001 only to trusted
+  # nets or place **TLS** in front; set **`GRAFANA_ADMIN_PASSWORD`** and optional **`GRAFANA_SECRET_KEY`** in `.env`.
+  grafana:
+    image: grafana/grafana:11.2.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_HTTP_PORT: "3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  # Docker-local persistent stores (names prefixed by project when created, e.g. `<project>_mongo-data`).
+  mongo-data:
+  minio-data:
+  rabbitmq-data:
+  prometheus-data:
+  grafana-data:

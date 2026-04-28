@@ -120,7 +120,7 @@ export function isHybridE2eeMessage(m: {
  * Decrypt **`body`** for this device: **`unwrapMessageKey`** → **`decryptMessageBody`** (hybrid receive steps **7–8**).
  * Inbound path: **`usePeerMessageDecryption`**. Trace: **`e2eeInboundDecryptTrace.ts`** (web-client).
  *
- * **Dev tracing:** **`VITE_DEBUG_HYBRID_DECRYPT=true`** → **`[hybrid-decrypt]`** **`console.debug`** (never logs raw keys).
+ * **Dev tracing:** **`vite dev`** logs **`[hybrid-decrypt]`** (never logs raw keys).
  */
 export async function decryptHybridMessageToUtf8(
   params: {

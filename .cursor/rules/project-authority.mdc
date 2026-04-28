@@ -28,7 +28,7 @@ Use **`docs/PROJECT_PLAN.md`** (§1–§13 architecture and algorithms) and **`d
 ## Required references
 
 - **`docs/PROJECT_PLAN.md`** — stack, services, algorithms, **§14 Engineering standards**.
-- **`README.md`** (repo root) — product summary, diagrams, **configuration / env**, deployment.
+- **`README.md`** (repo root) — product summary, diagrams, deployment; **env templates** in **`apps/*/.env.example`**, **`infra/dev/.env.example`**.
 - **`docs/TASK_CHECKLIST.md`** — tasks/subtasks; capture work there before large features; check off as you ship.
 
 ## Process (non-negotiable)

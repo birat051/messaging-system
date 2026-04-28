@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@/common/test-utils';
-import { ReceiptTicks, type ReceiptTickState } from './ReceiptTicks';
+import { ReceiptTicks } from './ReceiptTicks';
+import type { ReceiptTickState } from './receiptTickTypes';
 
 describe('ReceiptTicks', () => {
   const states: ReceiptTickState[] = [

@@ -11,7 +11,7 @@ import { resolveBearerAuth } from '../utils/auth/resolveBearer.js';
  * enforces **`emailVerified`** only when **`emailVerificationRequired`** is **`true`** (MongoDB **`system_config`** or env default).
  * For **Bearer** JWTs, rejects when **`guest`** claim does not match **`user.isGuest`** (same token shape as Feature 2; branch on either).
  */
-export type AuthenticatedRequestContext = {
+type AuthenticatedRequestContext = {
   user: UserDocument;
   /** From JWT **`sourceDeviceId`** claim (or dev **`X-Source-Device-Id`**) when present. */
   sourceDeviceId?: string;

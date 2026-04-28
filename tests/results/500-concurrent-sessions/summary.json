@@ -1,0 +1,322 @@
+{
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+                "A has tokens": {
+                    "path": "::A has tokens",
+                    "id": "ade8343e3c6b0d7afecc55c0b6657d96",
+                    "passes": 3969,
+                    "fails": 0,
+                    "name": "A has tokens"
+                },
+                "B has tokens": {
+                    "name": "B has tokens",
+                    "path": "::B has tokens",
+                    "id": "f51d1eb3768db2d8452af17ad711e17f",
+                    "passes": 3969,
+                    "fails": 0
+                },
+                "health 200": {
+                    "passes": 3969,
+                    "fails": 0,
+                    "name": "health 200",
+                    "path": "::health 200",
+                    "id": "8e4f90a842a57472549a6b2cf699032d"
+                },
+                "ack has message id": {
+                    "path": "::ack has message id",
+                    "id": "d09f66df1f85cc8d5731b2e69528741b",
+                    "passes": 3956,
+                    "fails": 0,
+                    "name": "ack has message id"
+                },
+                "receipts full path": {
+                    "name": "receipts full path",
+                    "path": "::receipts full path",
+                    "id": "782edd93920a6523de30ca4941138db0",
+                    "passes": 3956,
+                    "fails": 0
+                },
+                "burst inbound count": {
+                    "name": "burst inbound count",
+                    "path": "::burst inbound count",
+                    "id": "8f4f0a383c38979827d493b709ad7427",
+                    "passes": 3956,
+                    "fails": 0
+                }
+            }
+    },
+    "metrics": {
+        "http_req_sending": {
+            "p(95)": 0.366,
+            "p(99)": 0.76832,
+            "count": 4969,
+            "avg": 0.15603401086737775,
+            "min": 0.011,
+            "med": 0.12,
+            "max": 5.299,
+            "p(90)": 0.288
+        },
+        "http_req_blocked": {
+            "p(90)": 20.256800000000016,
+            "p(95)": 26.384999999999998,
+            "p(99)": 30.567199999999996,
+            "count": 4969,
+            "avg": 2.7415399476757707,
+            "min": 0,
+            "med": 0.001,
+            "max": 55.743
+        },
+        "checks": {
+            "passes": 23775,
+            "fails": 0,
+            "value": 1
+        },
+        "e2e_delivered_to_sender_ms": {
+            "med": 228,
+            "max": 411,
+            "p(90)": 234,
+            "p(95)": 240,
+            "p(99)": 261,
+            "count": 3404,
+            "avg": 225.31492361927144,
+            "min": 26
+        },
+        "iteration_duration": {
+            "avg": 35819.99473943878,
+            "min": 35453.989875,
+            "med": 35786.995020999995,
+            "max": 37565.780958,
+            "p(90)": 36151.8086665,
+            "p(95)": 36344.149947750004,
+            "p(99)": 36560.6310599,
+            "count": 3956
+        },
+        "http_req_tls_handshaking": {
+            "count": 4969,
+            "avg": 1.7129430468907223,
+            "min": 0,
+            "med": 0,
+            "max": 41.528,
+            "p(90)": 11.924400000000015,
+            "p(95)": 16.887999999999998,
+            "p(99)": 19.524479999999997
+        },
+        "e2e_read_to_sender_ms": {
+            "p(90)": 285,
+            "p(95)": 295,
+            "p(99)": 349.25999999999993,
+            "count": 2838,
+            "avg": 269.0031712473573,
+            "min": 248,
+            "med": 264,
+            "max": 516
+        },
+        "http_5xx": {
+            "passes": 0,
+            "fails": 4969,
+            "value": 0
+        },
+        "data_received": {
+            "count": 13958328,
+            "rate": 33440.90744310026
+        },
+        "receipt_events_total": {
+            "count": 11868,
+            "rate": 28.432967726128364
+        },
+        "sio_message_send_error_rate": {
+            "passes": 0,
+            "fails": 3956,
+            "value": 0
+        },
+        "http_req_duration{expected_response:true}": {
+            "p(90)": 227.80100000000002,
+            "p(95)": 248.26779999999997,
+            "p(99)": 392.57628,
+            "count": 4969,
+            "avg": 74.57590098611401,
+            "min": 22.25,
+            "med": 27.826,
+            "max": 1272.803
+        },
+        "http_req_receiving": {
+            "max": 39.869,
+            "p(90)": 0.795,
+            "p(95)": 1.1145999999999998,
+            "p(99)": 2.1851999999999996,
+            "count": 4969,
+            "avg": 0.39651640169048163,
+            "min": 0.01,
+            "med": 0.188
+        },
+        "iterations": {
+            "count": 3956,
+            "rate": 9.477655908709455
+        },
+        "vus_max": {
+            "value": 500,
+            "min": 500,
+            "max": 500
+        },
+        "http_reqs": {
+            "count": 4969,
+            "rate": 11.904568303937635
+        },
+        "http_req_connecting": {
+            "p(95)": 8.967,
+            "p(99)": 10.58564,
+            "count": 4969,
+            "avg": 0.9991712618233033,
+            "min": 0,
+            "med": 0,
+            "max": 37.36,
+            "p(90)": 7.4658000000000015
+        },
+        "http_auth_login_ms": {
+            "med": 246,
+            "max": 1273,
+            "p(90)": 370,
+            "p(95)": 411,
+            "p(99)": 684.3399999999997,
+            "count": 1000,
+            "avg": 272.191,
+            "min": 204
+        },
+        "ws_msgs_received": {
+            "count": 50072,
+            "rate": 119.96086619335183
+        },
+        "data_sent": {
+            "rate": 19511.45328717833,
+            "count": 8144135
+        },
+        "connected_sockets": {
+            "value": -2,
+            "min": -2,
+            "max": 1
+        },
+        "e2e_conversation_read_to_sender_ms": {
+            "avg": 295.9718309859155,
+            "min": 278,
+            "med": 291,
+            "max": 385,
+            "p(90)": 315,
+            "p(95)": 318,
+            "p(99)": 368.2,
+            "count": 71
+        },
+        "vus": {
+            "value": 1,
+            "min": 1,
+            "max": 500
+        },
+        "ws_msgs_sent": {
+            "count": 35834,
+            "rate": 85.84992968470542
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 4969,
+            "thresholds": {
+                "rate<0.1": false
+            },
+            "value": 0
+        },
+        "sio_connect_ms": {
+            "avg": 17556.870496346688,
+            "min": 56,
+            "med": 17655.5,
+            "max": 35114,
+            "p(90)": 35061,
+            "p(95)": 35067,
+            "p(99)": 35076,
+            "count": 7938
+        },
+        "msg_send_acked_total": {
+            "count": 3956,
+            "rate": 9.477655908709455
+        },
+        "ws_sessions": {
+            "rate": 19.017601770307294,
+            "count": 7938
+        },
+        "http_req_duration": {
+            "avg": 74.57590098611401,
+            "min": 22.25,
+            "med": 27.826,
+            "max": 1272.803,
+            "p(90)": 227.80100000000002,
+            "p(95)": 248.26779999999997,
+            "p(99)": 392.57628,
+            "count": 4969
+        },
+        "http_req_waiting": {
+            "p(90)": 226.92120000000003,
+            "p(95)": 247.3306,
+            "p(99)": 391.55304,
+            "count": 4969,
+            "avg": 74.02335057355627,
+            "min": 20.726,
+            "med": 27.352,
+            "max": 1272.475
+        },
+        "ws_session_duration": {
+            "p(95)": 35508.6291939,
+            "p(99)": 35562.56568125,
+            "count": 7912,
+            "avg": 17945.310695492364,
+            "min": 368.11425,
+            "med": 18086.004541500002,
+            "max": 35855.130542,
+            "p(90)": 35491.4877919
+        },
+        "ws_connecting": {
+            "p(95)": 58.92739374999998,
+            "p(99)": 74.20103320999999,
+            "count": 7938,
+            "avg": 44.791782523431685,
+            "min": 37.266916,
+            "med": 43.2562705,
+            "max": 125.4255,
+            "p(90)": 48.367592
+        },
+        "e2e_message_new_ms": {
+            "count": 3786,
+            "avg": 13.198626518753303,
+            "min": 0,
+            "med": 7,
+            "max": 92,
+            "p(90)": 34,
+            "p(95)": 39,
+            "p(99)": 44
+        },
+        "receipt_emit_to_ack_ms": {
+            "avg": 28.51617795753286,
+            "min": 18,
+            "med": 27,
+            "max": 253,
+            "p(90)": 34,
+            "p(95)": 40,
+            "p(99)": 59,
+            "count": 11868
+        },
+        "dropped_messages_total": {
+            "count": 3969,
+            "rate": 9.508800885153647
+        },
+        "message_send_ack_ok_ms": {
+            "med": 31,
+            "max": 185,
+            "p(90)": 41,
+            "p(95)": 52,
+            "p(99)": 95.44999999999996,
+            "count": 3956,
+            "avg": 33.93174924165824,
+            "min": 25
+        }
+    }
+}

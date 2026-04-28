@@ -19,6 +19,10 @@ import { parseGetLastSeenPayload } from './presenceSocketPayload.js';
 import { registerMessageReceiptSocketHandlers } from './receiptSocketHandlers.js';
 import { resolveSocketAuth } from './socketAuth.js';
 import { registerWebRtcSignalingHandlers } from './webrtcSocketHandlers.js';
+import {
+  installSocketioMetrics,
+  recordMessageSendOutcome,
+} from '../../observability/prometheus.js';
 
 let adapterPubClient: ReturnType<typeof createClient> | null = null;
 let adapterSubClient: ReturnType<typeof createClient> | null = null;
@@ -81,7 +85,7 @@ export async function attachSocketIo(
     adapterPubClient = pubClient;
     adapterSubClient = subClient;
     logger.warn(
-      'Socket.IO Redis adapter enabled — discouraged for room fan-out (rooms are in-memory per process; use RabbitMQ per replica). See PROJECT_PLAN.md §3.2.2 and `README.md` (Configuration)',
+      'Socket.IO Redis adapter enabled — discouraged for room fan-out (rooms are in-memory per process; use RabbitMQ per replica). See PROJECT_PLAN.md §3.2.2 and apps/messaging-service/.env.example (SOCKET_IO_REDIS_ADAPTER).',
     );
   }
 
@@ -158,6 +162,7 @@ export async function attachSocketIo(
       'message:send',
       async (raw: unknown, ack?: (r: unknown) => void) => {
         if (typeof ack !== 'function') {
+          recordMessageSendOutcome('ack_missing');
           logger.warn(
             { socketId: socket.id },
             'message:send missing acknowledgement callback',
@@ -169,6 +174,7 @@ export async function attachSocketIo(
           // Handshake auth only — see `connection` handler; no JWT / DB lookup per message.
           const auth = socket.data.authAtConnect;
           if (auth.kind === 'email_not_verified') {
+            recordMessageSendOutcome('client_error');
             ack({
               code: 'EMAIL_NOT_VERIFIED',
               message: 'Verify your email before using this resource',
@@ -176,6 +182,7 @@ export async function attachSocketIo(
             return;
           }
           if (auth.kind !== 'ok') {
+            recordMessageSendOutcome('client_error');
             ack({
               code: 'UNAUTHORIZED',
               message: env.JWT_SECRET?.trim()
@@ -194,6 +201,7 @@ export async function attachSocketIo(
               isGuest: auth.user.isGuest === true,
             })
           ) {
+            recordMessageSendOutcome('rate_limited');
             ack({
               code: 'RATE_LIMIT_EXCEEDED',
               message: 'Too many message send requests; try again later',
@@ -203,6 +211,7 @@ export async function attachSocketIo(
 
           const parsed = sendMessageRequestSchema.safeParse(raw);
           if (!parsed.success) {
+            recordMessageSendOutcome('client_error');
             ack({
               code: 'INVALID_REQUEST',
               message: formatZodError(parsed.error),
@@ -213,9 +222,11 @@ export async function attachSocketIo(
           const msg = await sendMessageForUser(env, auth.user.id, parsed.data, {
             originSocketId: socket.id,
           });
+          recordMessageSendOutcome('success');
           ack(messageDocumentToApi(msg));
         } catch (err: unknown) {
           if (err instanceof AppError) {
+            recordMessageSendOutcome('client_error');
             ack({
               code: err.code,
               message: err.message,
@@ -223,6 +234,7 @@ export async function attachSocketIo(
             return;
           }
           logger.error({ err, socketId: socket.id }, 'message:send failed');
+          recordMessageSendOutcome('server_error');
           ack({
             code: 'INTERNAL_ERROR',
             message: 'Internal server error',
@@ -250,6 +262,7 @@ export async function attachSocketIo(
     });
   });
 
+  installSocketioMetrics(io, env);
   return io;
 }
 

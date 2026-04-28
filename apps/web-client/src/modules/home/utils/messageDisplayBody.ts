@@ -3,9 +3,8 @@ import { looksLikeOpaqueCiphertextBody } from '@/modules/home/utils/messageBodyO
 import { PEER_DECRYPT_INLINE_UNAVAILABLE } from '@/modules/home/utils/peerDecryptInline';
 import type { Message } from '@/modules/home/stores/messagingSlice';
 
-const DEBUG_MESSAGE_DISPLAY =
-  import.meta.env.DEV &&
-  import.meta.env.VITE_DEBUG_MESSAGE_DISPLAY === 'true';
+/** Verbose **`[message-display]`** logs when **`resolveMessageDisplayBody`** suppresses opaque ciphertext. **`vite dev` only.** */
+const DEBUG_MESSAGE_DISPLAY = Boolean(import.meta.env.DEV);
 
 function debugMessageDisplay(
   message: string,
@@ -14,8 +13,7 @@ function debugMessageDisplay(
   if (!DEBUG_MESSAGE_DISPLAY) {
     return;
   }
-  // eslint-disable-next-line no-console -- gated by VITE_DEBUG_MESSAGE_DISPLAY
-  console.debug(`[message-display] ${message}`, details);
+  console.log(`[message-display] ${message}`, details);
 }
 
 /**

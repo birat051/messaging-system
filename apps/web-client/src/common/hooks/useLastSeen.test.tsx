@@ -9,7 +9,7 @@ import { useLastSeen } from './useLastSeen';
 const mockGetLastSeen = vi.hoisted(() => vi.fn());
 const socketState = vi.hoisted(() => ({ connected: true }));
 
-vi.mock('../realtime/SocketWorkerProvider', () => ({
+vi.mock('../realtime/useSocketWorker', () => ({
   useSocketWorker: () => ({
     getLastSeen: mockGetLastSeen,
     status: socketState.connected

@@ -10,7 +10,7 @@
     "generate:api": "openapi-typescript ../../docs/openapi/openapi.yaml -o src/generated/api-types.ts",
     "generate:api:check": "openapi-typescript ../../docs/openapi/openapi.yaml -o src/generated/api-types.ts --check",
     "typecheck": "tsc -b",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 0",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
