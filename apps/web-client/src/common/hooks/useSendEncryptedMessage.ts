@@ -17,6 +17,7 @@ import { useAppDispatch } from '@/store/hooks';
 import type { RootState } from '@/store/store';
 import { useAuth } from './useAuth';
 import { useSocketWorkerSendMessage } from './useSocketWorkerSendMessage';
+import { logAttachmentE2ee } from '@/common/crypto/attachmentE2eeDebug';
 
 /** Client-only: encrypted into hybrid inner **v1** (`m.u` / derived); not part of the OpenAPI wire shape. */
 export type HybridSendMessageRequest = SendMessageRequest & {
@@ -136,12 +137,26 @@ export function useSendEncryptedMessage(
 
       const devices = mergeHybridDeviceRows(finalRecipientRows, finalSelfRows);
       const { mediaRetrievableUrl: innerMediaUrl, ...wirePayload } = payload;
+      logAttachmentE2ee('send: inputs', {
+        hasCaption: bodyText.length > 0,
+        hasMedia,
+        mediaObjectKey: hasMedia ? mediaKeyTrim : undefined,
+        deviceCount: devices.length,
+        deviceIds: devices.map((d) => d.deviceId),
+      });
       const innerUtf8 = serializeHybridInnerPlaintextV1({
         text: bodyText,
         mediaObjectKey: hasMedia ? mediaKeyTrim : null,
         mediaRetrievableUrl: innerMediaUrl ?? null,
       });
       const hybrid = await encryptUtf8ToHybridSendPayload(innerUtf8, devices);
+      logAttachmentE2ee('send: hybrid envelope (wire mediaKey will be null)', {
+        innerUtf8Length: innerUtf8.length,
+        bodyCiphertextLength: hybrid.body.length,
+        ivLength: hybrid.iv.length,
+        algorithm: hybrid.algorithm,
+        wrappedKeyDeviceIds: Object.keys(hybrid.encryptedMessageKeys).sort(),
+      });
 
       return socketSend({
         ...wirePayload,

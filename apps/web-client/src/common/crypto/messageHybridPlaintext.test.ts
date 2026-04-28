@@ -31,6 +31,37 @@ describe('messageHybridPlaintext v1', () => {
     });
   });
 
+  it('drops presigned PUT from mediaRetrievableUrl and uses public URL from env', () => {
+    vi.stubEnv('VITE_S3_PUBLIC_BASE_URL', 'http://localhost:9000');
+    vi.stubEnv('VITE_S3_BUCKET', 'messaging-media');
+    const putPresign =
+      'http://localhost:9000/messaging-media/users/1/a.png?x-id=PutObject&X-Amz-Signature=abc';
+    const s = serializeHybridInnerPlaintextV1({
+      text: '',
+      mediaObjectKey: 'users/1/a.png',
+      mediaRetrievableUrl: putPresign,
+    });
+    expect(s).toBe(
+      '{"v":1,"m":{"k":"users/1/a.png","u":"http://localhost:9000/messaging-media/users/1/a.png"}}',
+    );
+  });
+
+  it('parseDecryptedHybridUtf8 swaps presigned PUT m.u for path-style GET URL when env set', () => {
+    vi.stubEnv('VITE_S3_PUBLIC_BASE_URL', 'http://localhost:9000');
+    vi.stubEnv('VITE_S3_BUCKET', 'messaging-media');
+    const putPresign =
+      'http://localhost:9000/messaging-media/users/1/a.png?x-id=PutObject&X-Amz-Signature=z';
+    const p = parseDecryptedHybridUtf8(
+      JSON.stringify({
+        v: 1,
+        m: { k: 'users/1/a.png', u: putPresign },
+      }),
+    );
+    expect(p.mediaRetrievableUrl).toBe(
+      'http://localhost:9000/messaging-media/users/1/a.png',
+    );
+  });
+
   it('includes m.u when mediaRetrievableUrl is a valid http(s) URL', () => {
     expect(
       serializeHybridInnerPlaintextV1({

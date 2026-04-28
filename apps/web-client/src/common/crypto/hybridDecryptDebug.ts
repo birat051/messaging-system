@@ -1,5 +1,5 @@
 /**
- * Gated **`console.debug`** for hybrid decrypt — enable with **`VITE_DEBUG_HYBRID_DECRYPT=true`** (dev).
+ * Gated **`console.log`** for hybrid decrypt — **`vite dev`** only (off in production bundles).
  * Never logs raw keys or ciphertext; uses short SHA-256 prefixes for correlation only.
  */
 
@@ -8,12 +8,9 @@ export type HybridDecryptDebugMeta = {
   conversationId?: string;
 };
 
-/** True when detailed hybrid decrypt traces should print (development + env flag). */
+/** True while running the development server (`vite dev`). */
 export function isHybridDecryptDebugEnabled(): boolean {
-  return (
-    import.meta.env.DEV &&
-    import.meta.env.VITE_DEBUG_HYBRID_DECRYPT === 'true'
-  );
+  return Boolean(import.meta.env.DEV);
 }
 
 /** First 8 hex chars of SHA-256(raw) — not reversible to **`raw`**. */
@@ -34,5 +31,5 @@ export function logHybridDecrypt(
   if (!isHybridDecryptDebugEnabled()) {
     return;
   }
-  console.debug(`[hybrid-decrypt] ${phase}`, details);
+  console.log(`[hybrid-decrypt] ${phase}`, details);
 }

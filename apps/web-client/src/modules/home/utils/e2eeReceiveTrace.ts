@@ -26,7 +26,7 @@
  *
  * ### Trace / debug
  * - Inbound display: **`e2eeInboundDecryptTrace.ts`**
- * - **`VITE_DEBUG_PEER_DECRYPT=true`** — branch logging in **`usePeerMessageDecryption`**
+ * - **`vite dev`** — branch logging in **`usePeerMessageDecryption`**
  */
 
 export {};

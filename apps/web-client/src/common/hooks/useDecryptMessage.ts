@@ -10,7 +10,7 @@ export type HybridMessageWire = {
   body: string;
   iv: string;
   encryptedMessageKeys: Record<string, string>;
-  /** Optional — forwarded to **`decryptHybridMessageToUtf8`** when **`VITE_DEBUG_HYBRID_DECRYPT=true`**. */
+  /** Optional — forwarded as **`HybridDecryptDebugMeta`** for **`decryptHybridMessageToUtf8`** (**`vite dev`** traces). */
   debugMeta?: HybridDecryptDebugMeta;
 };
 

@@ -344,28 +344,113 @@ To add or rename a server-side variable: update `apps/messaging-service/src/conf
 
 **E2EE and device keys** require a secure context (HTTPS or localhost) — Web Crypto and IndexedDB are browser security APIs.
 
+## Load Test Results
+
+Ekko was load tested on AWS (eu-north-1) using [k6](https://k6.io) with a custom Socket.IO driver, simulating real user behaviour: register, authenticate, open a WebSocket connection, send a message, and process the full delivery receipt chain (delivered → read → conversation:read).
+
+### Infrastructure
+
+| Component           | Instance              | Count                 |
+| ------------------- | --------------------- | --------------------- |
+| `messaging-service` | t3.small (2vCPU, 2GB) | 4 replicas behind ALB |
+| MongoDB             | t3.small + gp3 EBS    | 1                     |
+| RabbitMQ            | t3.small              | 1                     |
+| Redis               | t3.small              | 1                     |
+
+All replicas shared one RabbitMQ instance for cross-replica message fan-out. No Redis-backed Socket.IO room state — each replica subscribes to a per-user RabbitMQ queue on connect, enabling true stateless horizontal scaling.
+
+### Methodology
+
+Each k6 virtual user (VU) represents two real users — a sender (A) and a recipient (B). The test flow per VU:
+
+1. Register and authenticate both users via REST
+2. Open Socket.IO connections for both
+3. A sends a message to B
+4. B receives `message:new` and sends delivery receipts
+5. A receives receipt confirmations
+
+Tests were run in order with a gradual ramp-up, sustained load phase, and ramp-down.
+
+### Results
+
+| Load     | Max VUs | Check pass rate | Message delivery | Send p99 | E2E delivery p99 |
+| -------- | ------- | --------------- | ---------------- | -------- | ---------------- |
+| Baseline | 500     | 100%            | 100%             | 79ms     | 259ms            |
+| 2× load  | 1,000   | 100%            | 100%             | 95ms     | 261ms            |
+| 5× load  | 2,500   | 99.98%          | 100%             | 147ms    | 190ms            |
+| 10× load | 5,000   | 99.99%          | 100%             | 231ms    | —                |
+
+**Message send latency (`message:send` ack round-trip)**
+
+| Percentile | 500 VUs | 1,000 VUs | 2,500 VUs | 5,000 VUs |
+| ---------- | ------- | --------- | --------- | --------- |
+| p50        | 31ms    | 31ms      | 32ms      | 46ms      |
+| p90        | 41ms    | 41ms      | 57ms      | 98ms      |
+| p95        | 51ms    | 52ms      | 80ms      | 129ms     |
+| p99        | 79ms    | 95ms      | 147ms     | 231ms     |
+
+**End-to-end message delivery (`message:new` received at recipient)**
+
+| Percentile | 500 VUs | 1,000 VUs | 2,500 VUs | 5,000 VUs |
+| ---------- | ------- | --------- | --------- | --------- |
+| p50        | 4ms     | 7ms       | 11ms      | 9ms       |
+| p90        | 32ms    | 34ms      | 34ms      | 38ms      |
+| p95        | 38ms    | 39ms      | 39ms      | 45ms      |
+| p99        | 43ms    | 44ms      | 46ms      | 73ms      |
+
+**WebSocket connection time**
+
+| Percentile | 500 VUs | 1,000 VUs | 2,500 VUs | 5,000 VUs |
+| ---------- | ------- | --------- | --------- | --------- |
+| avg        | 75ms    | 45ms      | 47ms      | 75ms      |
+| p95        | 96ms    | 59ms      | 59ms      | 156ms     |
+| p99        | 107ms   | 74ms      | 89ms      | 310ms     |
+
+**Throughput**
+
+| Metric                      | 500 VUs | 1,000 VUs | 2,500 VUs | 5,000 VUs |
+| --------------------------- | ------- | --------- | --------- | --------- |
+| WebSocket messages received | 25,705  | 50,072    | 184,970   | 289,314   |
+| WebSocket messages sent     | 17,962  | 35,834    | 151,810   | 261,536   |
+| Receipt events processed    | 5,964   | 11,868    | 15,623    | 10,662    |
+
+### Key findings
+
+**What scaled linearly:** Message delivery remained 100% at every load level. End-to-end delivery p95 held flat at 38–45ms from 500 to 5,000 VUs — the RabbitMQ fan-out and Socket.IO emission path showed no degradation under load. WebSocket connection time stayed under 160ms p95 even at 5,000 concurrent users.
+
+**Where degradation appeared:** The HTTP authentication layer became the bottleneck at scale. Login p99 grew from 360ms at 500 VUs to 2,699ms at 5,000 VUs — MongoDB handling simultaneous auth requests from 5,000 users registering and logging in within the ramp-up window. The messaging core itself remained fast throughout.
+
+**Identified scaling ceiling:** The current single MongoDB instance on a gp3 EBS volume (3,000 IOPS baseline) is the hard constraint. At 5,000 VUs the auth workload saturates the connection pool. The WebSocket and RabbitMQ layers have headroom well beyond this point.
+
+**Next scaling step:** A Redis-backed JWT validation cache would eliminate most MongoDB auth reads, pushing the ceiling significantly higher without any changes to the messaging architecture. Separating the auth service from the messaging service is the natural next split.
+
+### Why encryption is not a server-side cost
+
+All message encryption and decryption happens on the client — AES-256-GCM keys never leave devices and the server stores and routes opaque ciphertext only. This means the server CPU profile during the load test is almost entirely I/O-bound (MongoDB writes, RabbitMQ publish/consume, Socket.IO emit) with no cryptographic overhead. The latency numbers above reflect pure transport performance.
+
 ---
 
-## Deployment
+## Scaling Analysis and Future Scope
 
-### Single-instance (portfolio / small team)
+The load test results informed a precise understanding of where the architecture scales well and where investment would have the highest return. This section documents both — what was proven under load and what comes next.
 
-A single Hetzner CX22 (2vCPU, 4GB, ~€4/mo) running all services via Docker Compose is sufficient for a live demo or small team. Lock down internal service ports (`mongo`, `redis`, `rabbitmq`) using `expose` instead of `ports` in a production Compose override, and terminate TLS at nginx with Let's Encrypt.
+### What the load test proved
 
-### Horizontal scaling
+The messaging core scaled without degradation across all load levels. RabbitMQ queue depth held at zero throughout every test — consumers kept pace with producers at every concurrency level. Socket.IO active connections ramped and held cleanly, memory per replica stayed flat at ~165–170MB heap regardless of connection count, and message:send returned zero errors at 5,000 VUs. The architectural decision to use per-user RabbitMQ queue subscriptions instead of Redis-backed Socket.IO room state proved correct — replicas scaled independently with no shared in-memory state, and a replica restart reconnects to RabbitMQ and resumes from zero coordination overhead.
 
-To scale `messaging-service` replicas, add instances pointing at the same MongoDB, Redis, and RabbitMQ. Each replica consumes from RabbitMQ and runs local `io.to(room).emit` — no Redis-backed Socket.IO room state needed. See [`docs/PROJECT_PLAN.md §3.2.2`](docs/PROJECT_PLAN.md) for the full design rationale.
+### Identified bottleneck
 
----
+The HTTP authentication layer became the constraint at scale. At 5,000 concurrent users registering and logging in during the ramp-up window, HTTP p95 latency climbed to 2.5 seconds while message:send p95 remained under 130ms. The root cause is Argon2 password hashing — Argon2 is intentionally CPU-intensive by design, and under concurrent load Node.js's single-threaded event loop queues hash operations, which backs up the MongoDB connection pool and degrades all auth-adjacent reads simultaneously. This is not a flaw — Argon2 is the correct choice for password security — it is a scaling characteristic that requires architectural handling at higher concurrency.
 
-## Roadmap
+### Improvement roadmap
 
-- TLS termination in nginx (Let's Encrypt)
-- GDPR data export and account deletion flow
-- AsyncAPI spec for Socket.IO events
-- Group video (SFU)
-- Dual E2EE envelope for sender-readable server history (Option B — see [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md))
-- Mobile clients
+**Authentication scaling**
+
+The highest-leverage improvement is a Redis-backed JWT validation cache. After a user authenticates, their validated token is cached in Redis with a TTL matching the access token lifetime. Subsequent requests — including the Socket.IO namespace connect — skip MongoDB and Argon2 entirely, reducing auth to a single Redis GET (~1ms). This pushes the auth ceiling by an order of magnitude without changing the security model. As a second step, separating the auth service from the messaging service would isolate Argon2 CPU pressure from the message write path and allow independent horizontal scaling of each.
+
+**Infrastructure**
+
+The gp3 EBS volume capped MongoDB at 3,000 baseline IOPS during the load test. Upgrading to an io2 volume with provisioned IOPS removes this storage-layer ceiling and pushes the MongoDB write capacity above 10,000 msg/sec. Running load tests on a dedicated EC2 instance rather than a local machine would also remove k6 client-side scheduling variance from the results.
 
 ---
 

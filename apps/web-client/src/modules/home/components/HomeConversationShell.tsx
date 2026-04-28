@@ -16,6 +16,10 @@ import { usePrefetchDevicePublicKeys } from '@/common/hooks/usePrefetchDevicePub
 import { usePeerPublicProfiles } from '@/modules/home/hooks/usePeerPublicProfiles';
 import { usePeerPresenceDisplay } from '@/modules/home/hooks/usePeerPresenceDisplay';
 import { useSocketWorker } from '@/common/realtime/useSocketWorker';
+import {
+  logMediaPreview,
+  redactUrlForLog,
+} from '@/common/utils/mediaPreviewDebug';
 import { parseApiError } from '@/modules/auth/utils/apiError';
 import { useConversation } from '@/modules/home/hooks/useConversation';
 import { useUserSearchQuery } from '@/modules/home/hooks/useUserSearchQuery';
@@ -290,7 +294,23 @@ export function HomeConversationShell() {
         mediaPreviewUrl: (() => {
           const u = messaging.decryptedAttachmentUrlByMessageId[m.id]?.trim() ?? '';
           if (u.length > 0) {
+            logMediaPreview('shell: thread row preview from decrypted m.u', {
+              messageId: m.id,
+              src: redactUrlForLog(u),
+            });
             return u;
+          }
+          const pv = stored.mediaPreviewUrl?.trim() ?? '';
+          /** After upload, **`clearAttachment`** revokes composer blob URLs; merge may leave a stale **`blob:`** on the persisted id. Omit so display falls back to **`mediaKey`**. */
+          if (pv.startsWith('blob:') && !isOptimisticClientMessageId(mid)) {
+            logMediaPreview(
+              'shell: ignore stale blob previewUrl on persisted row (revoked object URL)',
+              {
+                messageId: mid,
+                blobHint: redactUrlForLog(pv),
+              },
+            );
+            return null;
           }
           return stored.mediaPreviewUrl ?? null;
         })(),

@@ -12,7 +12,12 @@ import {
   buildMediaUrlFromPublicBasePrefixAndKey,
   getMediaPublicBasePrefix,
   getMediaPublicObjectUrl,
+  isPresignedS3PutObjectUrl,
 } from '@/common/utils/mediaPublicUrl';
+import {
+  logAttachmentE2ee,
+  redactMiddle,
+} from '@/common/crypto/attachmentE2eeDebug';
 
 export const HYBRID_MESSAGE_PLAINTEXT_V1 = 1 as const;
 
@@ -84,13 +89,24 @@ export function serializeHybridInnerPlaintextV1(params: {
   const caption = params.text;
   const key = params.mediaObjectKey?.trim() ?? '';
   if (!key) {
+    logAttachmentE2ee('serialize: text-only inner (no m.k)', {
+      captionLength: caption.length,
+    });
     return caption;
   }
 
-  const explicitU = sanitizeHttpUrlForMediaLocator(
+  let explicitU = sanitizeHttpUrlForMediaLocator(
     params.mediaRetrievableUrl?.trim() ?? '',
   );
-  const envFullUrl = sanitizeHttpUrlForMediaLocator(getMediaPublicObjectUrl(key) ?? '');
+  if (explicitU && isPresignedS3PutObjectUrl(explicitU)) {
+    explicitU = null;
+  }
+  let envFullUrl = sanitizeHttpUrlForMediaLocator(
+    getMediaPublicObjectUrl(key) ?? '',
+  );
+  if (envFullUrl && isPresignedS3PutObjectUrl(envFullUrl)) {
+    envFullUrl = null;
+  }
   const m: NonNullable<HybridMessagePlaintextWireV1['m']> = { k: key };
   if (explicitU) {
     m.u = explicitU;
@@ -108,7 +124,17 @@ export function serializeHybridInnerPlaintextV1(params: {
     t: caption.length > 0 ? caption : undefined,
     m,
   };
-  return JSON.stringify(o);
+  const wire = JSON.stringify(o);
+  logAttachmentE2ee('serialize: inner v1 (attachment)', {
+    captionLength: caption.length,
+    hasExplicitRetrievableUrl: Boolean(explicitU),
+    hasEnvDerivedUrl: Boolean(!explicitU && envFullUrl),
+    hasMdotB: Boolean(m.b),
+    hasMdotU: Boolean(m.u),
+    innerUtf8Length: wire.length,
+    objectKey: key,
+  });
+  return wire;
 }
 
 /**
@@ -123,14 +149,24 @@ export function parseDecryptedHybridUtf8(utf8: string): ParsedHybridPlaintext {
   });
   const s = utf8;
   if (!s.trim().startsWith('{')) {
+    logAttachmentE2ee('parse: legacy text-only (no leading brace)', {
+      utf8Length: s.length,
+      sample: s.length > 0 ? redactMiddle(s, 32, 12) : '',
+    });
     return legacyPlain(s);
   }
   try {
     const parsed: unknown = JSON.parse(s);
     if (!isRecord(parsed)) {
+      logAttachmentE2ee('parse: JSON not an object — treating as legacy', {
+        utf8Length: s.length,
+      });
       return legacyPlain(s);
     }
     if (parsed.v !== HYBRID_MESSAGE_PLAINTEXT_V1) {
+      logAttachmentE2ee('parse: v !== v1 — treating as legacy', {
+        v: parsed.v,
+      });
       return legacyPlain(s);
     }
     const t = parsed.t;
@@ -143,7 +179,14 @@ export function parseDecryptedHybridUtf8(utf8: string): ParsedHybridPlaintext {
         mediaObjectKey = m.k.trim();
       }
       if (typeof m.u === 'string') {
-        const u = sanitizeHttpUrlForMediaLocator(m.u);
+        let u = sanitizeHttpUrlForMediaLocator(m.u);
+        if (u && isPresignedS3PutObjectUrl(u)) {
+          u = mediaObjectKey
+            ? sanitizeHttpUrlForMediaLocator(
+                getMediaPublicObjectUrl(mediaObjectKey) ?? '',
+              )
+            : null;
+        }
         if (u) {
           mediaRetrievableUrl = u;
         }
@@ -155,8 +198,17 @@ export function parseDecryptedHybridUtf8(utf8: string): ParsedHybridPlaintext {
         }
       }
     }
+    logAttachmentE2ee('parse: v1 result', {
+      captionLength: text.length,
+      hasMediaObjectKey: Boolean(mediaObjectKey),
+      objectKey: mediaObjectKey ?? undefined,
+      hasMediaRetrievableUrl: Boolean(mediaRetrievableUrl),
+    });
     return { text, mediaObjectKey, mediaRetrievableUrl };
   } catch {
+    logAttachmentE2ee('parse: JSON.parse failed — legacy fallback', {
+      utf8Length: s.length,
+    });
     return legacyPlain(s);
   }
 }

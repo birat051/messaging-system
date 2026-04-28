@@ -3,6 +3,7 @@ import {
   getMediaPublicDisplayFallbackUrl,
   getMediaPublicObjectUrl,
   isLikelyImageMediaKey,
+  isPresignedS3PutObjectUrl,
   resolveMediaAttachmentDisplayUrl,
 } from './mediaPublicUrl';
 
@@ -14,6 +15,21 @@ describe('mediaPublicUrl', () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it('detects MinIO/S3 presigned PUT (not safe for <img src GET>)', () => {
+    const put =
+      'http://localhost:9000/bucket/k.png?x-id=PutObject&X-Amz-Algorithm=AWS4-HMAC-SHA256';
+    expect(isPresignedS3PutObjectUrl(put)).toBe(true);
+    expect(isPresignedS3PutObjectUrl('https://cdn.example.com/x.png')).toBe(false);
+  });
+
+  it('resolveMediaAttachmentDisplayUrl rejects presigned PUT override in favor of public path from key', () => {
+    const put =
+      'http://localhost:9000/messaging-media/users/1/a.png?X-Amz-Signature=abc&x-id=PutObject';
+    expect(resolveMediaAttachmentDisplayUrl('users/1/a.png', put)).toBe(
+      'http://localhost:9000/messaging-media/users/1/a.png',
+    );
   });
 
   it('builds path-style URLs aligned with messaging-service publicObjectUrl', () => {

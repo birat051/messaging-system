@@ -4,7 +4,18 @@ import {
   isLikelyImageMediaKey,
   resolveMediaAttachmentDisplayUrl,
 } from '@/common/utils/mediaPublicUrl';
+import {
+  logMediaPreview,
+  redactUrlForLog,
+} from '@/common/utils/mediaPreviewDebug';
 import type { ThreadMessageMediaProps } from '../types/ThreadMessageMedia-types';
+
+/** Standard thread attachment thumbnail (**150×150** px); lightbox is separate. */
+const THUMB_SHELL = {
+  outer: 'mt-1.5 min-w-0 h-[150px] w-[150px] shrink-0',
+  inner:
+    'border-border bg-muted/30 relative h-[150px] w-[150px] overflow-hidden rounded-md border',
+} as const;
 
 function attachmentAlt(isOwn: boolean): string {
   return isOwn
@@ -13,32 +24,18 @@ function attachmentAlt(isOwn: boolean): string {
 }
 
 /**
- * External object storage (MinIO/S3) often works better without a cross-origin **`Referer`** (bucket policy).
- * **`blob:`** / **`data:`** stay default.
- */
-function imgReferrerPolicy(src: string): 'no-referrer' | undefined {
-  if (src.startsWith('blob:') || src.startsWith('data:')) {
-    return undefined;
-  }
-  if (typeof window === 'undefined' || !src.startsWith('http')) {
-    return undefined;
-  }
-  try {
-    return new URL(src).origin !== window.location.origin
-      ? 'no-referrer'
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
  * Renders **`mediaKey`** as a **lazy-loaded** **`<img>`** when a URL is available (**`getMediaPublicObjectUrl`**
  * / **`MediaUploadResponse.url`** / blob preview) and the key looks like an image; optional **`<dialog>`** lightbox;
  * non-images become an **Open attachment** link. **No** AWS SDK in the browser.
  *
+ * **Referrer:** Thumbnails omit an explicit **`referrerPolicy`** (browser default). Forcing **`no-referrer`** on
+ * cross-origin MinIO/S3 can break anonymous **`GET`** when the object server expects a sane **`Referer`** (your curl
+ * with **`Referer: http://localhost:5173/`** may succeed while the previous **`no-referrer`** img did not).
+ *
  * **Presigned URLs:** query strings include **`X-Amz-`**; we do **not** append cache-bust params on error (would
  * break the signature). For path-style public URLs (no `?`), one **cache-bust** retry can recover from stale CDN edge.
+ *
+ * **Inline thumbnails:** fixed **150×150** px frame; lightbox unchanged.
  */
 export function ThreadMessageMedia({
   mediaKey,
@@ -54,15 +51,56 @@ export function ThreadMessageMedia({
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [retryDone, setRetryDone] = useState(false);
   const [altTried, setAltTried] = useState(false);
+  const thumbImgRef = useRef<HTMLImageElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
 
+  /** Resolved **`img src`** (preview URL, cache bust, **`displaySrc`). */
+  const imgSrc = displaySrc ?? url;
+
+  /** Sync **`displaySrc`** / error-retry flags when **`url`** identity changes (`resolveMediaAttachmentDisplayUrl`). */
   useEffect(() => {
     setDisplaySrc(url);
-    setLoaded(false);
     setImgError(false);
     setRetryDone(false);
     setAltTried(false);
-  }, [url]);
+    logMediaPreview('thread-thumb: resolver output', {
+      messageId,
+      isOwn,
+      mediaKeySnippet:
+        mediaKey.trim().length <= 52
+          ? mediaKey.trim()
+          : `${mediaKey.trim().slice(0, 24)}…${mediaKey.trim().slice(-18)}`,
+      previewUrlOverrideHint: previewUrlOverride
+        ? redactUrlForLog(previewUrlOverride)
+        : null,
+      resolvedDisplayUrl: redactUrlForLog(url),
+    });
+  }, [url, messageId, isOwn, mediaKey, previewUrlOverride]);
+
+  /** When **`src`** settles, **`onLoad`** may not fire for **memory-cache hits** — the image stays **`opacity:0`**. Recover via **`complete`** / **`naturalWidth`** within a few animation frames (**`onLoad`** still fires for slower loads). */
+  useEffect(() => {
+    setLoaded(false);
+    let cancelled = false;
+    let rafId = 0;
+    let tries = 0;
+    function tick() {
+      if (cancelled || tries >= 8) {
+        return;
+      }
+      tries += 1;
+      const el = thumbImgRef.current;
+      if (el?.complete && el.naturalWidth > 0) {
+        setLoaded(true);
+        return;
+      }
+      rafId = requestAnimationFrame(tick);
+    }
+    rafId = requestAnimationFrame(tick);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(rafId);
+    };
+  }, [imgSrc]);
 
   useLayoutEffect(() => {
     if (!lightboxEnabled || !lightboxOpen) {
@@ -86,14 +124,32 @@ export function ThreadMessageMedia({
   }
 
   function handleImageError() {
+    logMediaPreview('thread-thumb: <img> error', {
+      messageId,
+      attemptedSrc: redactUrlForLog(imgSrc),
+    });
     const fallBack = url ? getMediaPublicDisplayFallbackUrl(mediaKey, url) : null;
-    if (!retryDone && url && !url.includes('?')) {
+    if (
+      !retryDone &&
+      url &&
+      !url.includes('?') &&
+      !url.startsWith('blob:') &&
+      !url.startsWith('data:')
+    ) {
+      logMediaPreview('thread-thumb: retry with cache-bust query', {
+        messageId,
+        base: redactUrlForLog(url),
+      });
       setRetryDone(true);
       setLoaded(false);
       setDisplaySrc(`${url}?_ekko_cb=${Date.now()}`);
       return;
     }
     if (!altTried && fallBack && displaySrc !== fallBack) {
+      logMediaPreview('thread-thumb: fallback URL from env key prefix', {
+        messageId,
+        fallback: redactUrlForLog(fallBack),
+      });
       setAltTried(true);
       setLoaded(false);
       setImgError(false);
@@ -120,10 +176,6 @@ export function ThreadMessageMedia({
 
   const alt = attachmentAlt(isOwn);
   const loadingId = `thread-msg-media-loading-${messageId}`;
-  /** Fall back to **`url`** — **`displaySrc`** can become null after **`getMediaPublicDisplayFallbackUrl`**. */
-  const imgSrc = displaySrc ?? url;
-
-  const refPolicy = imgReferrerPolicy(imgSrc);
 
   if (imgError) {
     return (
@@ -151,8 +203,8 @@ export function ThreadMessageMedia({
 
   return (
     <>
-      <div className="mt-1.5 min-w-0 w-full max-w-[min(100%,20rem)]">
-        <div className="border-border bg-muted/30 relative aspect-video w-full overflow-hidden rounded-md border">
+      <div className={THUMB_SHELL.outer}>
+        <div className={THUMB_SHELL.inner}>
           {!loaded ? (
             <div
               id={loadingId}
@@ -171,14 +223,20 @@ export function ThreadMessageMedia({
               }}
             >
               <img
+                ref={thumbImgRef}
                 src={imgSrc}
                 alt={alt}
                 loading="lazy"
                 decoding="async"
-                referrerPolicy={refPolicy}
                 aria-describedby={!loaded ? loadingId : undefined}
-                onLoad={() => {
+                onLoad={(e) => {
                   setLoaded(true);
+                  logMediaPreview('thread-thumb: thumbnail <img> load', {
+                    messageId,
+                    src: redactUrlForLog(e.currentTarget.currentSrc),
+                    naturalWidth: e.currentTarget.naturalWidth,
+                    naturalHeight: e.currentTarget.naturalHeight,
+                  });
                 }}
                 onError={handleImageError}
                 className={`${thumbImgClassName} pointer-events-none`}
@@ -186,14 +244,20 @@ export function ThreadMessageMedia({
             </button>
           ) : (
             <img
+              ref={thumbImgRef}
               src={imgSrc}
               alt={alt}
               loading="lazy"
               decoding="async"
-              referrerPolicy={refPolicy}
               aria-describedby={!loaded ? loadingId : undefined}
-              onLoad={() => {
+              onLoad={(e) => {
                 setLoaded(true);
+                logMediaPreview('thread-thumb: thumbnail <img> load', {
+                  messageId,
+                  src: redactUrlForLog(e.currentTarget.currentSrc),
+                  naturalWidth: e.currentTarget.naturalWidth,
+                  naturalHeight: e.currentTarget.naturalHeight,
+                });
               }}
               onError={handleImageError}
               className={thumbImgClassName}
@@ -239,7 +303,6 @@ export function ThreadMessageMedia({
                 alt={alt}
                 loading="lazy"
                 decoding="async"
-                referrerPolicy={refPolicy}
                 className="mx-auto max-h-[min(85vh,100%)] w-auto max-w-full object-contain"
               />
             </div>

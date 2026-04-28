@@ -120,7 +120,7 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
           if (!message) {
             if (import.meta.env.DEV) {
               console.warn(
-                '[message:new] dropped invalid payload (expected flat Message: id, conversationId, senderId, createdAt, optional body/mediaKey)',
+                '[message:new] dropped invalid payload (expected flat Message: id, conversationId, senderId, createdAt, optional body/mediaKey/iv/algorithm/encryptedMessageKeys)',
                 msg.payload,
               );
             }

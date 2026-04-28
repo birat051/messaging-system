@@ -1,10 +1,17 @@
 /**
  * Browser **`PUT`** to an S3/R2 pre-signed URL with **`upload`** progress and **`AbortSignal`** cancel.
  * No AWS SDK — **`fetch`** is insufficient for upload progress in all browsers; **XHR** is used.
+ *
+ * **`Content-Length`** from the API is **not** passed to **`setRequestHeader`**: it is a
+ * [forbidden request header](https://fetch.spec.whatwg.org/#forbidden-header); the user agent
+ * sets it to match **`body`**, which is the same size the server used when presigning.
  */
 
+/** Lowercase names XHR must not set (browser sets them). */
+const SKIP_REQUEST_HEADER_NAMES = new Set(['content-length']);
+
 export type PutPresignedBlobOptions = {
-  /** Headers required by the signature (e.g. **`Content-Type`**, **`Content-Length`**). */
+  /** Headers required by the signature (e.g. **`Content-Type`**). **`Content-Length`** is ignored here on purpose. */
   headers: Record<string, string>;
   signal?: AbortSignal;
   /** 0–100 while uploading. */
@@ -24,6 +31,9 @@ export function putBlobToPresignedUrl(
     xhr.open('PUT', url);
 
     for (const [key, value] of Object.entries(options.headers)) {
+      if (SKIP_REQUEST_HEADER_NAMES.has(key.trim().toLowerCase())) {
+        continue;
+      }
       xhr.setRequestHeader(key, value);
     }
 

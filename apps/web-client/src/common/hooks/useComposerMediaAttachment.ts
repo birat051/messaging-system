@@ -6,7 +6,19 @@ import {
   type ChangeEvent,
 } from 'react';
 import type { UseComposerMediaAttachmentResult } from '../types/useComposerMediaAttachment-types';
+import {
+  logMediaPreview,
+  redactUrlForLog,
+} from '@/common/utils/mediaPreviewDebug';
 import { useMediaUpload } from './useMediaUpload';
+
+function mediaKeySnippetForLog(key: string): string {
+  const t = key.trim();
+  if (t.length <= 52) {
+    return t;
+  }
+  return `${t.slice(0, 24)}…${t.slice(-20)}`;
+}
 
 /**
  * Hidden file input + **`useMediaUpload`** — **`POST /v1/media/presign`** + **`PUT`** to R2 — yields **`mediaKey`** (**`key`**) for **`SendMessageRequest`**.
@@ -28,12 +40,21 @@ export function useComposerMediaAttachment(): UseComposerMediaAttachmentResult {
   const imagePreviewUrlRef = useRef<string | null>(null);
 
   const replaceImagePreview = useCallback((next: string | null) => {
-    if (imagePreviewUrlRef.current) {
-      URL.revokeObjectURL(imagePreviewUrlRef.current);
+    const prevRef = imagePreviewUrlRef.current;
+    if (prevRef) {
+      URL.revokeObjectURL(prevRef);
+      logMediaPreview('composer: revoke object URL', {
+        previous: redactUrlForLog(prevRef),
+      });
       imagePreviewUrlRef.current = null;
     }
     imagePreviewUrlRef.current = next;
     setImagePreviewUrl(next);
+    if (next) {
+      logMediaPreview('composer: set object URL', {
+        next: redactUrlForLog(next),
+      });
+    }
   }, []);
 
   useEffect(() => {
@@ -58,9 +79,22 @@ export function useComposerMediaAttachment(): UseComposerMediaAttachmentResult {
       }
       setFileName(file.name);
       reset();
-      replaceImagePreview(
-        file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
-      );
+      const blobUrl =
+        file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
+      if (blobUrl) {
+        logMediaPreview('composer: file picked → URL.createObjectURL', {
+          name: file.name,
+          mime: file.type,
+          sizeBytes: file.size,
+          blobUrlHint: redactUrlForLog(blobUrl),
+        });
+      } else {
+        logMediaPreview('composer: non-image file — no object URL preview', {
+          name: file.name,
+          mime: file.type,
+        });
+      }
+      replaceImagePreview(blobUrl);
       try {
         await upload(file);
       } catch {
@@ -89,6 +123,15 @@ export function useComposerMediaAttachment(): UseComposerMediaAttachmentResult {
   const mediaKey = key ? key : null;
   const uploadedMediaUrl = result?.url?.trim() ?? null;
   const mediaPreviewUrl = imagePreviewUrl ?? uploadedMediaUrl ?? null;
+
+  useEffect(() => {
+    logMediaPreview('composer: effective preview pipeline', {
+      imagePreviewBlob: redactUrlForLog(imagePreviewUrl),
+      uploadedUrl: redactUrlForLog(uploadedMediaUrl),
+      mediaPreviewForSend: redactUrlForLog(mediaPreviewUrl),
+      mediaKeyTail: mediaKey ? mediaKeySnippetForLog(mediaKey) : null,
+    });
+  }, [imagePreviewUrl, uploadedMediaUrl, mediaKey]);
 
   return {
     fileInputRef,
