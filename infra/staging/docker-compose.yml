@@ -24,20 +24,16 @@ services:
     ports:
       - "27017:27017"
     environment:
-      MONGODB_DB_NAME: ${MONGODB_DB_NAME:-messaging}
-      MESSAGING_DB_USER: ${MESSAGING_DB_USER:-messaging_app}
+      MONGODB_DB_NAME: ${MONGODB_DB_NAME}
+      MESSAGING_DB_USER: ${MESSAGING_DB_USER}
       # Required on first **`mongo-data`** volume init — **`infra/staging/mongo-init/010-create-messaging-app-user.js`**.
-      MESSAGING_DB_PASSWORD: ${MESSAGING_DB_PASSWORD:?Set MESSAGING_DB_PASSWORD in .env}
+      MESSAGING_DB_PASSWORD: ${MESSAGING_DB_PASSWORD}
     volumes:
       - mongo-data:/data/db
       - ./mongo-init:/docker-entrypoint-initdb.d:ro
       - ./mongo/mongo-healthcheck.sh:/usr/local/bin/mongo-healthcheck.sh:ro
     healthcheck:
-      test:
-        [
-          "CMD",
-          "/usr/local/bin/mongo-healthcheck.sh",
-        ]
+      test: ["CMD", "/usr/local/bin/mongo-healthcheck.sh"]
       interval: 10s
       timeout: 5s
       retries: 8
@@ -101,8 +97,8 @@ services:
       PORT: "3000"
       LOG_LEVEL: ${LOG_LEVEL:-info}
       # Overridable **`MESSAGING_MONGODB_URI`** — default requires **`MESSAGING_DB_PASSWORD`** (+ optional user/db) in **`infra/staging/.env`**.
-      MONGODB_URI: ${MESSAGING_MONGODB_URI:-mongodb://${MESSAGING_DB_USER:-messaging_app}:${MESSAGING_DB_PASSWORD}@mongo:27017/${MONGODB_DB_NAME:-messaging}?authSource=${MONGODB_DB_NAME:-messaging}}
-      MONGODB_DB_NAME: ${MONGODB_DB_NAME:-messaging}
+      MONGODB_URI: ${MESSAGING_MONGODB_URI:-mongodb://${MESSAGING_DB_USER:?Set MESSAGING_DB_USER in .env}:${MESSAGING_DB_PASSWORD:?Set MESSAGING_DB_PASSWORD in .env}@mongo:27017/${MONGODB_DB_NAME:?Set MONGODB_DB_NAME in .env}?authSource=${MONGODB_DB_NAME:?Set MONGODB_DB_NAME in .env}}
+      MONGODB_DB_NAME: ${MONGODB_DB_NAME:?Set MONGODB_DB_NAME in .env}
       REDIS_URL: redis://redis:6379
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-messaging}:${RABBITMQ_PASS:-messaging}@rabbitmq:5672
       OPENAPI_SPEC_PATH: /app/openapi/openapi.yaml

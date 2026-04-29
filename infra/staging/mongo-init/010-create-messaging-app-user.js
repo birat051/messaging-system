@@ -3,28 +3,30 @@
  * `mongosh` executes this with Node-style **`process.env`** available.
  */
 
-const dbNameRaw = (process.env.MONGODB_DB_NAME || 'messaging').trim();
-
-const username = (process.env.MESSAGING_DB_USER || 'messaging_app').trim();
-
-const pwd = process.env.MESSAGING_DB_PASSWORD;
-if (
-  pwd === undefined ||
-  pwd === null ||
-  typeof pwd !== 'string' ||
-  pwd.trim().length === 0
-) {
-  throw new Error(
-    'MESSAGING_DB_PASSWORD must be set (staging .env → mongo service env)',
-  );
+/**
+ * @param {string} key
+ * @returns {string}
+ */
+function requireNonEmptyEnv(key) {
+  const raw = process.env[key];
+  if (raw === undefined || raw === null || typeof raw !== 'string' || raw.trim() === '') {
+    throw new Error(`${key} must be set (staging .env → mongo service env)`);
+  }
+  return raw.trim();
 }
+
+const dbNameRaw = requireNonEmptyEnv('MONGODB_DB_NAME');
+
+const username = requireNonEmptyEnv('MESSAGING_DB_USER');
+
+const pwd = requireNonEmptyEnv('MESSAGING_DB_PASSWORD');
 
 const target = db.getSiblingDB(dbNameRaw);
 
 try {
   target.createUser({
     user: username,
-    pwd: pwd.trim(),
+    pwd,
     roles: [{ role: 'readWrite', db: dbNameRaw }],
   });
   print(
