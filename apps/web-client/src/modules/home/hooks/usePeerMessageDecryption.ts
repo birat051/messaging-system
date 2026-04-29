@@ -17,10 +17,7 @@ import {
 import { shouldRetryPeerDecryptAfterCachedFailure } from '@/modules/home/utils/peerDecryptRetry';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import type { RootState } from '@/store/store';
-import {
-  isAttachmentE2eeDebugEnabled,
-  logAttachmentE2ee,
-} from '@/common/crypto/attachmentE2eeDebug';
+import { logAttachmentE2ee } from '@/common/crypto/attachmentE2eeDebug';
 
 const DEBUG_PEER_DECRYPT = Boolean(import.meta.env.DEV);
 
