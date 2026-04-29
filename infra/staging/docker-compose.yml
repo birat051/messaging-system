@@ -1,0 +1,195 @@
+# Single-host staging stack (parity with infra/dev/services + TLS at the edge).
+# From repo root, after `./scripts/tls-bootstrap.sh` (writes nginx/generated/default.conf → HTTPS).
+# Builds: `cd apps/web-client && npm ci && npm run build` before first `compose up`.
+#
+# Ports: **80/http**, **443/https** — nginx fronts SPA + **`/v1`** + **`socket.io`** + **`api-docs`**
+# + **`/messaging-media/`** proxy to MinIO (path-style **`S3_BUCKET`**; default **messaging-media**).
+# Data-plane ports match dev (**mongo/redis/rabbitmq/minio**) for one-VM ergonomics.
+
+# Container logs: **`json-file`** rotation — **≤300 MiB** retained per container (**`max-file: 1`**, **`max-size: 300m`**, **`compress`**).
+# Docker cannot enforce a **6 hour** TTL on disk; approximate time windows by shipping logs (**journald**, **Loki**, **syslog**)
+# or pruning host **`/var/lib/docker/containers/...`** on a cron if you must cap age.
+
+x-logging: &staging-logging
+  driver: json-file
+  options:
+    max-size: "300m"
+    max-file: "1"
+    compress: "true"
+
+services:
+  mongo:
+    image: mongo:7
+    logging: *staging-logging
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGODB_DB_NAME: ${MONGODB_DB_NAME:-messaging}
+      MESSAGING_DB_USER: ${MESSAGING_DB_USER:-messaging_app}
+      # Required on first **`mongo-data`** volume init — **`infra/staging/mongo-init/010-create-messaging-app-user.js`**.
+      MESSAGING_DB_PASSWORD: ${MESSAGING_DB_PASSWORD:?Set MESSAGING_DB_PASSWORD in .env}
+    volumes:
+      - mongo-data:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d:ro
+      - ./mongo/mongo-healthcheck.sh:/usr/local/bin/mongo-healthcheck.sh:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/usr/local/bin/mongo-healthcheck.sh",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 90s
+
+  redis:
+    image: redis:7-alpine
+    logging: *staging-logging
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    logging: *staging-logging
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-messaging}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-messaging}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  minio:
+    image: minio/minio:latest
+    logging: *staging-logging
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio-data:/data
+
+  messaging-service:
+    logging: *staging-logging
+    build:
+      context: ../..
+      dockerfile: apps/messaging-service/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Overridable **`MESSAGING_MONGODB_URI`** — default requires **`MESSAGING_DB_PASSWORD`** (+ optional user/db) in **`infra/staging/.env`**.
+      MONGODB_URI: ${MESSAGING_MONGODB_URI:-mongodb://${MESSAGING_DB_USER:-messaging_app}:${MESSAGING_DB_PASSWORD}@mongo:27017/${MONGODB_DB_NAME:-messaging}?authSource=${MONGODB_DB_NAME:-messaging}}
+      MONGODB_DB_NAME: ${MONGODB_DB_NAME:-messaging}
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-messaging}:${RABBITMQ_PASS:-messaging}@rabbitmq:5672
+      OPENAPI_SPEC_PATH: /app/openapi/openapi.yaml
+      S3_BUCKET: ${S3_BUCKET:-messaging-media}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ENDPOINT: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-https://${DOMAIN_NAME}}
+      S3_ANONYMOUS_GET_OBJECT: ${S3_ANONYMOUS_GET_OBJECT:-true}
+      JWT_SECRET: ${JWT_SECRET:-staging-change-me}
+      EMAIL_VERIFICATION_REQUIRED: ${EMAIL_VERIFICATION_REQUIRED:-false}
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      PUBLIC_APP_BASE_URL: ${PUBLIC_APP_BASE_URL:-}
+      EMAIL_VERIFICATION_WEB_PATH: ${EMAIL_VERIFICATION_WEB_PATH:-/verify-email}
+      REFRESH_TOKEN_TTL_SECONDS: ${REFRESH_TOKEN_TTL_SECONDS:-604800}
+      PASSWORD_RESET_TOKEN_TTL_HOURS: ${PASSWORD_RESET_TOKEN_TTL_HOURS:-1}
+      PASSWORD_RESET_WEB_PATH: ${PASSWORD_RESET_WEB_PATH:-/reset-password}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  nginx:
+    image: nginx:alpine
+    logging: *staging-logging
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/generated/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/snippets/minio-s3-location.conf:/etc/nginx/snippets/minio-s3-location.conf:ro
+      - ../../apps/web-client/dist:/usr/share/nginx/html:ro
+      - certbot-www:/var/www/certbot
+      - certbot-etc:/etc/letsencrypt
+    depends_on:
+      messaging-service:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
+  certbot:
+    image: certbot/certbot:v2.11.0
+    logging: *staging-logging
+    profiles:
+      - certbot
+    volumes:
+      - certbot-www:/var/www/certbot
+      - certbot-etc:/etc/letsencrypt
+
+  coturn:
+    image: coturn/coturn:4.6
+    logging: *staging-logging
+    profiles:
+      - turn
+    restart: unless-stopped
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "49152-49200:49152-49200/udp"
+    volumes:
+      - ../dev/coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command: ["-c", "/etc/coturn/turnserver.conf", "--log-file=stdout"]
+
+volumes:
+  mongo-data:
+  rabbitmq-data:
+  minio-data:
+  certbot-www:
+  certbot-etc:

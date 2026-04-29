@@ -20,11 +20,13 @@ import { createMediaRouter } from './routes/media.js';
 import { systemRouter } from './routes/system.js';
 import { createUsersRouter } from './routes/users.js';
 import { createSwaggerUiHandlers } from './utils/swagger.js';
+import { createRestCorsMiddleware } from './middleware/restCors.js';
 
 export function createApp(env: Env): express.Application {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
+  app.use(createRestCorsMiddleware(env));
   initPrometheusIfEnabled(env);
   app.use(createPrometheusHttpMiddleware(env));
   registerMetricsRoute(app, env);

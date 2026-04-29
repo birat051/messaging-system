@@ -36,7 +36,6 @@ Most messaging platforms ask you to trust them with your data. Ekko flips that m
 | Rate limiting                               | ✅ Live    |
 | Horizontal scaling (multi-replica)          | ✅ Live    |
 | Group SFU video                             | 🗓 Roadmap |
-| TLS termination (nginx)                     | 🗓 Roadmap |
 
 ---
 
