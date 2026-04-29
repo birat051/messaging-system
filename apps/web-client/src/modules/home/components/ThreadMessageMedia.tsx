@@ -54,8 +54,8 @@ export function ThreadMessageMedia({
   const thumbImgRef = useRef<HTMLImageElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
 
-  /** Resolved **`img src`** (preview URL, cache bust, **`displaySrc`). */
-  const imgSrc = displaySrc ?? url;
+  /** Resolved **`img src`** (preview URL, cache bust, **`displaySrc`). DOM **`src`** is **`string | undefined`**, not **`null`**. */
+  const imgSrc: string | undefined = (displaySrc ?? url) ?? undefined;
 
   /** Sync **`displaySrc`** / error-retry flags when **`url`** identity changes (`resolveMediaAttachmentDisplayUrl`). */
   useEffect(() => {

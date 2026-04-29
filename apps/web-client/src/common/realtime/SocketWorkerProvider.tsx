@@ -52,7 +52,7 @@ import type { AppDispatch, RootState } from '@/store/store';
  * and **Feature 12** receipt events (**`message:delivered`**, **`message:read`**, **`conversation:read`**).
  */
 export function SocketWorkerProvider({ children }: { children: ReactNode }) {
-  const { user, accessToken } = useAuth();
+  const { user } = useAuth();
   const userId = user?.id ?? null;
   const dispatch = useAppDispatch();
   const reduxStore = useStore<RootState>();
@@ -67,16 +67,9 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
   >(null);
   /** Dedupe **`message:delivered`** emits per **`messageId`** (inbound peer **`message:new`**). */
   const deliveredAckSentRef = useRef(new Set<string>());
-  /** Coalesce JWT churn: refresh during **`message:send`** encrypt/fetch otherwise forces **`update_access_token`** → **`connectSocket`** mid-flight (see logs: **`generation: 2`** between send start and **`post to worker`**). */
-  const accessTokenWorkerApplyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
-  /** Last access JWT **string** handed to **`connect`** / **`updateAccessToken`** — skips redundant **`postMessage`** when Redux repeats the same token (worker also dedupes). */
-  const lastWorkerAccessTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!userId?.trim()) {
-      lastWorkerAccessTokenRef.current = null;
       clearInboundToastDedupe();
       dispatch(resetNotifications());
       deliveredAckSentRef.current.clear();
@@ -305,64 +298,17 @@ export function SocketWorkerProvider({ children }: { children: ReactNode }) {
     );
     bridgeRef.current = bridge;
     applyPresenceStatus({ kind: 'connecting' });
+    /** Handshake JWT only — messaging-service resolves **`socket.data.authAtConnect` once**; REST may rotate access tokens without socket reconnect. */
     const initialToken =
       reduxStore.getState().auth.accessToken ?? null;
     bridge.connect(getSocketUrl(), uid, initialToken);
-    lastWorkerAccessTokenRef.current = initialToken;
 
     return () => {
-      lastWorkerAccessTokenRef.current = null;
       bridge.disconnect();
       bridge.terminate();
       bridgeRef.current = null;
     };
   }, [userId, dispatch, reduxStore]);
-
-  /**
-   * JWT refresh updates **`accessToken`** in Redux. Reconnecting inside the **worker** preserves the bridge
-   * (**`pending`** send ack maps, worker instance). Putting **`accessToken`** on the bootstrap effect used to
-   * **`terminate()`** the worker on every refresh → send hit “Socket not connected” and the UI flickered to disconnected.
-   *
-   * Debounce **`updateAccessToken`** so interceptor refresh during **`useSendEncryptedMessage`** (parallel REST)
-   * doesn’t replace the Socket.IO client in the narrow window between “connected” UI and **`message_send`** post.
-   * **`lastWorkerAccessTokenRef`** skips **`postMessage`** when the JWT string did not change since **`connect`** / last update.
-   */
-  useEffect(() => {
-    if (!userId?.trim()) {
-      if (accessTokenWorkerApplyTimerRef.current !== null) {
-        clearTimeout(accessTokenWorkerApplyTimerRef.current);
-        accessTokenWorkerApplyTimerRef.current = null;
-      }
-      return;
-    }
-
-    const token = accessToken ?? null;
-    /** Slightly wider than parallel REST bursts + coalesced Redux writes (TASK_CHECKLIST — reconnect storm). */
-    const DEBOUNCE_MS = 350;
-
-    if (accessTokenWorkerApplyTimerRef.current !== null) {
-      clearTimeout(accessTokenWorkerApplyTimerRef.current);
-    }
-    accessTokenWorkerApplyTimerRef.current = setTimeout(() => {
-      accessTokenWorkerApplyTimerRef.current = null;
-      if (lastWorkerAccessTokenRef.current === token) {
-        return;
-      }
-      const b = bridgeRef.current;
-      if (!b) {
-        return;
-      }
-      b.updateAccessToken(token);
-      lastWorkerAccessTokenRef.current = token;
-    }, DEBOUNCE_MS);
-
-    return () => {
-      if (accessTokenWorkerApplyTimerRef.current !== null) {
-        clearTimeout(accessTokenWorkerApplyTimerRef.current);
-        accessTokenWorkerApplyTimerRef.current = null;
-      }
-    };
-  }, [userId, accessToken]);
 
   const setWebRtcInboundHandler = useCallback(
     (handler: ((msg: WebRtcInboundMessage) => void) | null) => {

@@ -71,6 +71,16 @@ const envSchema = z.object({
   }, z.boolean()),
   /** Optional CORS origin for Socket.IO (omit for permissive dev; use `*` for any). */
   SOCKET_IO_CORS_ORIGIN: z.string().min(1).optional(),
+  /**
+   * Allowed **`Origin`** header values for **`cors`** on Express REST (**`/v1/*`**, Swagger, **`/metrics`** when enabled).
+   * **`*`** = wildcard (**`Access-Control-Allow-Origin: *`**); comma-separated list allows multiple origins. When unset / empty → **`*`**.
+   */
+  REST_CORS_ALLOWED_ORIGINS: z.preprocess((val) => {
+    if (val === undefined || val === null || String(val).trim() === '') {
+      return '*';
+    }
+    return String(val).trim();
+  }, z.string().min(1)),
   REDIS_URL: z.string().min(1).default('redis://127.0.0.1:6379'),
   /**
    * TTL for `presence:lastSeen:{userId}` keys (seconds). Refreshed on each write.
@@ -300,7 +310,7 @@ const envSchema = z.object({
     .int()
     .positive()
     .max(86400)
-    .default(3600),
+    .default(86400),
   /** Redis fixed-window rate limit: `POST /auth/register` per client IP. */
   REGISTER_RATE_LIMIT_WINDOW_SEC: z.coerce
     .number()
