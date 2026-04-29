@@ -32,7 +32,7 @@ function baseUser(overrides: Partial<UserDocument> = {}): UserDocument {
 
 const baseEnv = {
   JWT_SECRET: 'test-secret-at-least-thirty-two-characters-long',
-  ACCESS_TOKEN_TTL_SECONDS: 3600,
+  ACCESS_TOKEN_TTL_SECONDS: 86400,
   REFRESH_TOKEN_TTL_SECONDS: 604800,
   GUEST_ACCESS_TOKEN_TTL_SECONDS: 1800,
   GUEST_REFRESH_TOKEN_TTL_SECONDS: 1800,
@@ -62,7 +62,7 @@ describe('issueAuthTokens', () => {
     const tokens = await issueAuthTokens(baseEnv, baseUser({ isGuest: false }), {
       guest: false,
     });
-    expect(tokens.expiresIn).toBe(3600);
+    expect(tokens.expiresIn).toBe(86400);
     expect(redisSet).toHaveBeenCalledTimes(1);
     const setArgs = redisSet.mock.calls[0] as [
       string,

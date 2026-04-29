@@ -310,7 +310,7 @@ const envSchema = z.object({
     .int()
     .positive()
     .max(86400)
-    .default(3600),
+    .default(86400),
   /** Redis fixed-window rate limit: `POST /auth/register` per client IP. */
   REGISTER_RATE_LIMIT_WINDOW_SEC: z.coerce
     .number()

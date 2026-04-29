@@ -41,7 +41,7 @@ export function createMockAuthResponse(
     accessToken: 'test-access-token',
     refreshToken: 'test-refresh-token',
     tokenType: 'Bearer',
-    expiresIn: 3600,
+    expiresIn: 86400,
     expiresAt: '2026-12-31T23:59:59.000Z',
     ...overrides,
   };
@@ -73,7 +73,7 @@ export function createMockVerifyEmailResponse(
     accessToken: 'verified-access-token',
     refreshToken: 'verified-refresh-token',
     tokenType: 'Bearer',
-    expiresIn: 3600,
+    expiresIn: 86400,
     ...overrides,
   };
 }

@@ -67,7 +67,7 @@ export interface paths {
         /**
          * Verify email using signed JWT from registration or resend (throttled per IP)
          * @description When **`EMAIL_VERIFICATION_REQUIRED`** is **`false`** on the server, returns **400** with **`ErrorResponse`**
-         *     **`code`** **`EMAIL_VERIFICATION_DISABLED`** — the verification flow is not used (see **`apps/messaging-service/.env.example`** / **`EMAIL_VERIFICATION_REQUIRED`**).
+         *     **`code`** **`EMAIL_VERIFICATION_DISABLED`** — the verification flow is not used (messaging-service **`EMAIL_VERIFICATION_REQUIRED`** controls this).
          *     If the token resolves to a **guest** account, returns **403** **`GUEST_ACTION_FORBIDDEN`**.
          */
         post: operations["verifyEmail"];
@@ -109,7 +109,7 @@ export interface paths {
         /**
          * Create a guest session (planned — not yet implemented when enabled)
          * @description **On/off** is controlled by **`guestSessionsEnabled`** in MongoDB **`system_config`** (singleton), merged with env
-         *     **`GUEST_SESSIONS_ENABLED`** via effective runtime config (see **`docs/PROJECT_PLAN.md`**, env + MongoDB **`system_config`**). When disabled,
+         *     **`GUEST_SESSIONS_ENABLED`** via effective runtime config (merged **env** + MongoDB **`system_config`**). When disabled,
          *     returns **403** with **`code`** **`GUEST_SESSIONS_DISABLED`** before body validation. When enabled, creates a guest **`User`** row (no email; optional MongoDB TTL via **`guestDataExpiresAt`** when **`guestDataTtlEnabled`** is true in **`system_config`** / env).
          *
          *     **Rate limits (Redis):** per client IP (**`GUEST_AUTH_RATE_LIMIT_*`**); when **`X-Client-Fingerprint`** is sent, an additional
@@ -117,8 +117,7 @@ export interface paths {
          *
          *     Success body is **`GuestAuthResponse`**: tokens, **`user`** with **`guest: true`**, **`expiresIn`** (seconds),
          *     and **`expiresAt`** (ISO 8601 absolute access expiry). Access JWT payload includes **`guest: true`**. Guest sessions use
-         *     **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** and **`GUEST_REFRESH_TOKEN_TTL_SECONDS`** (see **`apps/messaging-service/.env.example`**;
-         *     defaults **1800** s = **30 minutes** each); opaque refresh token Redis **`EX`** matches guest refresh TTL.
+         *     **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** and **`GUEST_REFRESH_TOKEN_TTL_SECONDS`** (messaging-service **env**, defaults **1800** s = **30 minutes** each); opaque refresh token Redis **`EX`** matches guest refresh TTL.
          */
         post: operations["createGuestSession"];
         delete?: never;
@@ -157,7 +156,7 @@ export interface paths {
          * Rotate refresh token and issue new access token
          * @description For **registered** users, access and refresh TTLs follow **`ACCESS_TOKEN_TTL_SECONDS`** and **`REFRESH_TOKEN_TTL_SECONDS`**.
          *     For **guest** users (`User.isGuest`), the server uses **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** and **`GUEST_REFRESH_TOKEN_TTL_SECONDS`**
-         *     (defaults **30 minutes** each; see **`apps/messaging-service/.env.example`** — **GUEST_*_TTL**).
+         *     (defaults **30 minutes** each; **`GUEST_*_TTL`** messaging-service env).
          */
         post: operations["refreshTokens"];
         delete?: never;
@@ -407,7 +406,7 @@ export interface paths {
         /**
          * List active device public keys for a user
          * @description Returns all registered devices for **`userId`**. **Authorization:** self, loose peer fetch, or direct-thread-only when
-         *     **`PUBLIC_KEY_FETCH_REQUIRE_DIRECT_THREAD`** is set (**`apps/messaging-service/.env.example`**).
+         *     **`PUBLIC_KEY_FETCH_REQUIRE_DIRECT_THREAD`** is set in messaging-service env.
          */
         get: operations["listUserDevicePublicKeys"];
         put?: never;
@@ -510,7 +509,7 @@ export interface paths {
          * @description **Direct 1:1** threads only — **group** conversations return **403** until group messaging is implemented.
          *     The caller must be a **participant**; otherwise **403**. Messages are returned **newest first**.
          *     **`cursor`** is opaque (from **`nextCursor`**); malformed cursors return **400**.
-         *     **Rate limiting:** the **global** REST per-IP limit (`GLOBAL_RATE_LIMIT_*` in **`apps/messaging-service/.env.example`**) applies to this route; exceeding it returns **429** with **`ErrorResponse`** (**`code`** typically **`RATE_LIMIT_EXCEEDED`**).
+         *     **Rate limiting:** the **global** REST per-IP limit (`GLOBAL_RATE_LIMIT_*` messaging-service env) applies to this route; exceeding it returns **429** with **`ErrorResponse`** (**`code`** typically **`RATE_LIMIT_EXCEEDED`**).
          */
         get: operations["listMessages"];
         put?: never;
@@ -577,7 +576,7 @@ export interface paths {
          *     guest ↔ registered pairs return **403** with **`code`** **`GUEST_MESSAGING_FORBIDDEN`** (same rule on Socket.IO **`message:send`**).
          *
          *     **Rate limiting:** this route uses the **message-send** limits (**`MESSAGE_SEND_RATE_LIMIT_*`**, per user + IP)
-         *     in addition to the **global** REST per-IP limit — see **`apps/messaging-service/.env.example`** (*Global vs per-route*). Either
+         *     in addition to the **global** REST per-IP limit — **global** (`GLOBAL_RATE_LIMIT_*`) and **message-send** (`MESSAGE_SEND_RATE_LIMIT_*`) are evaluated separately. Either
          *     can return **429** with **`ErrorResponse`** (**`code`** **`RATE_LIMIT_EXCEEDED`**).
          */
         post: operations["sendMessage"];
@@ -803,7 +802,7 @@ export interface components {
             refreshToken?: string | null;
             /** @example Bearer */
             tokenType: string;
-            /** @description null when accessToken is null; otherwise access token lifetime in seconds. Guest sessions use **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** (default **1800**); registered users use **`ACCESS_TOKEN_TTL_SECONDS`**. */
+            /** @description null when accessToken is null; otherwise access token lifetime in seconds. Guest sessions use **`GUEST_ACCESS_TOKEN_TTL_SECONDS`** (default **1800**, 30 minutes); registered users use **`ACCESS_TOKEN_TTL_SECONDS`** (default **86400**, 24 hours). */
             expiresIn?: number | null;
             /**
              * Format: date-time
@@ -821,7 +820,7 @@ export interface components {
             /** @description Unique handle (null for legacy accounts predating usernames) */
             username?: string | null;
             displayName?: string | null;
-            /** @description Present on every **`User`**. Meaning depends on deployment: when **`EMAIL_VERIFICATION_REQUIRED`** is **`true`** (messaging-service env), new users may be **`false`** until **`POST /auth/verify-email`** succeeds; when **`false`**, registration typically sets this to **`true`** immediately. See **`apps/messaging-service/.env.example`** — **EMAIL_VERIFICATION_REQUIRED**. */
+            /** @description Present on every **`User`**. Meaning depends on deployment: when **`EMAIL_VERIFICATION_REQUIRED`** is **`true`** (messaging-service env), new users may be **`false`** until **`POST /auth/verify-email`** succeeds; when **`false`**, registration typically sets this to **`true`** immediately (**`EMAIL_VERIFICATION_REQUIRED`** in messaging-service env). */
             emailVerified?: boolean;
             /**
              * Format: uri
@@ -849,7 +848,7 @@ export interface components {
          *     (same P-256 SPKI Base64 rules); if both are sent they must be identical.
          */
         RegisterDeviceRequest: {
-            /** @description P-256 SPKI Base64 (**`docs/PROJECT_PLAN.md` §14**) */
+            /** @description P-256 SubjectPublicKeyInfo (SPKI), Base64-encoded (device registration; same rules as **`pubKey`**). */
             publicKey?: string;
             /** @description Alias for **`publicKey`** (bootstrap / mobile naming) */
             pubKey?: string;
@@ -972,7 +971,7 @@ export interface components {
         /**
          * @description Per-recipient **delivered** / **seen** timestamps (**Feature 12**). Map keys are **`userId`** strings.
          *     Exposed on **`MessageReceiptSummary.receiptsByUserId`** and via Socket.IO receipt events — **not** on **`Message`**.
-         *     Group **read-up-to** may also use **`conversation_reads`** — see **`docs/PROJECT_PLAN.md` §14**.
+         *     Group **read-up-to** may also materialize **`conversation_reads`** durable cursors alongside per-message receipts.
          */
         MessageReceiptEntry: {
             /**
@@ -996,12 +995,12 @@ export interface components {
             senderId: string;
             /**
              * @description **Text or opaque E2EE payload.** Plain UTF-8 text, or **AES-256-GCM** ciphertext of the **inner** UTF-8
-             *     plaintext when hybrid E2EE is enabled (see **`docs/PROJECT_PLAN.md` §7.1**). For **attachments with hybrid E2EE**,
+             *     plaintext when hybrid E2EE is enabled (AES-GCM of the inner UTF-8 payload). For **attachments with hybrid E2EE**,
              *     that inner plaintext is a small **JSON** object (**v1**) holding caption + **`m.k`** (object storage key) so the
              *     server never learns the key — **`mediaKey`** below is **null** on the wire. Legacy / non-E2EE sends may use
              *     plaintext **`body`** + optional cleartext **`mediaKey`**. The server **stores and routes** **`body`** **without**
              *     decrypting. Use **`encryptedMessageKeys`** + **`iv`** with device-key APIs (`POST /users/me/devices`,
-             *     `GET /users/{userId}/devices/public-keys`) per **Prerequisite — User keypair** in **`docs/TASK_CHECKLIST.md`**.
+             *     `GET /users/{userId}/devices/public-keys`) after **Prerequisite — User keypair** (register devices and expose public keys for wrapping).
              */
             body?: string | null;
             /**
@@ -1010,7 +1009,7 @@ export interface components {
              *     server **must** persist **`null`** here — the media locator lives only inside opaque **`body`** ciphertext.
              */
             mediaKey?: string | null;
-            /** @description Per-device wrapped symmetric keys (**deviceId** → opaque base64). Omitted for plaintext messages. See **`docs/PROJECT_PLAN.md` §7.1**. */
+            /** @description Per-device wrapped symmetric keys (**deviceId** → opaque base64). Omitted for plaintext messages; when present, pairs with ciphertext **body**, **`iv`**, and **`algorithm`** per hybrid E2EE. */
             encryptedMessageKeys?: {
                 [key: string]: string;
             } | null;
@@ -1065,14 +1064,14 @@ export interface components {
             recipientUserId?: string | null;
             /**
              * @description **Message body text or opaque E2EE ciphertext** — same semantics as **`Message.body`** (server does not decrypt).
-             *     Hybrid sends with attachments encrypt a **v1 JSON** inner form (caption + **`m.k`**) — see **`Message.body`**.
-             *     When sending E2EE payloads, clients **depend on** user public-key directory APIs and the **Prerequisite — User keypair**
-             *     implementation (`docs/TASK_CHECKLIST.md`, `docs/PROJECT_PLAN.md` §14).
+             *     Hybrid sends with attachments encrypt a **v1 JSON** inner form (caption + **`m.k`**) — same semantics as **`Message.body`**.
+             *     When sending E2EE payloads, clients **depend on** user public-key directory APIs and **Prerequisite — User keypair**
+             *     (device registration, **`encryptedMessageKeys`** wrapping, and device sync as defined in this spec).
              */
             body?: string;
             /**
              * @description From prior upload response. **Omit or send null** when using hybrid E2EE with attachments — the server drops
-             *     this field for hybrid envelopes (**`docs/PROJECT_PLAN.md` §7.1**).
+             *     this field for hybrid envelopes (server persists **`null`**; media locator only inside opaque **body** ciphertext).
              */
             mediaKey?: string | null;
             /** @description Hybrid E2EE — per-device wrapped message keys; server stores opaquely */
@@ -1987,7 +1986,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Per-user Redis fixed-window cap on batch sync uploads exceeded (**`DEVICE_SYNC_RATE_LIMIT_*`** in **`apps/messaging-service/.env.example`**; stacks with **`GLOBAL_RATE_LIMIT_*`**). */
+            /** @description Per-user Redis fixed-window cap on batch sync uploads exceeded (**`DEVICE_SYNC_RATE_LIMIT_*`** messaging-service env; stacks with **`GLOBAL_RATE_LIMIT_*`**). */
             429: {
                 headers: {
                     [name: string]: unknown;

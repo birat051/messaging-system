@@ -13,7 +13,6 @@ vi.mock('./socketBridge', () => ({
 
 const mockEmitReceipt = vi.fn().mockResolvedValue(undefined);
 const mockConnect = vi.fn();
-const mockUpdateAccessToken = vi.fn();
 const mockDisconnect = vi.fn();
 const mockTerminate = vi.fn();
 
@@ -24,14 +23,12 @@ describe('SocketWorkerProvider — message:new receive path', () => {
     bridgeHandler = null;
     mockEmitReceipt.mockClear();
     mockConnect.mockClear();
-    mockUpdateAccessToken.mockClear();
     mockDisconnect.mockClear();
     mockTerminate.mockClear();
     vi.mocked(createSocketWorkerBridge).mockImplementation((onMessage) => {
       bridgeHandler = onMessage;
       return {
         connect: mockConnect,
-        updateAccessToken: mockUpdateAccessToken,
         sendMessage: vi.fn(),
         emitReceipt: mockEmitReceipt,
         emitWebRtcSignaling: vi.fn().mockResolvedValue(undefined),
@@ -428,7 +425,7 @@ describe('SocketWorkerProvider — message:new receive path', () => {
     unmount();
   });
 
-  it('calls updateAccessToken when Redux access token rotates without remounting the bridge', async () => {
+  it('does not reconnect the bridge when Redux access token string rotates (handshake auth is connect-time only)', async () => {
     const { store, unmount } = renderWithProviders(
       <SocketWorkerProvider>
         <div />
@@ -460,50 +457,9 @@ describe('SocketWorkerProvider — message:new receive path', () => {
       }),
     );
 
-    await waitFor(() => {
-      expect(mockUpdateAccessToken).toHaveBeenCalledWith('rotated-token');
-    });
-
-    expect(mockConnect.mock.calls.length).toBe(connectCallsBefore);
-
-    unmount();
-  });
-
-  it('does not call updateAccessToken when the token string matches the last connect/update', async () => {
-    const { store, unmount } = renderWithProviders(
-      <SocketWorkerProvider>
-        <div />
-      </SocketWorkerProvider>,
-      {
-        preloadedState: {
-          auth: {
-            user: defaultMockUser,
-            accessToken: 'same-token',
-          },
-        },
-      },
-    );
-
-    await waitFor(() => {
-      expect(mockConnect).toHaveBeenCalledWith(
-        expect.any(String),
-        defaultMockUser.id,
-        'same-token',
-      );
-    });
-
-    mockUpdateAccessToken.mockClear();
-
-    store.dispatch(
-      setSession({
-        user: defaultMockUser,
-        accessToken: 'same-token',
-      }),
-    );
-
     await new Promise((r) => setTimeout(r, 450));
 
-    expect(mockUpdateAccessToken).not.toHaveBeenCalled();
+    expect(mockConnect.mock.calls.length).toBe(connectCallsBefore);
 
     unmount();
   });

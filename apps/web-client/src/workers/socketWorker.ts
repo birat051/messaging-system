@@ -81,13 +81,6 @@ function tryMessageSendOrQueue(msg: MessageSendWorkerMsg): void {
   pendingMessageSendQueue.push({ msg, timeoutId });
 }
 
-/** Last successful **`connect`** params — used for token rotation without main-thread bridge teardown. */
-let activeConnectParams: {
-  url: string;
-  userId: string;
-  accessToken: string | null;
-} | null = null;
-
 function post(msg: WorkerToMainMessage): void {
   self.postMessage(msg);
 }
@@ -126,11 +119,6 @@ function connectSocket(msg: Extract<MainToWorkerMessage, { type: 'connect' }>): 
   socketConnectGeneration++;
   const gen = socketConnectGeneration;
 
-  activeConnectParams = {
-    url: msg.url,
-    userId: msg.userId,
-    accessToken: msg.accessToken ?? null,
-  };
   clearHeartbeat();
   /**
    * When we replace the client, the **previous** instance’s real **`disconnect`** is ignored (generation
@@ -310,28 +298,9 @@ self.onmessage = (ev: MessageEvent<MainToWorkerMessage>) => {
     clearPendingMessageSendQueue('Socket not connected');
     clearHeartbeat();
     heartbeatIntervalMs = PRESENCE_HEARTBEAT_RELAXED_MS;
-    activeConnectParams = null;
     socket?.disconnect();
     socket = null;
     post({ type: 'disconnected', reason: 'client' });
-    return;
-  }
-
-  if (msg.type === 'update_access_token') {
-    if (!activeConnectParams) {
-      return;
-    }
-    const next = msg.accessToken ?? null;
-    if (activeConnectParams.accessToken === next) {
-      return;
-    }
-    activeConnectParams = { ...activeConnectParams, accessToken: next };
-    connectSocket({
-      type: 'connect',
-      url: activeConnectParams.url,
-      userId: activeConnectParams.userId,
-      accessToken: activeConnectParams.accessToken,
-    });
     return;
   }
 

@@ -42,8 +42,6 @@ export function createSocketWorkerBridge(
   },
 ): {
   connect: (url: string, userId: string, accessToken: string | null) => void;
-  /** Apply JWT rotation in the worker (reconnects Socket.IO) without **`worker.terminate()`**. */
-  updateAccessToken: (accessToken: string | null) => void;
   sendMessage: (payload: SendMessageRequest) => Promise<Message>;
   emitReceipt: (event: ReceiptEmitSocketEvent, payload: ReceiptEmitPayload) => Promise<void>;
   emitWebRtcSignaling: (
@@ -160,12 +158,6 @@ export function createSocketWorkerBridge(
         accessToken,
       };
       worker.postMessage(msg);
-    },
-    updateAccessToken(accessToken: string | null) {
-      worker.postMessage({
-        type: 'update_access_token',
-        accessToken,
-      } satisfies MainToWorkerMessage);
     },
     sendMessage(payload: SendMessageRequest) {
       return new Promise<Message>((resolve, reject) => {
