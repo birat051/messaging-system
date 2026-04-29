@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 1. Render **`nginx/nginx/templates/http-acme.conf.template`** → **`nginx/generated/default.conf`** (**`__DOMAIN_NAME__`**).
-# 2. **`docker compose up -d`** — nginx listens on **:80** (+ **:443** open; certs added after step 4).
+# 2. **`docker compose up -d`** — **nginx** listens on **:80** (+ **:443** exposed). **Nginx** **`depends_on`** **`messaging-service`**
+#    **`service_started`** (not **`healthy`)** so **ACME** (**`/.well-known/...`**) can succeed while the API is still warming up.
 # 3. **`certbot certonly --webroot`** (HTTP-01) using **`DOMAIN_NAME`**.
 # 4. Switch to **`https.conf.template`** and **`nginx -s reload`** (**TLS enabled** on **:443**).
 #
@@ -29,7 +30,7 @@ source .env
 set +a
 
 : "${DOMAIN_NAME:?Set DOMAIN_NAME (./scripts/set-domain-env.sh example.com)}"
-: "${CERTBOT_EMAIL:?Set CERTBOT_EMAIL in .env for Let's Encrypt}"
+: "${CERTBOT_EMAIL:?Set CERTBOT_EMAIL in .env (required for Lets Encrypt)}"
 
 TEMPLATE_HTTP="${ROOT}/nginx/templates/http-acme.conf.template"
 TEMPLATE_HTTPS="${ROOT}/nginx/templates/https.conf.template"

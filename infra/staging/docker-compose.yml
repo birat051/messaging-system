@@ -6,7 +6,7 @@
 # + **`/messaging-media/`** proxy to MinIO (path-style **`S3_BUCKET`**; default **messaging-media**).
 # Data-plane ports match dev (**mongo/redis/rabbitmq/minio**) for one-VM ergonomics.
 
-# Container logs: **`json-file`** rotation — **≤300 MiB** retained per container (**`max-file: 1`**, **`max-size: 300m`**, **`compress`**).
+# Container logs: **`json-file`** rotation — **≤300 MiB** per active file (**`max-file: 1`**, **`max-size: 300m`**). **`compress`** is omitted: Docker requires **`max-file ≥ 2`** to compress rotated files.
 # Docker cannot enforce a **6 hour** TTL on disk; approximate time windows by shipping logs (**journald**, **Loki**, **syslog**)
 # or pruning host **`/var/lib/docker/containers/...`** on a cron if you must cap age.
 
@@ -15,7 +15,6 @@ x-logging: &staging-logging
   options:
     max-size: "300m"
     max-file: "1"
-    compress: "true"
 
 services:
   mongo:
@@ -153,14 +152,17 @@ services:
       - "80:80"
       - "443:443"
     volumes:
+      - ./nginx/docker-entrypoint.d/10-listen-on-ipv6-by-default.sh:/docker-entrypoint.d/10-listen-on-ipv6-by-default.sh:ro
       - ./nginx/generated/default.conf:/etc/nginx/conf.d/default.conf:ro
       - ./nginx/snippets/minio-s3-location.conf:/etc/nginx/snippets/minio-s3-location.conf:ro
       - ../../apps/web-client/dist:/usr/share/nginx/html:ro
       - certbot-www:/var/www/certbot
       - certbot-etc:/etc/letsencrypt
     depends_on:
+      # **`service_started`** (not **`service_healthy`)** so **`tls-bootstrap.sh`** can bring **`:80`** **/ ACME** online
+      # even if **`messaging-service`** is still warming up or temporarily unhealthy. **`/v1`** **may 502** until ready.
       messaging-service:
-        condition: service_healthy
+        condition: service_started
       minio:
         condition: service_started
 
